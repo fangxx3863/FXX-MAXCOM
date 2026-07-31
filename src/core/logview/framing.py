@@ -56,6 +56,17 @@ class TimestampManager:
         self._last_activity_ms = now_ms
         return frames
 
+    def touch(self, now_ms: int | None = None) -> None:
+        """仅更新活动时间戳（不缓存数据）。
+
+        供即时拆行的引擎使用：数据直接进下游（splitter），分包只维护空闲锚点，
+        不重复缓存字节（LOG-T02：分行不依赖分包）。
+        """
+        now = self._now_ms() if now_ms is None else now_ms
+        if not self._buf:
+            self._frame_start_ms = now
+        self._last_activity_ms = now
+
     def poll(self, now_ms: int | None = None) -> list[TimedFrame]:
         """空闲超时判定路径（数据流空闲时由定时器调用）。"""
         if not self.enabled or not self._buf:

@@ -1,7 +1,8 @@
-"""主窗口 + 布局骨架（T0-T07）。
+"""主窗口 + 布局骨架（T0-T07）+ M1 双模式集成。
 
 侧边导航（端口/终端/收发/绘图/统计/设置）+ 页面路由 + 底部状态栏。
 页面切换只是显示切换，不涉及任何引擎（连接保持，ADR-0015）。
+M1：终端模式（TerminalPage）+ 传统模式（LogPage）接入，共享帧回调增量渲染。
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ import dearpygui.dearpygui as dpg
 from app.app_context import AppContext
 from ui import theme
 from ui.fonts import register_fonts
+from ui.pages.log_page import LogPage
+from ui.pages.terminal_page import TerminalPage
 from ui.widgets.port_manager import PortManagerPanel
 from ui.widgets.status_bar import StatusBar
 
@@ -34,6 +37,8 @@ class MainWindow:
         self._current_page: str = "port"
         self._nav_collapsed = False
         self._page_callbacks: dict[str, Callable[[], None]] = {}
+        self._terminal_page: TerminalPage | None = None
+        self._log_page: LogPage | None = None
 
     def register_page_callback(self, page: str, callback: Callable[[], None]) -> None:
         """供业务模块注入页面构建函数（T0 后由各模块接入）。"""
@@ -73,10 +78,21 @@ class MainWindow:
                         callback=self._toggle_nav,
                     )
                 with dpg.child_window(tag="content_panel", border=False):
-                    self._port_panel = PortManagerPanel(parent="content_panel")
+                    with dpg.group(tag="page_port"):
+                        self._port_panel = PortManagerPanel(parent="page_port")
+                    with dpg.group(tag="page_terminal"):
+                        self._terminal_page = TerminalPage("page_terminal", self._app.event_bus)
+                    with dpg.group(tag="page_log"):
+                        self._log_page = LogPage("page_log", self._app.event_bus)
                     self.status_bar = StatusBar(parent="content_panel")
 
+        # 初始只显示端口页；其余页隐藏（路由切换时显示）
+        for page in ("terminal", "log"):
+            dpg.hide_item(self._page_group(page))
         dpg.set_primary_window("main_window", True)
+
+    def _page_group(self, page: str) -> str:
+        return f"page_{page}"
 
     def show_page(self, page: str) -> None:
         if page not in PAGES:
@@ -94,7 +110,14 @@ class MainWindow:
                 dpg.bind_item_theme(btn, active_theme)
             else:
                 dpg.bind_item_theme(btn, 0)
-        # 页面切换只做路由通知；业务模块注册的 callback 在此触发（T0 后接入）
+        # 路由：显示目标页，隐藏其余已构建页（连接/引擎保持，ADR-0015/0016）
+        for key in ("port", "terminal", "log"):
+            grp = self._page_group(key)
+            if key == page:
+                dpg.show_item(grp)
+            else:
+                dpg.hide_item(grp)
+        # 业务模块注册的 callback 在此触发（T0 后接入）
         cb = self._page_callbacks.get(page)
         if cb:
             cb()
@@ -109,6 +132,14 @@ class MainWindow:
         self._build()
         dpg.create_viewport(title="MAXCOM", width=1280, height=800)
         dpg.setup_dearpygui()
+        dpg.set_frame_callback(1, self._frame_callback)
         dpg.show_viewport()
         dpg.start_dearpygui()
+        if self._log_page is not None:
+            self._log_page.stop()
         dpg.destroy_context()
+
+    def _frame_callback(self) -> None:
+        """每帧：终端页喂数据 + 重绘；日志页引擎后台线程已消费，无需帧刷新。"""
+        if self._terminal_page is not None:
+            self._terminal_page.render()

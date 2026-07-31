@@ -247,3 +247,27 @@ def test_engine_drain_on_stop() -> None:
     assert entries == []  # 尚未出行
     eng._drain_pending()
     assert [e.text for e in entries] == ["tail-no-newline"]
+
+
+def test_engine_splits_without_waiting_for_frame() -> None:
+    """LOG-T02 不变量：分行不依赖分包。持续数据流下 chunk 到达即拆行显示。"""
+    eng = LogEngine(_FakeBus(), ColorizeEngine(), FilterEngine(), EncodingDetector())
+    entries: list[LogEntry] = []
+    eng.set_on_entry(entries.append)
+    # 模拟持续流：多个 chunk 未空闲，但每行含换行 → 立即出行
+    eng.on_data(b"[I] line one\n")
+    eng.on_data(b"[I] line two\n")
+    eng.on_data(b"[I] line three\n")
+    assert [e.text for e in entries] == ["[I] line one", "[I] line two", "[I] line three"]
+    assert eng._ts.pending_bytes == 0  # 数据即时拆行，未留待封包
+
+
+def test_engine_cross_chunk_line_within_frame() -> None:
+    """跨 chunk 的半行在下一个 chunk 到达时拼行（不需等封包）。"""
+    eng = LogEngine(_FakeBus(), ColorizeEngine(), FilterEngine(), EncodingDetector())
+    entries: list[LogEntry] = []
+    eng.set_on_entry(entries.append)
+    eng.on_data(b"[I] part")
+    assert entries == []  # 半行待续
+    eng.on_data(b"-2\n")
+    assert [e.text for e in entries] == ["[I] part-2"]

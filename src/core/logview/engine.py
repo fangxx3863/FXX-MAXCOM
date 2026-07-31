@@ -1,13 +1,19 @@
 """日志引擎组装（LOG-T03）。
 
-原始流 → 分包+时间戳 → 分行 → 染色 → 过滤 → LogEntry。
+原始流 → 分行 → 染色 → 过滤 → LogEntry（时间戳来自分包帧或数据到达时刻）。
 在独立后台线程运行（ADR-0015，INV-4）：从 EventBus 订阅原始流，循环消费，不阻塞 I/O。
+
+关键：**分行不依赖分包**（LOG-T02，ADR-0014）。每个数据 chunk 到达立即拆行，
+分包（TimestampManager）只提供时间戳基准——持续数据流下不封帧，行照常显示，
+时间戳取数据到达时刻；静默后空闲超时封包，尾行用帧时间戳。
 顺序：先染色后过滤（INV-1），被过滤行不显示但仍染色（用于文件，O2 待定）。
 """
 
 from __future__ import annotations
 
+import queue as _queue
 import threading
+import time
 from collections.abc import Callable
 
 from core.colorize.engine import ColorizeEngine
@@ -66,9 +72,19 @@ class LogEngine:
         self._drain_pending()
 
     def on_frame(self, frame: TimedFrame) -> None:
-        """处理一帧分包：分行 → 染色 → 过滤 → 回调。供测试/直调路径。"""
-        for raw_line in self._splitter.feed(frame.data):
-            self._process_line(frame.timestamp_ms, raw_line)
+        """处理一帧分包：立即拆行 → 染色 → 过滤 → 回调（供测试/直调路径）。"""
+        self._process_chunk(frame.timestamp_ms, frame.data)
+
+    def on_data(self, data: bytes) -> None:
+        """直接处理数据 chunk（持续流路径）：更新空闲锚点，并立即拆行（不缓存字节）。"""
+        ts_ms = self._now_ms()
+        if self._ts.enabled:
+            self._ts.touch()
+        self._process_chunk(ts_ms, data)
+
+    def _process_chunk(self, timestamp_ms: int, data: bytes) -> None:
+        for raw_line in self._splitter.feed(data):
+            self._process_line(timestamp_ms, raw_line)
 
     def _process_line(self, timestamp_ms: int, raw_line: bytes) -> None:
         text = self._encoding.decode(raw_line, "auto")
@@ -79,19 +95,16 @@ class LogEngine:
 
     def _run(self) -> None:
         """后台线程：订阅原始流 + 空闲定时器 poll（双路径封包）。"""
-        queue = self._bus.subscribe("logview")
-        import queue as _q
-
+        q = self._bus.subscribe("logview")
         deadline = POLL_INTERVAL_MS / 1000.0
         while self._running:
             try:
-                data = queue.get(timeout=deadline)
-            except _q.Empty:
+                data = q.get(timeout=deadline)
+            except _queue.Empty:
                 self._poll_idle()
                 continue
             self._poll_idle()
-            for frame in self._ts.feed(data):
-                self.on_frame(frame)
+            self.on_data(data)
         self._bus.unsubscribe("logview")
 
     def _poll_idle(self) -> None:
@@ -105,3 +118,6 @@ class LogEngine:
             self.on_frame(frame)
         for raw_line in self._splitter.flush():
             self._process_line(0, raw_line)
+
+    def _now_ms(self) -> int:
+        return int(time.monotonic() * 1000)
