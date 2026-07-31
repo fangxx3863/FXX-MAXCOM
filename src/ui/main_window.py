@@ -12,6 +12,7 @@ import dearpygui.dearpygui as dpg
 
 from app.app_context import AppContext
 from ui import theme
+from ui.fonts import register_fonts
 from ui.widgets.port_manager import PortManagerPanel
 from ui.widgets.status_bar import StatusBar
 
@@ -40,6 +41,7 @@ class MainWindow:
 
     def _build(self) -> None:
         dpg.create_context()
+        register_fonts()  # CJK 默认字体（无中文字形 → ???）；必须在 create_viewport 前
 
         with dpg.theme() as global_theme:
             with dpg.theme_component(dpg.mvAll):
