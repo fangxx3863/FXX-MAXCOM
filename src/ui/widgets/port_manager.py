@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import dearpygui.dearpygui as dpg
 
 from core.transport import SerialConfig, SerialPortInfo, SerialTransport, discover_serial_ports
@@ -20,6 +22,7 @@ class PortManagerPanel:
         self._parent = parent
         self._transport = SerialTransport()
         self._ports: list[SerialPortInfo] = []
+        self._on_state_change: Callable[[bool, str, int | None], None] | None = None
         dpg.add_text("端口 / 连接", parent=parent)
         dpg.add_separator(parent=parent)
         with dpg.group(horizontal=True, parent=parent):
@@ -63,11 +66,20 @@ class PortManagerPanel:
     def transport(self) -> SerialTransport:
         return self._transport
 
+    def set_state_callback(self, callback: Callable[[bool, str, int | None], None]) -> None:
+        """连接状态变更回调（主窗口状态栏绑定）。"""
+        self._on_state_change = callback
+
+    def _notify(self, connected: bool, port: str = "", baudrate: int | None = None) -> None:
+        if self._on_state_change is not None:
+            self._on_state_change(connected, port, baudrate)
+
     def _toggle_connect(self) -> None:
         if self._transport.is_open():
             self._transport.close()
             dpg.set_item_label("port_connect_btn", "连接")
             dpg.set_value(self._status_lbl, "未连接")
+            self._notify(False)
             return
         label = dpg.get_value(self._port_combo)
         if not label or label == "（未发现串口）":
@@ -87,3 +99,4 @@ class PortManagerPanel:
             return
         dpg.set_item_label("port_connect_btn", "断开")
         dpg.set_value(self._status_lbl, f"已连接 {cfg.port} @ {cfg.baudrate}")
+        self._notify(True, cfg.port, cfg.baudrate)

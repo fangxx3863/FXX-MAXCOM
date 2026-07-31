@@ -16,6 +16,7 @@ from ui import theme
 from ui.fonts import register_fonts
 from ui.pages.log_page import LogPage
 from ui.pages.plot_page import PlotPage
+from ui.pages.stats_page import StatsPage
 from ui.pages.terminal_page import TerminalPage
 from ui.widgets.port_manager import PortManagerPanel
 from ui.widgets.status_bar import StatusBar
@@ -41,6 +42,7 @@ class MainWindow:
         self._terminal_page: TerminalPage | None = None
         self._log_page: LogPage | None = None
         self._plot_page: PlotPage | None = None
+        self._stats_page: StatsPage | None = None
 
     def register_page_callback(self, page: str, callback: Callable[[], None]) -> None:
         """供业务模块注入页面构建函数（T0 后由各模块接入）。"""
@@ -88,10 +90,21 @@ class MainWindow:
                         self._log_page = LogPage("page_log", self._app.event_bus)
                     with dpg.group(tag="page_plot"):
                         self._plot_page = PlotPage("page_plot", self._app.event_bus)
+                    with dpg.group(tag="page_stats"):
+                        self._stats_page = StatsPage("page_stats", self._app.event_bus)
                     self.status_bar = StatusBar(parent="content_panel")
 
+        self._port_panel.set_state_callback(self.status_bar.update)
+        # TX 路径接入统计：收发/终端页发送字节 → stats.record_tx(len(data))
+        if self._log_page is not None and self._stats_page is not None:
+            stats = self._stats_page.stats
+            self._log_page.set_send_callback(lambda data: stats.record_tx(len(data)))
+        if self._terminal_page is not None and self._stats_page is not None:
+            stats = self._stats_page.stats
+            self._terminal_page.set_send_callback(lambda data: stats.record_tx(len(data)))
+
         # 初始只显示端口页；其余页隐藏（路由切换时显示）
-        for page in ("terminal", "log", "plot"):
+        for page in ("terminal", "log", "plot", "stats"):
             dpg.hide_item(self._page_group(page))
         dpg.set_primary_window("main_window", True)
 
@@ -115,7 +128,7 @@ class MainWindow:
             else:
                 dpg.bind_item_theme(btn, 0)
         # 路由：显示目标页，隐藏其余已构建页（连接/引擎保持，ADR-0015/0016）
-        for key in ("port", "terminal", "log", "plot"):
+        for key in ("port", "terminal", "log", "plot", "stats"):
             grp = self._page_group(key)
             if key == page:
                 dpg.show_item(grp)
@@ -144,8 +157,13 @@ class MainWindow:
         dpg.destroy_context()
 
     def _frame_callback(self) -> None:
-        """每帧：终端/绘图页喂数据 + 重绘；日志页引擎后台线程已消费，无需帧刷新。"""
+        """每帧：终端/绘图/统计页喂数据 + 重绘；日志页引擎后台线程已消费，仅驱动定时发送。"""
         if self._terminal_page is not None:
             self._terminal_page.render()
         if self._plot_page is not None:
             self._plot_page.render()
+        if self._stats_page is not None:
+            self._stats_page.render()
+        if self._log_page is not None:
+            now_ms = int(dpg.get_total_time() * 1000)
+            self._log_page.tick(now_ms)

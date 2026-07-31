@@ -40,6 +40,7 @@ class LogPage:
         self._show_timestamp = True
         self._paused = False
         self._send_callback: Callable[[bytes], None] | None = None
+        self._loop_last_ms = 0
         self._engine = LogEngine(
             bus, self._colorize, self._filter, EncodingDetector(), idle_timeout_ms
         )
@@ -60,7 +61,11 @@ class LogPage:
     def _build(self, parent: int | str) -> None:
         with dpg.group(parent=parent):
             self._build_toolbar()
-            self._container = dpg.add_child_window(tag="log_container", parent=parent, border=False)
+            # 固定高度日志区：height=0 的 child_window 会吃掉全部剩余高度，
+            # 把下方的发送面板挤出可视区域（P1 修复）。
+            self._container = dpg.add_child_window(
+                tag="log_container", parent=parent, border=False, height=360
+            )
             self._build_send_panel()
 
     def _build_toolbar(self) -> None:
@@ -81,19 +86,27 @@ class LogPage:
             dpg.add_button(label="清空", callback=self._on_clear)
 
     def _build_send_panel(self) -> None:
-        with dpg.group(horizontal=True, parent=self._parent):
-            self._send_input = dpg.add_input_text(
-                hint="发送内容",
-                width=600,
-                on_enter=True,
-                callback=lambda s, a, u: self._send_text(),
-                tag="log_send_input",
-            )
-            dpg.add_button(label="发送", callback=lambda: self._send_text())
-            self._hex_mode = dpg.add_checkbox(label="Hex", default_value=False)
-            self._newline_combo = dpg.add_combo(
-                ["\\r\\n", "\\n", "\\r", "无"], default_value="\\r\\n", width=90
-            )
+        with dpg.group(parent=self._parent):
+            dpg.add_separator()
+            dpg.add_text("发送面板")
+            with dpg.group(horizontal=True):
+                self._send_input = dpg.add_input_text(
+                    hint="发送内容",
+                    width=600,
+                    on_enter=True,
+                    callback=lambda s, a, u: self._send_text(),
+                    tag="log_send_input",
+                )
+                dpg.add_button(label="发送", callback=lambda: self._send_text())
+                self._hex_mode = dpg.add_checkbox(label="Hex", default_value=False)
+                self._newline_combo = dpg.add_combo(
+                    ["无", "\\r\\n", "\\n", "\\r"], default_value="\\r\\n", width=90
+                )
+            with dpg.group(horizontal=True):
+                self._loop_send = dpg.add_checkbox(label="定时循环", default_value=False)
+                self._loop_interval = dpg.add_input_int(
+                    label="周期(ms)", default_value=1000, width=140, min_value=50, min_clamped=True
+                )
 
     # ---------- 工具栏回调 ----------
 
@@ -119,22 +132,24 @@ class LogPage:
 
     # ---------- 发送 ----------
 
-    def _send_text(self) -> None:
-        text = dpg.get_value(self._send_input)
-        if not text:
-            return
+    def _build_payload(self, text: str) -> bytes:
+        """按 Hex 模式 + 换行符配置组装发送字节。"""
         nl = {
             "\\r\\n": "\r\n",
             "\\n": "\n",
             "\\r": "\r",
             "无": "",
         }[dpg.get_value(self._newline_combo)]
-        hex_mode = bool(dpg.get_value(self._hex_mode))
-        if hex_mode:
-            payload = bytes.fromhex(text.replace(" ", "")) if text.replace(" ", "") else b""
-            self._send(payload)
-        else:
-            self._send((text + nl).encode("utf-8", errors="replace"))
+        if bool(dpg.get_value(self._hex_mode)):
+            cleaned = text.replace(" ", "")
+            return bytes.fromhex(cleaned) if cleaned else b""
+        return (text + nl).encode("utf-8", errors="replace")
+
+    def _send_text(self) -> None:
+        text = dpg.get_value(self._send_input)
+        if not text:
+            return
+        self._send(self._build_payload(text))
         dpg.set_value(self._send_input, "")
 
     def _send(self, data: bytes) -> None:
@@ -143,6 +158,17 @@ class LogPage:
         # transport 未接入（M3）：发送内容回显到日志区，便于演示验收
         if data:
             self._engine.on_data(data)
+
+    def tick(self, now_ms: int) -> None:
+        """帧回调：定时循环发送（勾选后按周期重发输入框内容）。"""
+        if not dpg.get_value(self._loop_send):
+            return
+        interval = max(50, int(dpg.get_value(self._loop_interval)))
+        if now_ms - self._loop_last_ms >= interval:
+            self._loop_last_ms = now_ms
+            text = dpg.get_value(self._send_input)
+            if text:
+                self._send(self._build_payload(text))
 
     # ---------- 渲染 ----------
 

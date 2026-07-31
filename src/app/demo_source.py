@@ -32,7 +32,7 @@ DEMO_LOG_LINES = [
     b"temp: 85.3 status: ok\r\n",
 ]
 
-# 绘图采样（ASCII 数值，P4 波形通道解析）
+# 绘图采样（ASCII 多通道，P3 波形通道解析）
 _DEMO_PLOT_PHASES = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
 
 
@@ -71,10 +71,11 @@ class MockSource:
                 self._bus.publish_raw(DEMO_LOG_LINES[self._log_i])
                 self._log_i += 1
             else:
-                # 绘图采样：正弦波
+                # 绘图采样：两路正弦
                 phase = _DEMO_PLOT_PHASES[self._plot_i % len(_DEMO_PLOT_PHASES)]
-                v = round(3.0 + 2.0 * math.sin(phase), 3)
-                self._bus.publish_raw(f"ch:{v}\n".encode())
+                ch1 = round(3.0 + 2.0 * math.sin(phase), 3)
+                ch2 = round(3.0 + 2.0 * math.cos(phase), 3)
+                self._bus.publish_raw(f"ch1:{ch1} ch2:{ch2}\n".encode())
                 self._plot_i += 1
                 # 循环演示数据
                 if self._plot_i >= 40:
