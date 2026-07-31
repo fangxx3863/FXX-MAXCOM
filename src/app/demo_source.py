@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -31,6 +32,9 @@ DEMO_LOG_LINES = [
     b"temp: 85.3 status: ok\r\n",
 ]
 
+# 绘图采样（ASCII 数值，P4 波形通道解析）
+_DEMO_PLOT_PHASES = [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5]
+
 
 class MockSource:
     """演示数据源：后台线程定时向总线发布模拟数据。"""
@@ -42,6 +46,7 @@ class MockSource:
         self._thread: threading.Thread | None = None
         self._term_i = 0
         self._log_i = 0
+        self._plot_i = 0
 
     def start(self) -> None:
         if self._running:
@@ -58,7 +63,7 @@ class MockSource:
 
     def _run(self) -> None:
         while self._running:
-            # 交替发终端彩色文本与日志行
+            # 交替发终端彩色文本与日志行，间歇发绘图采样
             if self._term_i < len(DEMO_TERM_LINES):
                 self._bus.publish_raw(DEMO_TERM_LINES[self._term_i])
                 self._term_i += 1
@@ -66,7 +71,14 @@ class MockSource:
                 self._bus.publish_raw(DEMO_LOG_LINES[self._log_i])
                 self._log_i += 1
             else:
-                # 循环
-                self._term_i = 0
-                self._log_i = 0
+                # 绘图采样：正弦波
+                phase = _DEMO_PLOT_PHASES[self._plot_i % len(_DEMO_PLOT_PHASES)]
+                v = round(3.0 + 2.0 * math.sin(phase), 3)
+                self._bus.publish_raw(f"ch:{v}\n".encode())
+                self._plot_i += 1
+                # 循环演示数据
+                if self._plot_i >= 40:
+                    self._term_i = 0
+                    self._log_i = 0
+                    self._plot_i = 0
             time.sleep(self._interval)

@@ -15,6 +15,7 @@ from app.app_context import AppContext
 from ui import theme
 from ui.fonts import register_fonts
 from ui.pages.log_page import LogPage
+from ui.pages.plot_page import PlotPage
 from ui.pages.terminal_page import TerminalPage
 from ui.widgets.port_manager import PortManagerPanel
 from ui.widgets.status_bar import StatusBar
@@ -39,6 +40,7 @@ class MainWindow:
         self._page_callbacks: dict[str, Callable[[], None]] = {}
         self._terminal_page: TerminalPage | None = None
         self._log_page: LogPage | None = None
+        self._plot_page: PlotPage | None = None
 
     def register_page_callback(self, page: str, callback: Callable[[], None]) -> None:
         """供业务模块注入页面构建函数（T0 后由各模块接入）。"""
@@ -84,10 +86,12 @@ class MainWindow:
                         self._terminal_page = TerminalPage("page_terminal", self._app.event_bus)
                     with dpg.group(tag="page_log"):
                         self._log_page = LogPage("page_log", self._app.event_bus)
+                    with dpg.group(tag="page_plot"):
+                        self._plot_page = PlotPage("page_plot", self._app.event_bus)
                     self.status_bar = StatusBar(parent="content_panel")
 
         # 初始只显示端口页；其余页隐藏（路由切换时显示）
-        for page in ("terminal", "log"):
+        for page in ("terminal", "log", "plot"):
             dpg.hide_item(self._page_group(page))
         dpg.set_primary_window("main_window", True)
 
@@ -111,7 +115,7 @@ class MainWindow:
             else:
                 dpg.bind_item_theme(btn, 0)
         # 路由：显示目标页，隐藏其余已构建页（连接/引擎保持，ADR-0015/0016）
-        for key in ("port", "terminal", "log"):
+        for key in ("port", "terminal", "log", "plot"):
             grp = self._page_group(key)
             if key == page:
                 dpg.show_item(grp)
@@ -140,6 +144,8 @@ class MainWindow:
         dpg.destroy_context()
 
     def _frame_callback(self) -> None:
-        """每帧：终端页喂数据 + 重绘；日志页引擎后台线程已消费，无需帧刷新。"""
+        """每帧：终端/绘图页喂数据 + 重绘；日志页引擎后台线程已消费，无需帧刷新。"""
         if self._terminal_page is not None:
             self._terminal_page.render()
+        if self._plot_page is not None:
+            self._plot_page.render()

@@ -8,6 +8,7 @@ from core.ansi.parser import AnsiParser
 from core.ansi.screen_buffer import Cell, ScreenBuffer, is_wide_char
 from core.ansi.scrollback import ScrollbackBuffer
 from core.ansi.sgr import SgrState, apply_sgr
+from core.ansi.strip import strip_ansi
 
 __all__ = [
     "AnsiParser",
@@ -17,4 +18,5 @@ __all__ = [
     "SgrState",
     "apply_sgr",
     "is_wide_char",
+    "strip_ansi",
 ]

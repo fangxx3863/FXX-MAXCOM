@@ -10,7 +10,18 @@ from core.ansi.parser import AnsiParser
 from core.ansi.screen_buffer import Cell, ScreenBuffer
 from core.ansi.sgr import SgrState
 from core.terminal.echo import LocalEcho
-from core.terminal.keymap import KeyMapConfig, on_key
+from core.terminal.keymap import (
+    KEY_BACK,
+    KEY_DOWN,
+    KEY_ESCAPE,
+    KEY_LEFT,
+    KEY_RETURN,
+    KEY_RIGHT,
+    KEY_TAB,
+    KEY_UP,
+    KeyMapConfig,
+    on_key,
+)
 from core.terminal.paste import PasteManager
 from core.terminal.search import search_in_cells
 from core.terminal.selection import TextSelection
@@ -37,44 +48,44 @@ def test_key_printable() -> None:
 
 
 def test_key_shift_upper() -> None:
-    assert on_key(0x61, 4, KeyMapConfig()) == b"A"
+    assert on_key(0x61, 0x2000, KeyMapConfig()) == b"A"  # mvKey_ModShift
 
 
 def test_key_ctrl_prioritized() -> None:
-    assert on_key(0x63, 1, KeyMapConfig()) == b"\x03"  # Ctrl+C
-    assert on_key(0x64, 1, KeyMapConfig()) == b"\x04"  # Ctrl+D
-    assert on_key(0x7A, 1, KeyMapConfig()) == b"\x1a"  # Ctrl+Z
+    assert on_key(0x63, 0x1000, KeyMapConfig()) == b"\x03"  # Ctrl+C (mvKey_ModCtrl)
+    assert on_key(0x64, 0x1000, KeyMapConfig()) == b"\x04"  # Ctrl+D
+    assert on_key(0x7A, 0x1000, KeyMapConfig()) == b"\x1a"  # Ctrl+Z
 
 
 def test_key_enter_modes() -> None:
-    assert on_key(0x0D, 0, KeyMapConfig(enter="crlf")) == b"\x0d\x0a"
-    assert on_key(0x0D, 0, KeyMapConfig(enter="cr")) == b"\x0d"
-    assert on_key(0x0D, 0, KeyMapConfig(enter="lf")) == b"\x0a"
+    assert on_key(KEY_RETURN, 0, KeyMapConfig(enter="crlf")) == b"\x0d\x0a"
+    assert on_key(KEY_RETURN, 0, KeyMapConfig(enter="cr")) == b"\x0d"
+    assert on_key(KEY_RETURN, 0, KeyMapConfig(enter="lf")) == b"\x0a"
 
 
 def test_key_backspace_modes() -> None:
-    assert on_key(0x7F, 0, KeyMapConfig(backspace="del")) == b"\x7f"
-    assert on_key(0x7F, 0, KeyMapConfig(backspace="bs")) == b"\x08"
+    assert on_key(KEY_BACK, 0, KeyMapConfig(backspace="del")) == b"\x7f"
+    assert on_key(KEY_BACK, 0, KeyMapConfig(backspace="bs")) == b"\x08"
 
 
 def test_key_arrow_sequences() -> None:
-    # DPG mvKey_Up/Down/Left/Right 对应值
-    assert on_key(0x112, 0, KeyMapConfig()) == b"\x1b[A"
-    assert on_key(0x113, 0, KeyMapConfig()) == b"\x1b[B"
-    assert on_key(0x114, 0, KeyMapConfig()) == b"\x1b[D"
-    assert on_key(0x115, 0, KeyMapConfig()) == b"\x1b[C"
+    # DPG 方向键 key id：Up/Down/Left/Right = 0x203/0x204/0x201/0x202
+    assert on_key(KEY_UP, 0, KeyMapConfig()) == b"\x1b[A"
+    assert on_key(KEY_DOWN, 0, KeyMapConfig()) == b"\x1b[B"
+    assert on_key(KEY_LEFT, 0, KeyMapConfig()) == b"\x1b[D"
+    assert on_key(KEY_RIGHT, 0, KeyMapConfig()) == b"\x1b[C"
 
 
 def test_key_tab() -> None:
-    assert on_key(0x09, 0, KeyMapConfig()) == b"\x09"
+    assert on_key(KEY_TAB, 0, KeyMapConfig()) == b"\x09"
 
 
 def test_key_esc() -> None:
-    assert on_key(0x1B, 0, KeyMapConfig()) == b"\x1b"
+    assert on_key(KEY_ESCAPE, 0, KeyMapConfig()) == b"\x1b"
 
 
 def test_key_unknown_returns_empty() -> None:
-    assert on_key(0x12, 1, KeyMapConfig()) == b""  # Ctrl+非字母
+    assert on_key(0x12, 0x1000, KeyMapConfig()) == b""  # Ctrl+非字母
 
 
 # ---------- TERM-T03: 本地回显 ----------

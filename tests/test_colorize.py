@@ -293,8 +293,8 @@ def test_contains_ansi() -> None:
 def test_ansi_yield() -> None:
     eng = ColorizeEngine()
     segs = eng.process_line("\x1b[31m[W] colored\x1b[0m")
-    # 含 ANSI → 让位，默认色，不染色
-    assert segs == [ColoredSegment("\x1b[31m[W] colored\x1b[0m", None)]
+    # 含 ANSI → 让位（INV-1）：不染色，并剥离控制码避免 ?[xxm 泄露
+    assert segs == [ColoredSegment("[W] colored", None)]
 
 
 def test_ansi_yield_disabled() -> None:

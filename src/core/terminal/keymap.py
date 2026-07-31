@@ -29,36 +29,58 @@ def _ctrl(ch: str, shift: bool = False) -> int:
     return ord(ch.upper()) - 0x40
 
 
+# DPG 修饰键掩码（dearpygui.mvKey_ModCtrl/Shift/Alt = 0x1000/0x2000/0x4000）。
+# 键盘处理器回调 app_data = 按键 key id；修饰键用 dpg.is_key_down(mvKey_Mod*) 读取，
+# 因此 on_key 把 modifiers 作为 0x1000/0x2000/0x4000 掩码接收（与 DPG mvKey_Mod* 对齐）。
+MOD_CTRL = 0x1000
+MOD_SHIFT = 0x2000
+MOD_ALT = 0x4000
+
+# DPG 特殊键 key id（实测 dearpygui 2.3.1）
+KEY_LEFT = 0x201
+KEY_RIGHT = 0x202
+KEY_UP = 0x203
+KEY_DOWN = 0x204
+KEY_BACK = 0x20B
+KEY_RETURN = 0x20D
+KEY_TAB = 0x200
+KEY_ESCAPE = 0x20E
+KEY_SPACE = 0x20
+
+_ARROW_SEQ = {
+    KEY_UP: b"[A",
+    KEY_DOWN: b"[B",
+    KEY_RIGHT: b"[C",
+    KEY_LEFT: b"[D",
+}
+
+
 def on_key(key: int, modifiers: int, cfg: KeyMapConfig) -> bytes:
-    """返回要发送的字节；空 bytes 表示无发送。modifiers 与 DPG mvKeyMod_* 对齐。"""
-    ctrl = bool(modifiers & 1)
-    alt = bool(modifiers & 2)
-    shift = bool(modifiers & 4)
+    """返回要发送的字节；空 bytes 表示无发送。modifiers 与 DPG mvKey_Mod* 对齐。"""
+    ctrl = bool(modifiers & MOD_CTRL)
+    alt = bool(modifiers & MOD_ALT)
+    shift = bool(modifiers & MOD_SHIFT)
 
     if ctrl:
-        ch = chr(key)
-        if 0x61 <= key <= 0x7A:  # Ctrl+a..z
-            return bytes([_ctrl(ch)])
-        # Ctrl+特殊键
-        if key in (0x0D, 0x0A):  # Ctrl+Enter → LF
-            return b"\x0a"
-        if key == 0x20:  # Ctrl+Space → NUL
+        if 0x61 <= key <= 0x7A:  # Ctrl+a..z → 0x01..0x1A
+            return bytes([_ctrl(chr(key))])
+        if key in (KEY_RETURN, KEY_TAB):  # Ctrl+Return / Ctrl+Tab → LF / TAB
+            return b"\x0a" if key == KEY_RETURN else b"\x09"
+        if key == KEY_SPACE:  # Ctrl+Space → NUL
             return b"\x00"
         return b""
 
-    if key == 0x0D or key == 0x0A:  # Enter
+    if key == KEY_RETURN:  # Enter
         return _enter_bytes(cfg.enter)
-    if key == 0x09:  # Tab
+    if key == KEY_TAB:  # Tab
         return b"\x09"
-    if key in (0x7F, 0x08):  # Backspace
+    if key == KEY_BACK:  # Backspace
         return _backspace_bytes(cfg.backspace)
-    if key == 0x1B:  # Esc
+    if key == KEY_ESCAPE:  # Esc
         return b"\x1b"
 
-    # 方向键（DPG 用特殊 key 值，见 dpg.mvKey_* 方向键区域）
-    if key in (0x112, 0x113, 0x114, 0x115):  # mvKey_Up/Down/Left/Right
-        seq = {0x112: b"[A", 0x113: b"[B", 0x114: b"[D", 0x115: b"[C"}
-        return b"\x1b" + seq[key]
+    if key in _ARROW_SEQ:  # 方向键 → ESC 序列
+        return b"\x1b" + _ARROW_SEQ[key]
 
     if 0x20 <= key <= 0x7E:  # 可打印 ASCII
         ch = chr(key)

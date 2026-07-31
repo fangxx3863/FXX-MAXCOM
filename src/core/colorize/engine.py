@@ -17,6 +17,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.models.color_rule import ColorRule
+from core.ansi.strip import strip_ansi
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +154,8 @@ class ColorizeEngine:
         if not self.master_enabled:
             return [ColoredSegment(line, None)]
         if self.ansi_yield and contains_ansi(line):
-            return [ColoredSegment(line, None)]
+            # ANSI 让位（INV-1）：交给 ANSI 引擎渲染；日志路径剥离控制码，避免 ?[xxm 泄露。
+            return [ColoredSegment(strip_ansi(line), None)]
         ordered = sorted(enumerate(self._rules), key=lambda t: (t[1].priority, t[0]))
         for _, rule in ordered:
             if not rule.enabled:
