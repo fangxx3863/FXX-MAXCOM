@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "maxcom-contracts:project-file.schema.json",
+  "title": "Project 文件",
+  "description": ".maxcomprj 的 project.toml（V2 §6.2）。ZIP 内含 project/transport/commands/filters/plots/view_state。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "integer", "const": 1 },
+        "name": { "type": "string" },
+        "created": { "type": "string", "format": "date-time" },
+        "modified": { "type": "string", "format": "date-time" },
+        "description": { "type": "string" }
+      },
+      "required": ["version", "name"]
+    },
+    "project.tags": {
+      "type": "object",
+      "description": "自由键值标签，如 board/firmware",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "required": ["project"]
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "maxcom-contracts:filter-rule.schema.json",
+  "title": "日志过滤规则",
+  "description": "日志过滤引擎规则（V2 §1.2 模式B + §1.4 过滤引擎）。filters.toml 数组元素。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "description": "规则名" },
+    "pattern": { "type": "string", "description": "正则表达式，匹配日志行" },
+    "action": { "enum": ["show", "hide"], "description": "匹配后显示或隐藏" },
+    "enabled": { "type": "boolean", "default": true }
+  },
+  "required": ["name", "pattern", "action"]
+}

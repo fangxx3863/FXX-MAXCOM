@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "maxcom-contracts:plot-config.schema.json",
+  "title": "绘图配置",
+  "description": "绘图配置（V2 §1.7），plots/*.toml。一个绘图含数据源格式 + 通道 + 显示模式。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "description": "绘图名" },
+    "data_format": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "title": "Simple Binary",
+          "properties": {
+            "type": { "const": "simple_binary" },
+            "channel_count": { "type": "integer", "minimum": 1 },
+            "dtype": { "enum": ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64"] },
+            "byte_order": { "enum": ["little", "big"] }
+          },
+          "required": ["type", "channel_count", "dtype", "byte_order"]
+        },
+        {
+          "title": "ASCII 分隔",
+          "properties": {
+            "type": { "const": "ascii_delimited" },
+            "delimiter": { "type": "string" },
+            "filter_prefix": { "type": "string", "description": "过滤前缀" },
+            "channel_count": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["type", "delimiter", "channel_count"]
+        },
+        {
+          "title": "自定义帧",
+          "properties": {
+            "type": { "const": "custom_frame" },
+            "frame_header": { "type": "string", "description": "帧头 hex" },
+            "frame_tail": { "type": "string", "description": "帧尾 hex" },
+            "frame_length": { "type": "integer", "description": "帧长度" },
+            "dtype": { "enum": ["int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float32", "float64"] },
+            "byte_order": { "enum": ["little", "big"] },
+            "checksum": { "enum": ["none", "checksum", "crc16"] },
+            "channel_count": { "type": "integer", "minimum": 1 }
+          },
+          "required": ["type", "frame_header", "dtype", "byte_order", "channel_count"]
+        }
+      ],
+      "required": ["type"]
+    },
+    "display": {
+      "type": "array",
+      "items": { "enum": ["waveform", "bar", "fft", "scatter"] },
+      "description": "显示模式集合，可同时多个"
+    },
+    "channels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "index": { "type": "integer", "minimum": 0 },
+          "name": { "type": "string" },
+          "color": { "type": "string" },
+          "visible": { "type": "boolean", "default": true }
+        },
+        "required": ["index", "name"]
+      }
+    },
+    "buffer_points": { "type": "integer", "description": "历史数据缓冲点数" },
+    "y_auto": { "type": "boolean", "default": true },
+    "y_min": { "type": "number" },
+    "y_max": { "type": "number" },
+    "fft_points": { "enum": [1024, 2048, 4096, 8192, 16384, 32768, 65536] }
+  },
+  "required": ["name", "data_format", "display"]
+}

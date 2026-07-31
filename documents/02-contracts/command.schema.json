@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "maxcom-contracts:command.schema.json",
+  "title": "命令条目",
+  "description": "自定义命令的结构，对应 V2 §1.6。commands.json 中的数组元素。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "description": "命令显示名" },
+    "group": { "type": "string", "description": "分组名，用于命令列表面板分组" },
+    "data": { "type": "string", "description": "发送数据，可为文本或 Hex 字符串" },
+    "format": { "enum": ["text", "hex"], "description": "数据格式" },
+    "shortcut": { "type": "string", "description": "快捷键，如 Ctrl+1" },
+    "repeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 1 },
+        "interval_ms": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["count", "interval_ms"]
+    },
+    "expect": { "type": "string", "description": "期望响应（P2 极简版匹配）" },
+    "timeout_ms": { "type": "integer", "minimum": 0 }
+  },
+  "required": ["name", "data", "format"]
+}

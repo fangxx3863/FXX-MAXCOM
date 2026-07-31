@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "maxcom-contracts:transport.schema.json",
+  "title": "传输/连接配置",
+  "description": "传输层配置（V2 §1.1 + §4.4）。transport.toml。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "type": { "enum": ["serial", "tcp_client", "tcp_server", "udp_client", "udp_server", "winusb", "hid"] },
+    "port": { "type": "string", "description": "串口号，如 COM3" },
+    "alias": { "type": "string", "description": "自定义别名" },
+    "baudrate": { "type": "integer", "minimum": 300 },
+    "data_bits": { "enum": [5, 6, 7, 8] },
+    "stop_bits": { "enum": [1, 1.5, 2] },
+    "parity": { "enum": ["none", "even", "odd", "mark", "space"] },
+    "flow_control": { "enum": ["none", "software", "hardware"] },
+    "host": { "type": "string", "description": "TCP/UDP 主机" },
+    "port_no": { "type": "integer", "description": "TCP/UDP 端口" },
+    "auto_reconnect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "max_retries": { "type": "integer", "default": 10 },
+        "interval_ms": { "type": "integer", "default": 1000 }
+      }
+    }
+  },
+  "required": ["type"]
+}

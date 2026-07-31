@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "maxcom-contracts:color-rule.schema.json",
+  "title": "自动染色用户自定义规则",
+  "description": "自动染色用户自定义规则（V2 §1.4）。filters.toml 或 color_rules.toml 数组元素。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "description": "规则名" },
+    "pattern": { "type": "string", "description": "正则表达式" },
+    "target": { "enum": ["line", "match"], "description": "整行染色或仅匹配部分染色" },
+    "color": { "type": "string", "description": "前景色，如 #FF9500 或命名色" },
+    "bg_color": { "type": "string", "description": "背景色（可选）" },
+    "bold": { "type": "boolean", "default": false },
+    "enabled": { "type": "boolean", "default": true },
+    "priority": { "type": "integer", "description": "优先级，越小越先。内置：level=1, keyword=2, kv=3, number=4" }
+  },
+  "required": ["name", "pattern", "target", "color"]
+}

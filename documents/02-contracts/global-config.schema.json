@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "maxcom-contracts:global-config.schema.json",
+  "title": "全局配置",
+  "description": "用户级全局配置（V2 §6.4），%APPDATA%/MAXCOM/config.toml。项目配置优先于全局。",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "theme": { "enum": ["dark", "light"] },
+    "language": { "enum": ["zh_CN", "en_US"] },
+    "font": { "type": "string", "description": "字体名" },
+    "default_encoding": { "enum": ["utf-8", "gbk", "gb2312", "latin-1", "auto"] },
+    "recent_projects": { "type": "array", "items": { "type": "string" } },
+    "port_blacklist": { "type": "array", "items": { "type": "string" }, "description": "端口黑名单（如蓝牙串口）" },
+    "port_alias": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "端口别名映射 COM -> 别名"
+    },
+    "port_memory": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "baudrate": { "type": "integer" },
+          "data_bits": { "type": "integer" },
+          "stop_bits": { "type": "integer" },
+          "parity": { "type": "string" }
+        }
+      },
+      "description": "记忆每个端口的上次配置"
+    }
+  }
+}
