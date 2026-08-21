@@ -67,7 +67,11 @@ pub struct LogOptions {
 
 impl Default for LogOptions {
     fn default() -> Self {
-        Self { idle_timeout_ms: 100, timestamp_mode: TimestampMode::Absolute, encoding: "auto".into() }
+        Self {
+            idle_timeout_ms: 100,
+            timestamp_mode: TimestampMode::Absolute,
+            encoding: "auto".into(),
+        }
     }
 }
 
@@ -86,7 +90,11 @@ pub struct SendPayload {
 enum Cmd {
     SetLogOptions(LogOptions),
     SetFilters(Vec<FilterRule>),
-    SetColorRules { master: bool, ansi_yield: bool, rules: Vec<ColorRule> },
+    SetColorRules {
+        master: bool,
+        ansi_yield: bool,
+        rules: Vec<ColorRule>,
+    },
     ClearLog,
 }
 
@@ -180,23 +188,32 @@ impl SessionManager {
         // 注意：log/plot 队列在下面两个线程消费；读线程只负责 publish
         drop(log_q);
         drop(plot_q);
-        threads.push(std::thread::Builder::new().name("reader".into()).spawn(move || {
-            let mut buf = [0u8; 4096];
-            while !stop_r.load(Ordering::Relaxed) {
-                match read_half.read(&mut buf) {
-                    Ok(0) => continue, // 超时节拍
-                    Ok(n) => {
-                        stats_r.record_rx(n);
-                        ev.raw(&buf[..n]);
-                        bus_r.publish(&buf[..n]);
+        threads.push(
+            std::thread::Builder::new()
+                .name("reader".into())
+                .spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    while !stop_r.load(Ordering::Relaxed) {
+                        match read_half.read(&mut buf) {
+                            Ok(0) => continue, // 超时节拍
+                            Ok(n) => {
+                                stats_r.record_rx(n);
+                                ev.raw(&buf[..n]);
+                                bus_r.publish(&buf[..n]);
+                            }
+                            Err(e) => {
+                                ev.state(&ConnState {
+                                    connected: false,
+                                    label: label_r.clone(),
+                                    error: Some(e.to_string()),
+                                });
+                                break;
+                            }
+                        }
                     }
-                    Err(e) => {
-                        ev.state(&ConnState { connected: false, label: label_r.clone(), error: Some(e.to_string()) });
-                        break;
-                    }
-                }
-            }
-        }).map_err(|e| e.to_string())?);
+                })
+                .map_err(|e| e.to_string())?,
+        );
 
         // ── 日志线程 ──
         let log_q = bus.subscribe("log");
@@ -276,30 +293,36 @@ impl SessionManager {
         let stop_p = stop.clone();
         let plot_store = self.plot.clone();
         let fmt = self.plot_format.lock().unwrap().clone();
-        threads.push(std::thread::Builder::new().name("plot".into()).spawn(move || {
-            let mut parser: Option<Box<dyn FrameParser>> = fmt.as_ref().and_then(|f| make_parser(f).ok());
-            loop {
-                match plot_q.recv_timeout(Duration::from_millis(200)) {
-                    Ok(data) => {
-                        if let Some(p) = parser.as_mut() {
-                            let store = plot_store.lock().unwrap();
-                            drop(store); // 解析在锁外；push 时短暂加锁
-                            let mut frames = Vec::new();
-                            p.feed(&data, &mut |f| frames.push(f));
-                            let mut store = plot_store.lock().unwrap();
-                            for f in frames {
-                                store.push_frame(&f);
+        threads.push(
+            std::thread::Builder::new()
+                .name("plot".into())
+                .spawn(move || {
+                    let mut parser: Option<Box<dyn FrameParser>> =
+                        fmt.as_ref().and_then(|f| make_parser(f).ok());
+                    loop {
+                        match plot_q.recv_timeout(Duration::from_millis(200)) {
+                            Ok(data) => {
+                                if let Some(p) = parser.as_mut() {
+                                    let store = plot_store.lock().unwrap();
+                                    drop(store); // 解析在锁外；push 时短暂加锁
+                                    let mut frames = Vec::new();
+                                    p.feed(&data, &mut |f| frames.push(f));
+                                    let mut store = plot_store.lock().unwrap();
+                                    for f in frames {
+                                        store.push_frame(&f);
+                                    }
+                                }
                             }
+                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                        }
+                        if stop_p.load(Ordering::Relaxed) {
+                            break;
                         }
                     }
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-                }
-                if stop_p.load(Ordering::Relaxed) {
-                    break;
-                }
-            }
-        }).map_err(|e| e.to_string())?);
+                })
+                .map_err(|e| e.to_string())?,
+        );
 
         *guard = Some(Active {
             stop,
@@ -309,7 +332,11 @@ impl SessionManager {
             cmd_tx,
             label: label.clone(),
         });
-        self.events.state(&ConnState { connected: true, label, error: None });
+        self.events.state(&ConnState {
+            connected: true,
+            label,
+            error: None,
+        });
         Ok(())
     }
 
@@ -320,7 +347,11 @@ impl SessionManager {
             for t in a.threads.drain(..) {
                 let _ = t.join();
             }
-            self.events.state(&ConnState { connected: false, label: a.label, error: None });
+            self.events.state(&ConnState {
+                connected: false,
+                label: a.label,
+                error: None,
+            });
         }
     }
 
@@ -331,7 +362,11 @@ impl SessionManager {
         let guard = self.active.lock().unwrap();
         match &*guard {
             Some(a) => {
-                a.write.lock().unwrap().write_all(&bytes).map_err(|e| e.to_string())?;
+                a.write
+                    .lock()
+                    .unwrap()
+                    .write_all(&bytes)
+                    .map_err(|e| e.to_string())?;
                 a.stats.record_tx(n);
                 Ok(n)
             }
@@ -353,7 +388,11 @@ impl SessionManager {
 
     pub fn set_color_rules(&self, master: bool, ansi_yield: bool, rules: Vec<ColorRule>) {
         if let Some(a) = &*self.active.lock().unwrap() {
-            let _ = a.cmd_tx.send(Cmd::SetColorRules { master, ansi_yield, rules });
+            let _ = a.cmd_tx.send(Cmd::SetColorRules {
+                master,
+                ansi_yield,
+                rules,
+            });
         }
     }
 
@@ -392,7 +431,7 @@ impl SendPayload {
 }
 
 fn decode_hex(s: &str) -> Result<Vec<u8>, String> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return Err("hex 长度必须为偶数".into());
     }
     (0..s.len())

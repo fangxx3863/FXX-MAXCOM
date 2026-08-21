@@ -12,13 +12,16 @@ static LEVEL_BRACKET: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::n
 
 /// 等级关键词：关键词后必须跟 `:`/`>`/空白 分隔符，避免 "error handler" 正文误匹配（DoD③）
 static LEVEL_KEYWORD: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(r"(?i)(?:^\s*|^<)(DEBUG|INFO|WARN|WARNING|ERROR|ERR|FATAL|CRITICAL|D|I|W|E|F)[:>\s]+")
-        .unwrap()
+    regex::Regex::new(
+        r"(?i)(?:^\s*|^<)(DEBUG|INFO|WARN|WARNING|ERROR|ERR|FATAL|CRITICAL|D|I|W|E|F)[:>\s]+",
+    )
+    .unwrap()
 });
 
 /// 键值对 `KEY: VALUE`
-static KV: std::sync::LazyLock<regex::Regex> =
-    std::sync::LazyLock::new(|| regex::Regex::new(r"([A-Za-z_][A-Za-z0-9_]*):\s*([^,\s]+)").unwrap());
+static KV: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"([A-Za-z_][A-Za-z0-9_]*):\s*([^,\s]+)").unwrap()
+});
 
 /// 数值：`0x..` / 浮点 / 整数
 static NUM: std::sync::LazyLock<regex::Regex> =
@@ -34,7 +37,12 @@ fn level_style(level: &str) -> (Option<&'static str>, bool) {
     match level.to_ascii_uppercase().as_str() {
         "D" | "DEBUG" => (Some("gray"), false),
         "W" | "WARN" | "WARNING" => (Some("yellow"), false),
-        "E" | "ERROR" | "ERR" | "F" | "FATAL" | "CRITICAL" => (Some("red"), level.eq_ignore_ascii_case("F") || level.eq_ignore_ascii_case("FATAL") || level.eq_ignore_ascii_case("CRITICAL")),
+        "E" | "ERROR" | "ERR" | "F" | "FATAL" | "CRITICAL" => (
+            Some("red"),
+            level.eq_ignore_ascii_case("F")
+                || level.eq_ignore_ascii_case("FATAL")
+                || level.eq_ignore_ascii_case("CRITICAL"),
+        ),
         _ => (None, false),
     }
 }
@@ -43,14 +51,24 @@ fn level_style(level: &str) -> (Option<&'static str>, bool) {
 fn bracket_rule(line: &str) -> Option<Vec<ColoredSegment>> {
     let m = LEVEL_BRACKET.captures(line)?;
     let (color, bold) = level_style(m.get(1)?.as_str());
-    Some(vec![ColoredSegment::colored(line, color.map(str::to_string), None, bold)])
+    Some(vec![ColoredSegment::colored(
+        line,
+        color.map(str::to_string),
+        None,
+        bold,
+    )])
 }
 
 /// 等级关键词规则（COLOR-T03）：`WARN: ...` / `<E> ...` 整行染色。
 fn keyword_rule(line: &str) -> Option<Vec<ColoredSegment>> {
     let m = LEVEL_KEYWORD.captures(line)?;
     let (color, bold) = level_style(m.get(1)?.as_str());
-    Some(vec![ColoredSegment::colored(line, color.map(str::to_string), None, bold)])
+    Some(vec![ColoredSegment::colored(
+        line,
+        color.map(str::to_string),
+        None,
+        bold,
+    )])
 }
 
 /// 键值对规则（COLOR-T04）：`KEY: VALUE` 的 VALUE 用强调色，KEY 默认色。
@@ -88,7 +106,12 @@ fn number_rule(line: &str) -> Option<Vec<ColoredSegment>> {
         if m.start() > pos {
             segs.push(ColoredSegment::plain(&line[pos..m.start()]));
         }
-        segs.push(ColoredSegment::colored(m.as_str(), Some(NUM_COLOR.to_string()), None, false));
+        segs.push(ColoredSegment::colored(
+            m.as_str(),
+            Some(NUM_COLOR.to_string()),
+            None,
+            false,
+        ));
         pos = m.end();
     }
     if segs.is_empty() {

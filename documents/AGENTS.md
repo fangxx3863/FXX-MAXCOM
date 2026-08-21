@@ -1,5 +1,9 @@
 # AGENTS.md — MAXCOM AI 开发团队工作守则
 
+> **分支说明（rust-tauri）**：本分支桌面端已按 [ADR-0018](01-decisions/0018-rust-tauri-rewrite.md)
+> 改用 Rust + Tauri 重写，Python 实现与管理文件已移除（main 分支保留）。铁律 R1/R2/R3/R4/R6-R9
+> 继续生效；R7 技术栈锁在本分支以 ADR-0018 的 Rust/npm 清单为准；实现代码在 `crates/` 与 `app/`。
+
 **任何 AI agent 在动手前必须先读本文件。** 本仓库是 MAXCOM 的单一事实源：设计、决策、契约、任务卡。实现代码在 `src/`，工具在 `tools/`。
 
 ---

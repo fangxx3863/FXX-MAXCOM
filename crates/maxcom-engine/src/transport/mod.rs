@@ -4,10 +4,10 @@
 //! 串口走 `serialport` crate（feature `serial`，Windows 目标默认启用）；
 //! TCP/UDP 用 std，全平台可测。
 
-pub mod tcp;
-pub mod udp;
 #[cfg(feature = "serial")]
 pub mod serial;
+pub mod tcp;
+pub mod udp;
 
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -29,8 +29,14 @@ pub enum ConnConfig {
         #[serde(default)]
         flow_control: FlowControl,
     },
-    TcpClient { host: String, port: u16 },
-    UdpClient { host: String, port: u16 },
+    TcpClient {
+        host: String,
+        port: u16,
+    },
+    UdpClient {
+        host: String,
+        port: u16,
+    },
 }
 
 fn default_baud() -> u32 {
@@ -105,7 +111,9 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
         #[cfg(feature = "serial")]
         ConnConfig::Serial { .. } => serial::open(config),
         #[cfg(not(feature = "serial"))]
-        ConnConfig::Serial { .. } => Err(io::Error::other("serial support not compiled (feature \"serial\")")),
+        ConnConfig::Serial { .. } => Err(io::Error::other(
+            "serial support not compiled (feature \"serial\")",
+        )),
     }
 }
 

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh_CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MAXCOM</title>
+  </head>
+  <body>
+    <header id="topbar">
+      <span class="brand">MAXCOM</span>
+      <select id="conn-type">
+        <option value="serial">串口</option>
+        <option value="tcp_client">TCP 客户端</option>
+        <option value="udp_client">UDP</option>
+      </select>
+      <select id="serial-port"></select>
+      <button id="refresh-ports" title="刷新串口列表">⟳</button>
+      <input id="tcp-host" placeholder="主机" value="127.0.0.1" class="hidden" />
+      <input id="tcp-port" type="number" placeholder="端口" value="8888" class="hidden" />
+      <select id="baud">
+        <option>9600</option><option>19200</option><option>38400</option>
+        <option>57600</option><option selected>115200</option><option>230400</option>
+        <option>460800</option><option>921600</option>
+      </select>
+      <button id="connect-btn" class="primary">连接</button>
+      <span id="conn-state" class="dot off" title="未连接"></span>
+      <span id="conn-label"></span>
+    </header>
+    <div id="layout">
+      <nav id="sidebar">
+        <button data-page="terminal" title="交互式终端">⌨️<span>终端</span></button>
+        <button data-page="logview" class="active" title="传统收发">📄<span>收发</span></button>
+        <button data-page="plot" title="数据绘图">📈<span>绘图</span></button>
+        <button data-page="stats" title="统计仪表盘">📊<span>统计</span></button>
+      </nav>
+      <main id="pages">
+        <section id="page-terminal" class="page hidden"></section>
+        <section id="page-logview" class="page">
+          <div id="log-controls">
+            <label>时间戳
+              <select id="ts-mode">
+                <option value="absolute">绝对</option>
+                <option value="relative">相对</option>
+                <option value="delta">差值 Δ</option>
+                <option value="none">无</option>
+              </select>
+            </label>
+            <label>编码
+              <select id="encoding">
+                <option value="auto">自动</option>
+                <option value="utf-8">UTF-8</option>
+                <option value="gbk">GBK</option>
+                <option value="gb2312">GB2312</option>
+                <option value="latin-1">Latin-1</option>
+              </select>
+            </label>
+            <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="100" /></label>
+            <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
+            <button id="clear-log">清空</button>
+          </div>
+          <div id="log-view"></div>
+          <div id="send-panel">
+            <select id="send-mode">
+              <option value="text">文本</option>
+              <option value="hex">HEX</option>
+            </select>
+            <input id="send-input" placeholder="输入要发送的内容…" />
+            <select id="send-newline">
+              <option value="none">无换行</option>
+              <option value="\n">\n</option>
+              <option value="\r">\r</option>
+              <option value="\r\n">\r\n</option>
+            </select>
+            <button id="send-btn" class="primary">发送</button>
+          </div>
+        </section>
+        <section id="page-plot" class="page hidden">
+          <div id="plot-controls">
+            <label>格式
+              <select id="plot-fmt">
+                <option value="simple_binary">Simple Binary</option>
+                <option value="ascii_delimited">ASCII 分隔</option>
+              </select>
+            </label>
+            <label>通道数 <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
+            <label>类型
+              <select id="plot-dtype">
+                <option value="uint8">uint8</option><option value="int8">int8</option>
+                <option value="uint16">uint16</option><option selected value="int16">int16</option>
+                <option value="uint32">uint32</option><option value="int32">int32</option>
+                <option value="float32">float32</option><option value="float64">float64</option>
+              </select>
+            </label>
+            <label>端序
+              <select id="plot-endian"><option value="little">小端</option><option value="big">大端</option></select>
+            </label>
+            <label>分隔符 <input id="plot-delimiter" value="," size="3" /></label>
+            <label>点数上限 <input id="plot-maxpoints" type="number" min="100" max="20000" value="2000" /></label>
+            <button id="plot-apply">应用</button>
+            <span id="plot-info"></span>
+          </div>
+          <div id="plot-holder"></div>
+        </section>
+        <section id="page-stats" class="page hidden">
+          <h3>连接统计</h3>
+          <div id="stat-cards" class="cards"></div>
+          <h3>通道指标（来自绘图引擎）</h3>
+          <table id="ch-metrics"><thead><tr></tr></thead><tbody></tbody></table>
+        </section>
+      </main>
+    </div>
+    <footer id="statusbar">
+      <span id="sb-state">未连接</span>
+      <span class="spacer"></span>
+      <span id="sb-rx">RX 0 B</span>
+      <span id="sb-tx">TX 0 B</span>
+      <span id="sb-rate">↓ 0.00 KB/s ↑ 0.00 KB/s</span>
+    </footer>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

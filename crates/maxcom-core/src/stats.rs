@@ -158,18 +158,23 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         let t = std::sync::Arc::new(AtomicU64::new(0.0f64.to_bits()));
         let tc = t.clone();
-        let tracker = StatsTracker::with_clock(Box::new(move || f64::from_bits(tc.load(Ordering::Relaxed))));
+        let tracker =
+            StatsTracker::with_clock(Box::new(move || f64::from_bits(tc.load(Ordering::Relaxed))));
         let set_t = |v: f64| t.store(v.to_bits(), Ordering::Relaxed);
         tracker.record_rx(1024); // t=0：1 KB
         set_t(1.0);
         tracker.record_rx(1024); // t=1：再 1 KB
-        // 窗口 [max(t-2,·),t]=[0,1]，span=1s，total=2048 → 2 KB/s
+                                 // 窗口 [max(t-2,·),t]=[0,1]，span=1s，total=2048 → 2 KB/s
         let s = tracker.snapshot();
         assert!((s.rx_rate_kbs - 2.0).abs() < 1e-6, "got {}", s.rx_rate_kbs);
         // 推进到 t=2.5：cutoff=0.5，t=0 的采样滑出；span=2.5-1=1.5s → 1024/1.5/1024 ≈ 0.6667
         set_t(2.5);
         let s = tracker.snapshot();
-        assert!((s.rx_rate_kbs - 1.0 / 1.5).abs() < 1e-9, "got {}", s.rx_rate_kbs);
+        assert!(
+            (s.rx_rate_kbs - 1.0 / 1.5).abs() < 1e-9,
+            "got {}",
+            s.rx_rate_kbs
+        );
         // 推进到 t=10：全部滑出窗口 → 速率为 0
         set_t(10.0);
         assert_eq!(tracker.snapshot().rx_rate_kbs, 0.0);

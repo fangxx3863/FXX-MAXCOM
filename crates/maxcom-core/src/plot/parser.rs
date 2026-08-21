@@ -3,7 +3,7 @@
 //! INV-2：数据错位跳过只推进解析器本地游标（`skip_one`），不写回原始流。
 //! 解析为纯函数式推进（bytes → 采样帧），跨片段状态仅在缓冲区。
 
-use super::format::{ByteOrder, DataFormat, DType};
+use super::format::{ByteOrder, DType, DataFormat};
 use super::Frame;
 use thiserror::Error;
 
@@ -28,7 +28,11 @@ pub trait FrameParser: Send {
 /// 按配置构造解析器。CustomFrame 校验解析在 M3 接入（契约字段已建模）。
 pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError> {
     match fmt {
-        DataFormat::SimpleBinary { channel_count, dtype, byte_order } => {
+        DataFormat::SimpleBinary {
+            channel_count,
+            dtype,
+            byte_order,
+        } => {
             if *channel_count == 0 {
                 return Err(ParseError::BadChannelCount);
             }
@@ -40,7 +44,11 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
                 errors: 0,
             }))
         }
-        DataFormat::AsciiDelimited { delimiter, filter_prefix, channel_count } => {
+        DataFormat::AsciiDelimited {
+            delimiter,
+            filter_prefix,
+            channel_count,
+        } => {
             if *channel_count == 0 {
                 return Err(ParseError::BadChannelCount);
             }
@@ -158,7 +166,9 @@ impl AsciiDelimitedParser {
             return;
         }
         if let Some(p) = &self.prefix {
-            let Some(rest) = line.strip_prefix(p.as_str()) else { return };
+            let Some(rest) = line.strip_prefix(p.as_str()) else {
+                return;
+            };
             let rest = rest.trim_start();
             self.emit(rest, out);
         } else {
@@ -215,7 +225,12 @@ mod tests {
     }
 
     fn sb_parser(ch: u32, dtype: DType, bo: ByteOrder) -> Box<dyn FrameParser> {
-        make_parser(&DataFormat::SimpleBinary { channel_count: ch, dtype, byte_order: bo }).unwrap()
+        make_parser(&DataFormat::SimpleBinary {
+            channel_count: ch,
+            dtype,
+            byte_order: bo,
+        })
+        .unwrap()
     }
 
     #[test]
@@ -263,7 +278,10 @@ mod tests {
         })
         .unwrap();
         // 无前缀行被静默过滤（非错误）；有前缀但列数不齐才计错误
-        let frames = collect(p.as_mut(), b"DATA: 1.5, 2.5\r\nnoise line here\nDATA: oops\nDATA: 3,4\n");
+        let frames = collect(
+            p.as_mut(),
+            b"DATA: 1.5, 2.5\r\nnoise line here\nDATA: oops\nDATA: 3,4\n",
+        );
         assert_eq!(frames, vec![vec![1.5, 2.5], vec![3.0, 4.0]]);
         assert_eq!(p.error_count(), 1);
     }
@@ -284,7 +302,11 @@ mod tests {
     #[test]
     fn rejects_bad_configs() {
         assert!(matches!(
-            make_parser(&DataFormat::SimpleBinary { channel_count: 0, dtype: DType::U8, byte_order: ByteOrder::Little }),
+            make_parser(&DataFormat::SimpleBinary {
+                channel_count: 0,
+                dtype: DType::U8,
+                byte_order: ByteOrder::Little
+            }),
             Err(ParseError::BadChannelCount)
         ));
         assert!(matches!(

@@ -2,7 +2,9 @@
 
 一站式串口/网络调试与数据可视化平台，解决现有调试工具（VOFA+、SuperCom、SSCOM、SerialPlot、SecureCRT）的几乎所有痛点。
 
-本仓库是 **设计与决策的单一事实源**。源代码放 `src/`，小工具放 `tools/`，设计文档在 `documents/`。
+本仓库是 **设计与决策的单一事实源**。设计文档在 `documents/`。
+>
+> `rust-tauri` 分支：实现代码在 `crates/`（Rust 引擎）与 `app/`（Tauri 外壳+前端），见 ADR-0018。
 
 ## 入口
 - **AI agent**：先读 [`AGENTS.md`](AGENTS.md)

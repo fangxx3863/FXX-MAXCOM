@@ -29,7 +29,11 @@ impl TransportRead for TcpRead {
         match self.stream.read(buf) {
             Ok(n) => Ok(n),
             // 读超时 = 本节拍无数据（对齐 pyserial timeout 语义）
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => Ok(0),
+            Err(e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                Ok(0)
+            }
             Err(e) => Err(e),
         }
     }

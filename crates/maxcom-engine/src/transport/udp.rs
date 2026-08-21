@@ -28,7 +28,11 @@ impl TransportRead for UdpRead {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.sock.recv(buf) {
             Ok(n) => Ok(n),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut => Ok(0),
+            Err(e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                Ok(0)
+            }
             Err(e) => Err(e),
         }
     }

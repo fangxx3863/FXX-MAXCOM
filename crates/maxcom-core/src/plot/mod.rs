@@ -22,7 +22,9 @@ pub struct ChannelStore {
 impl ChannelStore {
     pub fn new(channel_count: usize, capacity: usize) -> Self {
         Self {
-            channels: (0..channel_count).map(|_| ringbuffer::AllocRingBuffer::new(capacity)).collect(),
+            channels: (0..channel_count)
+                .map(|_| ringbuffer::AllocRingBuffer::new(capacity))
+                .collect(),
             capacity,
         }
     }
@@ -39,7 +41,10 @@ impl ChannelStore {
 
     /// 通道内最近样本数（各通道同步增长）
     pub fn len(&self) -> usize {
-        self.channels.first().map(ringbuffer::RingBuffer::len).unwrap_or(0)
+        self.channels
+            .first()
+            .map(ringbuffer::RingBuffer::len)
+            .unwrap_or(0)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -111,7 +116,6 @@ pub struct ChannelMetrics {
     pub rms: f64,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,7 +147,7 @@ mod tests {
         assert_eq!(ds.len(), 10);
         assert_eq!(ds[0], 0.0);
         assert_eq!(*ds.last().unwrap(), 90.0); // 等距抽稀：0,10,...,90
-        // 少于上限 → 原样
+                                               // 少于上限 → 原样
         assert_eq!(store.downsampled(0, 200).len(), 100);
     }
 

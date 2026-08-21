@@ -63,7 +63,9 @@ impl Default for Palette {
 impl Palette {
     /// `#RRGGBB` / 命名色 → RGB；None 或未知 → 主题默认前景。
     pub fn resolve(&self, color: Option<&str>) -> (u8, u8, u8) {
-        let Some(c) = color else { return self.default_fg() };
+        let Some(c) = color else {
+            return self.default_fg();
+        };
         if let Some(rgb) = parse_hex(c) {
             return rgb;
         }
@@ -77,10 +79,18 @@ impl Palette {
     pub fn level_color(&self, level: &str) -> (u8, u8, u8) {
         match level.to_ascii_uppercase().as_str() {
             "E" | "ERROR" | "ERR" | "F" | "FATAL" | "CRITICAL" => {
-                if self.theme == Theme::Dark { BASIC_COLORS[9] } else { BASIC_COLORS[1] }
+                if self.theme == Theme::Dark {
+                    BASIC_COLORS[9]
+                } else {
+                    BASIC_COLORS[1]
+                }
             }
             "W" | "WARN" | "WARNING" => {
-                if self.theme == Theme::Dark { BASIC_COLORS[11] } else { BASIC_COLORS[3] }
+                if self.theme == Theme::Dark {
+                    BASIC_COLORS[11]
+                } else {
+                    BASIC_COLORS[3]
+                }
             }
             "D" | "DEBUG" => BASIC_COLORS[8],
             _ => self.default_fg(),
@@ -88,7 +98,11 @@ impl Palette {
     }
 
     pub fn default_fg(&self) -> (u8, u8, u8) {
-        if self.theme == Theme::Dark { (220, 220, 224) } else { (32, 32, 32) }
+        if self.theme == Theme::Dark {
+            (220, 220, 224)
+        } else {
+            (32, 32, 32)
+        }
     }
 }
 
@@ -123,7 +137,9 @@ mod tests {
     #[test]
     fn level_colors_by_theme() {
         let dark = Palette { theme: Theme::Dark };
-        let light = Palette { theme: Theme::Light };
+        let light = Palette {
+            theme: Theme::Light,
+        };
         assert_eq!(dark.level_color("E"), BASIC_COLORS[9]);
         assert_eq!(light.level_color("E"), BASIC_COLORS[1]);
         assert_eq!(dark.level_color("I"), dark.default_fg());

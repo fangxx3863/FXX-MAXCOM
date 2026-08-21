@@ -43,7 +43,11 @@ impl FilterEngine {
 
     /// 添加/覆盖规则（重复同名覆盖）。
     pub fn add_rule(&mut self, rule: &FilterRule) {
-        let compiled = CompiledRule { action: rule.action.clone(), matcher: regex::Regex::new(&rule.pattern).ok(), enabled: rule.enabled };
+        let compiled = CompiledRule {
+            action: rule.action.clone(),
+            matcher: regex::Regex::new(&rule.pattern).ok(),
+            enabled: rule.enabled,
+        };
         if let Some(i) = self.names.iter().position(|n| *n == rule.name) {
             self.rules[i] = compiled;
         } else {
@@ -111,7 +115,10 @@ pub fn load_rules(path: &std::path::Path) -> Vec<FilterRule> {
                 name: t.get("name")?.as_str()?.to_string(),
                 pattern: t.get("pattern")?.as_str()?.to_string(),
                 action: t.get("action")?.as_str()?.to_string(),
-                enabled: t.get("enabled").and_then(toml::Value::as_bool).unwrap_or(true),
+                enabled: t
+                    .get("enabled")
+                    .and_then(toml::Value::as_bool)
+                    .unwrap_or(true),
             })
         })
         .collect()
@@ -122,7 +129,12 @@ mod tests {
     use super::*;
 
     fn rule(name: &str, pat: &str, action: &str) -> FilterRule {
-        FilterRule { name: name.into(), pattern: pat.into(), action: action.into(), enabled: true }
+        FilterRule {
+            name: name.into(),
+            pattern: pat.into(),
+            action: action.into(),
+            enabled: true,
+        }
     }
 
     #[test]
@@ -183,7 +195,9 @@ mod loader_tests {
         let mut f = std::env::temp_dir();
         f.push("maxcom_filter_test.toml");
         let mut file = std::fs::File::create(&f).unwrap();
-        writeln!(file, r#"
+        writeln!(
+            file,
+            r#"
 [[rules]]
 name = "hide-hb"
 pattern = "HEARTBEAT"
@@ -198,11 +212,13 @@ name = "show-err"
 pattern = "ERROR"
 action = "show"
 enabled = false
-"#).unwrap();
+"#
+        )
+        .unwrap();
         let rules = load_rules(&f);
         assert_eq!(rules.len(), 2);
         assert_eq!(rules[0].name, "hide-hb");
-        assert!(rules[1].enabled == false);
+        assert!(!rules[1].enabled);
         std::fs::remove_file(&f).ok();
     }
 

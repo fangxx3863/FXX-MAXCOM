@@ -27,11 +27,26 @@ pub struct ColoredSegment {
 
 impl ColoredSegment {
     pub fn plain(text: impl Into<String>) -> Self {
-        Self { text: text.into(), fg: None, bg: None, bold: None }
+        Self {
+            text: text.into(),
+            fg: None,
+            bg: None,
+            bold: None,
+        }
     }
 
-    pub fn colored(text: impl Into<String>, fg: Option<String>, bg: Option<String>, bold: bool) -> Self {
-        Self { text: text.into(), fg, bg, bold: Some(bold) }
+    pub fn colored(
+        text: impl Into<String>,
+        fg: Option<String>,
+        bg: Option<String>,
+        bold: bool,
+    ) -> Self {
+        Self {
+            text: text.into(),
+            fg,
+            bg,
+            bold: Some(bold),
+        }
     }
 }
 
@@ -62,7 +77,9 @@ fn default_true() -> bool {
 pub const DEFAULT_USER_PRIORITY: f64 = 3.5;
 
 enum RuleKind {
-    Builtin { func: fn(&str) -> Option<Vec<ColoredSegment>> },
+    Builtin {
+        func: fn(&str) -> Option<Vec<ColoredSegment>>,
+    },
     User(Box<ColorRule>, Option<regex::Regex>),
 }
 
@@ -127,7 +144,11 @@ pub struct ColorizeEngine {
 
 impl ColorizeEngine {
     pub fn new(with_builtins: bool) -> Self {
-        let mut e = Self { master_enabled: true, ansi_yield: true, rules: Vec::new() };
+        let mut e = Self {
+            master_enabled: true,
+            ansi_yield: true,
+            rules: Vec::new(),
+        };
         if with_builtins {
             for (name, priority, func) in builtin::BUILTIN_RULES {
                 e.rules.push(Rule {
@@ -148,9 +169,19 @@ impl ColorizeEngine {
         let name = rule.name.clone();
         let enabled = rule.enabled;
         if let Some(i) = self.rules.iter().position(|r| r.name == name) {
-            self.rules[i] = Rule { name, priority, enabled, kind: RuleKind::User(Box::new(rule), re) };
+            self.rules[i] = Rule {
+                name,
+                priority,
+                enabled,
+                kind: RuleKind::User(Box::new(rule), re),
+            };
         } else {
-            self.rules.push(Rule { name, priority, enabled, kind: RuleKind::User(Box::new(rule), re) });
+            self.rules.push(Rule {
+                name,
+                priority,
+                enabled,
+                kind: RuleKind::User(Box::new(rule), re),
+            });
         }
     }
 
@@ -211,7 +242,9 @@ pub fn load_rules(path: &std::path::Path) -> Vec<ColorRule> {
         #[serde(default)]
         rules: Vec<ColorRule>,
     }
-    toml::from_str::<File>(text).map(|f| f.rules).unwrap_or_default()
+    toml::from_str::<File>(text)
+        .map(|f| f.rules)
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -287,7 +320,10 @@ mod tests {
         e.register(user("u1", "42", "match", "#FF9500", None));
         // "value 42" 无冒号 → kv 不命中；用带冒号行验证 kv 先于用户规则(3.5)
         let segs = e.process_line("temp: 42");
-        assert_eq!(segs.iter().find(|s| s.text == "42").unwrap().fg.as_deref(), Some("cyan"));
+        assert_eq!(
+            segs.iter().find(|s| s.text == "42").unwrap().fg.as_deref(),
+            Some("cyan")
+        );
         // priority=0 抢在 bracket 前
         e.register(user("u0", r"^\[W\]", "line", "#00FF00", Some(0.0)));
         let segs = e.process_line("[W] careful");

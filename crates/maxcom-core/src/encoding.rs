@@ -41,7 +41,11 @@ impl EncodingDetector {
 
     /// 按指定编码解码；"auto" 先检测，仍判不出按 latin-1。绝不失败。
     pub fn decode(&self, data: &[u8], encoding: &str) -> String {
-        let enc = if encoding == AUTO { self.detect(data) } else { encoding };
+        let enc = if encoding == AUTO {
+            self.detect(data)
+        } else {
+            encoding
+        };
         match enc {
             "utf-8" => String::from_utf8_lossy(data).into_owned(),
             "gbk" | "gb2312" => decode_with(GBK, data),
@@ -53,7 +57,9 @@ impl EncodingDetector {
 /// 替换式解码（非法序列 → U+FFFD），等价 Python errors="replace"。
 fn decode_with(enc: &'static Encoding, data: &[u8]) -> String {
     let mut decoder = enc.new_decoder();
-    let mut out = String::with_capacity((decoder.max_utf8_buffer_length(data.len())).unwrap_or(data.len() * 2));
+    let mut out = String::with_capacity(
+        (decoder.max_utf8_buffer_length(data.len())).unwrap_or(data.len() * 2),
+    );
     let (_res, _read, _had_errors) = decoder.decode_to_string(data, &mut out, true);
     out
 }

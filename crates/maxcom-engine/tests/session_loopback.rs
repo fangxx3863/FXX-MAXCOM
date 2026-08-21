@@ -63,7 +63,10 @@ fn wait_until<F: Fn() -> bool>(cond: F, timeout: Duration) -> bool {
 }
 
 fn tcp_cfg(port: u16) -> ConnConfig {
-    ConnConfig::TcpClient { host: "127.0.0.1".into(), port }
+    ConnConfig::TcpClient {
+        host: "127.0.0.1".into(),
+        port,
+    }
 }
 
 #[test]
@@ -77,15 +80,30 @@ fn full_pipeline_over_tcp_loopback() {
 
     // ── 发送：文本 + 换行；回显服务器原样返回 ──
     let n = mgr
-        .send(&SendPayload { text: Some("hello".into()), hex: None, newline: "\r\n".into() })
+        .send(&SendPayload {
+            text: Some("hello".into()),
+            hex: None,
+            newline: "\r\n".into(),
+        })
         .expect("send");
     assert_eq!(n, 7);
 
     // 回显到达：raw 与日志行都应有内容
-    assert!(wait_until(|| rec.raw.lock().unwrap().len() >= 7, Duration::from_secs(3)), "raw 未收到回显");
     assert!(
         wait_until(
-            || rec.entries.lock().unwrap().iter().any(|e| e.text.contains("hello")),
+            || rec.raw.lock().unwrap().len() >= 7,
+            Duration::from_secs(3)
+        ),
+        "raw 未收到回显"
+    );
+    assert!(
+        wait_until(
+            || rec
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.text.contains("hello")),
             Duration::from_secs(3)
         ),
         "日志行未产出"
@@ -104,14 +122,34 @@ fn full_pipeline_over_tcp_loopback() {
         enabled: true,
     }]);
     let before = rec.entries.lock().unwrap().len();
-    mgr.send(&SendPayload { text: Some("hello again".into()), hex: None, newline: "\n".into() }).unwrap();
-    mgr.send(&SendPayload { text: Some("visible".into()), hex: None, newline: "\n".into() }).unwrap();
+    mgr.send(&SendPayload {
+        text: Some("hello again".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    mgr.send(&SendPayload {
+        text: Some("visible".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
     wait_until(
-        || rec.entries.lock().unwrap().iter().skip(before).any(|e| e.text.contains("visible")),
+        || {
+            rec.entries
+                .lock()
+                .unwrap()
+                .iter()
+                .skip(before)
+                .any(|e| e.text.contains("visible"))
+        },
         Duration::from_secs(3),
     );
     let new_entries = rec.entries.lock().unwrap()[before..].to_vec();
-    assert!(!new_entries.iter().any(|e| e.text.contains("hello")), "hide 规则未生效: {new_entries:?}");
+    assert!(
+        !new_entries.iter().any(|e| e.text.contains("hello")),
+        "hide 规则未生效: {new_entries:?}"
+    );
     assert!(new_entries.iter().any(|e| e.text.contains("visible")));
 
     // ── 断开 ──
@@ -126,7 +164,12 @@ fn connect_rejects_bad_config_and_double_connect() {
     let rec = Arc::new(Recorder::default());
     let mgr = SessionManager::new(rec);
 
-    assert!(mgr.connect(ConnConfig::TcpClient { host: "".into(), port }).is_err());
+    assert!(mgr
+        .connect(ConnConfig::TcpClient {
+            host: "".into(),
+            port
+        })
+        .is_err());
     mgr.connect(tcp_cfg(port)).unwrap();
     // 单连接（ADR-0016）：重复连接拒绝
     assert!(mgr.connect(tcp_cfg(port)).is_err());
@@ -137,7 +180,11 @@ fn connect_rejects_bad_config_and_double_connect() {
 fn send_without_connection_errors() {
     let rec = Arc::new(Recorder::default());
     let mgr = SessionManager::new(rec);
-    let err = mgr.send(&SendPayload { text: Some("x".into()), hex: None, newline: "none".into() });
+    let err = mgr.send(&SendPayload {
+        text: Some("x".into()),
+        hex: None,
+        newline: "none".into(),
+    });
     assert!(err.is_err());
 }
 

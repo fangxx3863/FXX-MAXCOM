@@ -27,8 +27,19 @@ pub fn discover() -> Vec<PortInfo> {
 }
 
 pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
-    let ConnConfig::Serial { port, baud, data_bits, parity, stop_bits, flow_control } = config else {
-        return Err(io::Error::new(ErrorKind::InvalidInput, "not a serial config"));
+    let ConnConfig::Serial {
+        port,
+        baud,
+        data_bits,
+        parity,
+        stop_bits,
+        flow_control,
+    } = config
+    else {
+        return Err(io::Error::new(
+            ErrorKind::InvalidInput,
+            "not a serial config",
+        ));
     };
     let builder = serialport::Builder::new()
         .baud_rate(*baud)
@@ -54,7 +65,9 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
         })
         .timeout(READ_TIMEOUT);
     let port_obj = builder.open_path(port)?;
-    let write_half = port_obj.try_clone().map_err(|e| io::Error::other(e.to_string()))?;
+    let write_half = port_obj
+        .try_clone()
+        .map_err(|e| io::Error::other(e.to_string()))?;
     let label = format!("串口 {port} @ {baud}");
     Ok(ConnPair {
         read: Box::new(SerialRead { port: port_obj }),
