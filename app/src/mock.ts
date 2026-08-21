@@ -241,9 +241,11 @@ class MockBackend implements ApiShape {
     }
     if (show) {
       this.ts += 40 + Math.floor(Math.random() * 120);
+      const rawBytes = new TextEncoder().encode(text);
+      const rawHex = [...rawBytes].map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
       const batch: EntriesBatch = {
         epoch_anchor_ms: this.startWall,
-        items: [{ ts_ms: this.ts, text, segments: pick.segs }],
+        items: [{ ts_ms: this.ts, text, segments: pick.segs, raw_hex: rawHex }],
       };
       this.next(this.entryListeners, batch);
     }

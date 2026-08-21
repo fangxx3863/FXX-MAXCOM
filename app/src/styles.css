@@ -251,16 +251,25 @@ button.dd-face { justify-content: space-between; }
 /* 引脚按钮态（保留兼容） */
 .pin.on { border-color: var(--ok); color: var(--ok); }
 
-/* 控制条输入框统一暗色（分包超时/通道数/分隔符/点数上限等） */
-#log-controls input[type="number"],
-#log-controls input[type="text"],
-#plot-controls input[type="number"],
-#plot-controls input[type="text"] {
+/* 控制条输入框统一暗色（含无 type 属性的文本框，如分隔符） */
+#log-controls input:not([type="checkbox"]):not([type="file"]),
+#plot-controls input:not([type="checkbox"]):not([type="file"]) {
   background: var(--bg3); color: var(--fg);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 3px 8px; outline: none;
 }
 #log-controls input:focus, #plot-controls input:focus { border-color: var(--accent); }
+
+/* number spinner 原生箭头在暗底下发白 → 直接隐藏，键入修改 */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+
+/* HEX 显示行 */
+.log-hex { color: var(--fg-dim); letter-spacing: 0.5px; }
 #log-controls label, #plot-controls label {
   color: var(--fg-dim); display: inline-flex; gap: 6px; align-items: center; white-space: nowrap;
 }

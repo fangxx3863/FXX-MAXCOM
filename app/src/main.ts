@@ -90,7 +90,7 @@ const encodingDd = createDropdown({
   onChange: () => applyLogOptions(),
 });
 document.querySelector("#encoding-dd")?.replaceWith(encodingDd.el);
-let logViewRef: { resetDeltaBase(): void } | null = null;
+let logViewRef: { resetDeltaBase(): void; setHexDisplay(on: boolean): void } | null = null;
 
 // DTR / RTS 引脚（复选框；连接串口时默认拉高）
 let dtrOn = false;
@@ -301,6 +301,9 @@ function applyLogOptions() {
     .catch(() => {});
 }
 $("#idle-timeout").addEventListener("change", applyLogOptions);
+$<HTMLInputElement>("#hex-display").addEventListener("change", (e) => {
+  logViewRef?.setHexDisplay((e.target as HTMLInputElement).checked);
+});
 
 $("#clear-log").addEventListener("click", () => {
   logViewPage.clear();

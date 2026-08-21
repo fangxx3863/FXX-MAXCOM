@@ -25,7 +25,8 @@ export interface DropdownOptions {
 let openDropdown: HTMLElement | null = null;
 
 function closeOpen() {
-  openDropdown?.remove();
+  // 隐藏而非移除：remove 会让节点游离出 DOM，二次 open 操作的是游离节点 → 永远打不开
+  openDropdown?.classList.add("hidden");
   openDropdown = null;
 }
 document.addEventListener("click", (e) => {

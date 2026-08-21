@@ -20,6 +20,7 @@
     "vite": "^8.2.2"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "jsdom": "^30.0.1"
   }
 }

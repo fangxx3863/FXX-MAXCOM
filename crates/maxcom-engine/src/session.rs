@@ -31,6 +31,8 @@ pub struct LogEntryDto {
     pub ts_ms: u64,
     pub text: String,
     pub segments: Vec<maxcom_core::colorize::ColoredSegment>,
+    /// 原始行字节的 hex（HEX 显示模式用）
+    pub raw_hex: String,
 }
 
 /// 绘图快照 DTO（前端 ~50ms 轮询一次）
@@ -391,7 +393,7 @@ impl SessionManager {
                                 let text = detector.decode(&raw, &options.encoding);
                                 let segments = colorize.process_line(&text);
                                 if filter.should_show(&text) {
-                                    batch.push(LogEntryDto { ts_ms: now, text, segments });
+                                    batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw) });
                                 }
                             }
                         }
@@ -406,7 +408,7 @@ impl SessionManager {
                             let text = detector.decode(&raw, &options.encoding);
                             let segments = colorize.process_line(&text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments });
+                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw) });
                             }
                         }
                         if !batch.is_empty() && last_flush.elapsed() >= Duration::from_millis(30) {
@@ -421,7 +423,7 @@ impl SessionManager {
                         let text = detector.decode(&raw, &options.encoding);
                         let segments = colorize.process_line(&text);
                         if filter.should_show(&text) {
-                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments });
+                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw) });
                         }
                     }
                     if !batch.is_empty() {
@@ -583,6 +585,17 @@ fn decode_hex(s: &str) -> Result<Vec<u8>, String> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| format!("非法 hex: {e}")))
         .collect()
+}
+
+fn hex_of(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 3);
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 {
+            s.push(' ');
+        }
+        s.push_str(&format!("{b:02X}"));
+    }
+    s
 }
 
 fn now_mono_ms() -> u64 {

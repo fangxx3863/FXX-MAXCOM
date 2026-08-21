@@ -8,6 +8,7 @@ export class LogViewPage {
   private view: HTMLElement;
   private autoscroll: HTMLInputElement;
   private getTsMode: () => string;
+  private hexDisplay = false;
   private epochAnchor = Date.now();
   private lastTs: number | null = null;
   private lines = 0;
@@ -16,6 +17,10 @@ export class LogViewPage {
     this.view = view;
     this.autoscroll = opts.autoscroll;
     this.getTsMode = opts.getTsMode;
+  }
+
+  setHexDisplay(on: boolean) {
+    this.hexDisplay = on;
   }
 
   /** 时间戳模式切换后重置差值基准 */
@@ -48,6 +53,14 @@ export class LogViewPage {
       ts.className = "log-ts";
       ts.textContent = this.formatTs(e.ts_ms);
       div.appendChild(ts);
+    }
+    if (this.hexDisplay) {
+      // HEX 模式：原始字节十六进制（染色让位——二进制没有"颜色语义"）
+      const s = document.createElement("span");
+      s.className = "log-hex";
+      s.textContent = e.raw_hex || "(空)";
+      div.appendChild(s);
+      return div;
     }
     for (const seg of e.segments) {
       const s = document.createElement("span");

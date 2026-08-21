@@ -31,6 +31,7 @@ export interface LogEntryDto {
   ts_ms: number;
   text: string;
   segments: ColoredSegment[];
+  raw_hex: string;
 }
 
 export interface EntriesBatch {
