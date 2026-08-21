@@ -29,7 +29,20 @@ const realApi = {
   getStats: () => invoke<StatsSnapshot>("get_stats"),
   setPlotFormat: (fmt: DataFormat) => invoke<void>("set_plot_format", { fmt }),
   plotSnapshot: (maxPoints: number) => invoke<PlotSnapshotDto>("plot_snapshot", { maxPoints }),
+  setDtr: (on: boolean) => invoke<void>("set_dtr", { on }),
+  setRts: (on: boolean) => invoke<void>("set_rts", { on }),
+  setAutoReconnect: (on: boolean) => invoke<void>("set_auto_reconnect", { on }),
+  startCapture: () => invoke<void>("start_capture"),
+  saveCapture: (path: string) => invoke<number>("save_capture", { path }),
+  captureState: () => invoke<[boolean, number, number]>("capture_state"),
 };
+
+/** 取保存路径：Tauri 走 dialog 插件；浏览器返回 null（由调用方降级为下载） */
+export async function pickSavePath(defaultName: string): Promise<string | null> {
+  if (!IS_TAURI) return null;
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  return await save({ defaultPath: defaultName });
+}
 
 export const api = IS_TAURI ? realApi : mock;
 

@@ -67,7 +67,11 @@ pub struct LogOptions {
 
 impl Default for LogOptions {
     fn default() -> Self {
-        Self { idle_timeout_ms: 100, timestamp_mode: TimestampMode::Absolute, encoding: "auto".into() }
+        Self {
+            idle_timeout_ms: 100,
+            timestamp_mode: TimestampMode::Absolute,
+            encoding: "auto".into(),
+        }
     }
 }
 
@@ -86,7 +90,11 @@ pub struct SendPayload {
 enum Cmd {
     SetLogOptions(LogOptions),
     SetFilters(Vec<FilterRule>),
-    SetColorRules { master: bool, ansi_yield: bool, rules: Vec<ColorRule> },
+    SetColorRules {
+        master: bool,
+        ansi_yield: bool,
+        rules: Vec<ColorRule>,
+    },
     ClearLog,
 }
 
@@ -147,7 +155,9 @@ impl SessionManager {
     /// DTR/RTS：转发给当前传输；重连成功后自动重放
     pub fn set_dtr(&self, on: bool) -> Result<(), String> {
         let guard = self.active.lock().unwrap();
-        let Some(a) = &*guard else { return Err("未连接".into()) };
+        let Some(a) = &*guard else {
+            return Err("未连接".into());
+        };
         a.dtr.store(on, Ordering::Relaxed);
         let res = a.write.lock().unwrap().set_dtr(on);
         res.map_err(|e| e.to_string())
@@ -155,7 +165,9 @@ impl SessionManager {
 
     pub fn set_rts(&self, on: bool) -> Result<(), String> {
         let guard = self.active.lock().unwrap();
-        let Some(a) = &*guard else { return Err("未连接".into()) };
+        let Some(a) = &*guard else {
+            return Err("未连接".into());
+        };
         a.rts.store(on, Ordering::Relaxed);
         let res = a.write.lock().unwrap().set_rts(on);
         res.map_err(|e| e.to_string())
@@ -175,7 +187,9 @@ impl SessionManager {
     pub fn save_capture(&self, path: &str) -> Result<u64, String> {
         let buf = self.capture.lock().unwrap().take();
         let dropped = self.capture_dropped.load(Ordering::Relaxed);
-        let Some(buf) = buf else { return Err("未在捕获中".into()) };
+        let Some(buf) = buf else {
+            return Err("未在捕获中".into());
+        };
         let n = buf.len() as u64;
         std::fs::write(path, &buf).map_err(|e| format!("写入失败: {e}"))?;
         if dropped > 0 {
@@ -257,68 +271,83 @@ impl SessionManager {
         let dropped_r = self.capture_dropped.clone();
         let label_r = label.clone();
         let cfg_r = config.clone();
-        threads.push(std::thread::Builder::new().name("reader".into()).spawn(move || {
-            let mut buf = [0u8; 4096];
-            'session: loop {
-                // ── 读循环 ──
-                loop {
-                    if stop_r.load(Ordering::Relaxed) {
-                        break 'session;
-                    }
-                    match read_half.read(&mut buf) {
-                        Ok(0) => continue, // 超时节拍
-                        Ok(n) => {
-                            stats_r.record_rx(n);
-                            ev.raw(&buf[..n]);
-                            bus_r.publish(&buf[..n]);
-                            // 捕获
-                            if let Some(cap) = &mut *capture_r.lock().unwrap() {
-                                if cap.len() + n <= CAPTURE_CAP {
-                                    cap.extend_from_slice(&buf[..n]);
-                                } else {
-                                    dropped_r.fetch_add(n as u64, Ordering::Relaxed);
+        threads.push(
+            std::thread::Builder::new()
+                .name("reader".into())
+                .spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    'session: loop {
+                        // ── 读循环 ──
+                        loop {
+                            if stop_r.load(Ordering::Relaxed) {
+                                break 'session;
+                            }
+                            match read_half.read(&mut buf) {
+                                Ok(0) => continue, // 超时节拍
+                                Ok(n) => {
+                                    stats_r.record_rx(n);
+                                    ev.raw(&buf[..n]);
+                                    bus_r.publish(&buf[..n]);
+                                    // 捕获
+                                    if let Some(cap) = &mut *capture_r.lock().unwrap() {
+                                        if cap.len() + n <= CAPTURE_CAP {
+                                            cap.extend_from_slice(&buf[..n]);
+                                        } else {
+                                            dropped_r.fetch_add(n as u64, Ordering::Relaxed);
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    ev.state(&ConnState {
+                                        connected: false,
+                                        label: label_r.clone(),
+                                        error: Some(e.to_string()),
+                                    });
+                                    break;
                                 }
                             }
                         }
-                        Err(e) => {
-                            ev.state(&ConnState { connected: false, label: label_r.clone(), error: Some(e.to_string()) });
-                            break;
-                        }
-                    }
-                }
-                // ── 掉线：自动重连循环 ──
-                loop {
-                    if stop_r.load(Ordering::Relaxed) || !auto_r.load(Ordering::Relaxed) {
-                        break 'session;
-                    }
-                    // 分片睡眠，保证 stop 能及时生效
-                    let step = 100u64;
-                    let mut waited = 0u64;
-                    while waited < delay_ms {
-                        if stop_r.load(Ordering::Relaxed) {
-                            break 'session;
-                        }
-                        std::thread::sleep(Duration::from_millis(step.min(delay_ms - waited)));
-                        waited += step;
-                    }
-                    match super::transport::open(&cfg_r) {
-                        Ok(pair) => {
-                            *write_r.lock().unwrap() = pair.write;
-                            // 重放 DTR/RTS
-                            {
-                                let mut w = write_r.lock().unwrap();
-                                let _ = w.set_dtr(dtr_r.load(Ordering::Relaxed));
-                                let _ = w.set_rts(rts_r.load(Ordering::Relaxed));
+                        // ── 掉线：自动重连循环 ──
+                        loop {
+                            if stop_r.load(Ordering::Relaxed) || !auto_r.load(Ordering::Relaxed) {
+                                break 'session;
                             }
-                            read_half = pair.read;
-                            ev.state(&ConnState { connected: true, label: label_r.clone(), error: None });
-                            continue 'session;
+                            // 分片睡眠，保证 stop 能及时生效
+                            let step = 100u64;
+                            let mut waited = 0u64;
+                            while waited < delay_ms {
+                                if stop_r.load(Ordering::Relaxed) {
+                                    break 'session;
+                                }
+                                std::thread::sleep(Duration::from_millis(
+                                    step.min(delay_ms - waited),
+                                ));
+                                waited += step;
+                            }
+                            match super::transport::open(&cfg_r) {
+                                Ok(pair) => {
+                                    *write_r.lock().unwrap() = pair.write;
+                                    // 重放 DTR/RTS
+                                    {
+                                        let mut w = write_r.lock().unwrap();
+                                        let _ = w.set_dtr(dtr_r.load(Ordering::Relaxed));
+                                        let _ = w.set_rts(rts_r.load(Ordering::Relaxed));
+                                    }
+                                    read_half = pair.read;
+                                    ev.state(&ConnState {
+                                        connected: true,
+                                        label: label_r.clone(),
+                                        error: None,
+                                    });
+                                    continue 'session;
+                                }
+                                Err(_) => continue, // 继续退避重试
+                            }
                         }
-                        Err(_) => continue, // 继续退避重试
                     }
-                }
-            }
-        }).map_err(|e| e.to_string())?);
+                })
+                .map_err(|e| e.to_string())?,
+        );
 
         // ── 日志线程 ──
         let log_q = bus.subscribe("log");
@@ -394,29 +423,35 @@ impl SessionManager {
         let stop_p = stop.clone();
         let plot_store = self.plot.clone();
         let fmt = self.plot_format.lock().unwrap().clone();
-        threads.push(std::thread::Builder::new().name("plot".into()).spawn(move || {
-            let mut parser: Option<Box<dyn FrameParser>> = fmt.as_ref().and_then(|f| make_parser(f).ok());
-            loop {
-                match plot_q.recv_timeout(Duration::from_millis(200)) {
-                    Ok(data) => {
-                        if let Some(p) = parser.as_mut() {
-                            drop(plot_store.lock().unwrap()); // 解析在锁外；push 时短暂加锁
-                            let mut frames = Vec::new();
-                            p.feed(&data, &mut |f| frames.push(f));
-                            let mut store = plot_store.lock().unwrap();
-                            for f in frames {
-                                store.push_frame(&f);
+        threads.push(
+            std::thread::Builder::new()
+                .name("plot".into())
+                .spawn(move || {
+                    let mut parser: Option<Box<dyn FrameParser>> =
+                        fmt.as_ref().and_then(|f| make_parser(f).ok());
+                    loop {
+                        match plot_q.recv_timeout(Duration::from_millis(200)) {
+                            Ok(data) => {
+                                if let Some(p) = parser.as_mut() {
+                                    drop(plot_store.lock().unwrap()); // 解析在锁外；push 时短暂加锁
+                                    let mut frames = Vec::new();
+                                    p.feed(&data, &mut |f| frames.push(f));
+                                    let mut store = plot_store.lock().unwrap();
+                                    for f in frames {
+                                        store.push_frame(&f);
+                                    }
+                                }
                             }
+                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+                            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                        }
+                        if stop_p.load(Ordering::Relaxed) {
+                            break;
                         }
                     }
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-                }
-                if stop_p.load(Ordering::Relaxed) {
-                    break;
-                }
-            }
-        }).map_err(|e| e.to_string())?);
+                })
+                .map_err(|e| e.to_string())?,
+        );
 
         *guard = Some(Active {
             stop,
@@ -428,7 +463,11 @@ impl SessionManager {
             dtr,
             rts,
         });
-        self.events.state(&ConnState { connected: true, label, error: None });
+        self.events.state(&ConnState {
+            connected: true,
+            label,
+            error: None,
+        });
         Ok(())
     }
 
@@ -439,7 +478,11 @@ impl SessionManager {
             for t in a.threads.drain(..) {
                 let _ = t.join();
             }
-            self.events.state(&ConnState { connected: false, label: a.label, error: None });
+            self.events.state(&ConnState {
+                connected: false,
+                label: a.label,
+                error: None,
+            });
         }
     }
 
@@ -450,7 +493,11 @@ impl SessionManager {
         let guard = self.active.lock().unwrap();
         match &*guard {
             Some(a) => {
-                a.write.lock().unwrap().write_all(&bytes).map_err(|e| e.to_string())?;
+                a.write
+                    .lock()
+                    .unwrap()
+                    .write_all(&bytes)
+                    .map_err(|e| e.to_string())?;
                 a.stats.record_tx(n);
                 Ok(n)
             }
@@ -472,7 +519,11 @@ impl SessionManager {
 
     pub fn set_color_rules(&self, master: bool, ansi_yield: bool, rules: Vec<ColorRule>) {
         if let Some(a) = &*self.active.lock().unwrap() {
-            let _ = a.cmd_tx.send(Cmd::SetColorRules { master, ansi_yield, rules });
+            let _ = a.cmd_tx.send(Cmd::SetColorRules {
+                master,
+                ansi_yield,
+                rules,
+            });
         }
     }
 

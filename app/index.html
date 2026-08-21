@@ -7,24 +7,29 @@
   </head>
   <body>
     <header id="topbar">
-      <span class="brand">MAXCOM</span>
-      <select id="conn-type">
-        <option value="serial">串口</option>
-        <option value="tcp_client">TCP 客户端</option>
-        <option value="udp_client">UDP</option>
-      </select>
-      <select id="serial-port"></select>
-      <button id="refresh-ports" title="刷新串口列表">⟳</button>
-      <input id="tcp-host" placeholder="主机" value="127.0.0.1" class="hidden" />
-      <input id="tcp-port" type="number" placeholder="端口" value="8888" class="hidden" />
-      <select id="baud">
-        <option>9600</option><option>19200</option><option>38400</option>
-        <option>57600</option><option selected>115200</option><option>230400</option>
-        <option>460800</option><option>921600</option>
-      </select>
-      <button id="connect-btn" class="primary">连接</button>
-      <span id="conn-state" class="dot off" title="未连接"></span>
-      <span id="conn-label"></span>
+      <div class="toprow">
+        <span class="brand">MAXCOM</span>
+        <div id="conn-type-dd"></div>
+        <div id="serial-port-dd" class="grow"></div>
+        <button id="refresh-ports" title="刷新串口列表">⟳</button>
+        <div id="tcp-host-dd" class="hidden"></div>
+        <input id="tcp-port" type="number" placeholder="端口" value="8888" class="hidden" />
+        <div id="baud-dd"></div>
+        <label class="chk serial-only"><input id="auto-reconnect" type="checkbox" checked />自动重连</label>
+        <button id="connect-btn" class="primary">连接</button>
+        <span id="conn-state" class="dot off" title="未连接"></span>
+        <span id="conn-label"></span>
+      </div>
+      <div class="toprow serial-only hidden" id="serial-params">
+        <span class="rowtag">串口参数</span>
+        <label>校验 <div id="parity-dd" class="inline-dd"></div></label>
+        <label>数据位 <div id="databits-dd" class="inline-dd"></div></label>
+        <label>停止位 <div id="stopbits-dd" class="inline-dd"></div></label>
+        <label>流控 <div id="flowctl-dd" class="inline-dd"></div></label>
+        <span class="sep"></span>
+        <button id="dtr-btn" class="pin">DTR</button>
+        <button id="rts-btn" class="pin">RTS</button>
+      </div>
     </header>
     <div id="layout">
       <nav id="sidebar">
@@ -36,64 +41,53 @@
       <main id="pages">
         <section id="page-terminal" class="page hidden"></section>
         <section id="page-logview" class="page">
-          <div id="log-controls">
-            <label>时间戳
-              <select id="ts-mode">
-                <option value="absolute">绝对</option>
-                <option value="relative">相对</option>
-                <option value="delta">差值 Δ</option>
-                <option value="none">无</option>
-              </select>
-            </label>
-            <label>编码
-              <select id="encoding">
-                <option value="auto">自动</option>
-                <option value="utf-8">UTF-8</option>
-                <option value="gbk">GBK</option>
-                <option value="gb2312">GB2312</option>
-                <option value="latin-1">Latin-1</option>
-              </select>
-            </label>
-            <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="100" /></label>
-            <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
-            <button id="clear-log">清空</button>
-          </div>
-          <div id="log-view"></div>
-          <div id="send-panel">
-            <select id="send-mode">
-              <option value="text">文本</option>
-              <option value="hex">HEX</option>
-            </select>
-            <input id="send-input" placeholder="输入要发送的内容…" />
-            <select id="send-newline">
-              <option value="none">无换行</option>
-              <option value="\n">\n</option>
-              <option value="\r">\r</option>
-              <option value="\r\n">\r\n</option>
-            </select>
-            <button id="send-btn" class="primary">发送</button>
+          <div class="logview-grid">
+            <div class="logview-main">
+              <div id="log-controls">
+                <label>时间戳 <div id="ts-mode-dd" class="inline-dd"></div></label>
+                <label>编码 <div id="encoding-dd" class="inline-dd"></div></label>
+                <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="100" /></label>
+                <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
+                <button id="clear-log">清空</button>
+                <button id="toggle-multistr" title="多字符串/HEX 发送面板">☰ 多字符串</button>
+              </div>
+              <div id="log-view"></div>
+              <div id="send-panel">
+                <div class="send-row">
+                  <div id="send-mode-dd"></div>
+                  <textarea id="send-input" rows="3" placeholder="输入要发送的内容…&#10;Enter 换行 / Ctrl+Enter 发送 / ↑↓ 历史"></textarea>
+                </div>
+                <div class="send-row send-actions">
+                  <label>换行 <div id="send-newline-dd" class="inline-dd"></div></label>
+                  <label class="chk"><input id="timer-send" type="checkbox" />定时</label>
+                  <input id="timer-ms" type="number" min="10" value="1000" title="定时发送间隔(ms)" />
+                  <span class="hint" id="send-hint"></span>
+                  <span class="spacer"></span>
+                  <button id="file-btn" title="分块发送文件原始字节">发文件</button>
+                  <input id="file-input" type="file" class="hidden" />
+                  <button id="capture-btn" title="捕获接收数据并保存为文件">● 捕获</button>
+                  <button id="send-btn" class="primary">发送 Ctrl+↵</button>
+                </div>
+              </div>
+            </div>
+            <aside id="multistr-panel" class="hidden">
+              <div class="ms-toolbar">
+                <button id="ms-add">＋ 添加</button>
+                <label class="chk"><input id="ms-loop" type="checkbox" />循环发送</label>
+                <span id="ms-status"></span>
+                <span class="spacer"></span>
+                <button id="ms-clear">清空</button>
+              </div>
+              <div id="ms-rows"></div>
+            </aside>
           </div>
         </section>
         <section id="page-plot" class="page hidden">
           <div id="plot-controls">
-            <label>格式
-              <select id="plot-fmt">
-                <option value="simple_binary">Simple Binary</option>
-                <option value="ascii_delimited">ASCII 分隔</option>
-              </select>
-            </label>
+            <label>格式 <div id="plot-fmt-dd" class="inline-dd"></div></label>
             <label>通道数 <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
-            <label>类型
-              <select id="plot-dtype">
-                <option value="uint8">uint8</option><option value="int8">int8</option>
-                <option value="uint16">uint16</option><option selected value="int16">int16</option>
-                <option value="uint32">uint32</option><option value="int32">int32</option>
-                <option value="float32">float32</option><option value="float64">float64</option>
-              </select>
-            </label>
-            <label>端序
-              <select id="plot-endian"><option value="little">小端</option><option value="big">大端</option></select>
-            </label>
+            <label>类型 <div id="plot-dtype-dd" class="inline-dd"></div></label>
+            <label>端序 <div id="plot-endian-dd" class="inline-dd"></div></label>
             <label>分隔符 <input id="plot-delimiter" value="," size="3" /></label>
             <label>点数上限 <input id="plot-maxpoints" type="number" min="100" max="20000" value="2000" /></label>
             <button id="plot-apply">应用</button>

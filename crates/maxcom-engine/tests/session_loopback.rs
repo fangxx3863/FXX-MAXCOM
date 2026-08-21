@@ -233,22 +233,46 @@ fn auto_reconnect_restores_link() {
 
     mgr.connect(tcp_cfg(port)).unwrap();
     let connected_count = |rec: &Recorder| {
-        rec.states.lock().unwrap().iter().filter(|s| s.connected).count()
+        rec.states
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.connected)
+            .count()
     };
     // 第一条：回显成功后服务端断开
-    mgr.send(&SendPayload { text: Some("ping-1".into()), hex: None, newline: "\n".into() }).unwrap();
-    assert!(wait_until(
-        || rec.raw.lock().unwrap().windows(6).any(|w| w == b"ping-1"),
-        Duration::from_secs(3)
-    ), "第一次回显未到达");
-    assert!(wait_until(|| connected_count(&rec) >= 2, Duration::from_secs(5)),
-        "自动重连未发生，states={:?}", rec.states.lock().unwrap());
+    mgr.send(&SendPayload {
+        text: Some("ping-1".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    assert!(
+        wait_until(
+            || rec.raw.lock().unwrap().windows(6).any(|w| w == b"ping-1"),
+            Duration::from_secs(3)
+        ),
+        "第一次回显未到达"
+    );
+    assert!(
+        wait_until(|| connected_count(&rec) >= 2, Duration::from_secs(5)),
+        "自动重连未发生，states={:?}",
+        rec.states.lock().unwrap()
+    );
     // 重连后链路可用
-    mgr.send(&SendPayload { text: Some("ping-2".into()), hex: None, newline: "\n".into() }).unwrap();
-    assert!(wait_until(
-        || rec.raw.lock().unwrap().windows(6).any(|w| w == b"ping-2"),
-        Duration::from_secs(3)
-    ), "重连后发送未到达");
+    mgr.send(&SendPayload {
+        text: Some("ping-2".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    assert!(
+        wait_until(
+            || rec.raw.lock().unwrap().windows(6).any(|w| w == b"ping-2"),
+            Duration::from_secs(3)
+        ),
+        "重连后发送未到达"
+    );
     mgr.disconnect();
 }
 
@@ -260,13 +284,27 @@ fn no_reconnect_when_disabled() {
     mgr.set_auto_reconnect(false);
     mgr.connect(tcp_cfg(port)).unwrap();
 
-    mgr.send(&SendPayload { text: Some("bye".into()), hex: None, newline: "\n".into() }).unwrap();
-    assert!(wait_until(
-        || rec.states.lock().unwrap().iter().any(|s| !s.connected),
-        Duration::from_secs(3)
-    ), "掉线事件未上报");
+    mgr.send(&SendPayload {
+        text: Some("bye".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    assert!(
+        wait_until(
+            || rec.states.lock().unwrap().iter().any(|s| !s.connected),
+            Duration::from_secs(3)
+        ),
+        "掉线事件未上报"
+    );
     std::thread::sleep(Duration::from_millis(400));
-    let reconnected = rec.states.lock().unwrap().iter().filter(|s| s.connected).count();
+    let reconnected = rec
+        .states
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.connected)
+        .count();
     assert_eq!(reconnected, 1, "关闭重连后不应再连");
     // 注：不在此断言 send 必失败——TCP 写在对端 RST 到达前可能仍入缓冲成功（非确定性）
 }
@@ -279,9 +317,17 @@ fn capture_roundtrip_to_file() {
     mgr.connect(tcp_cfg(port)).unwrap();
 
     mgr.start_capture();
-    mgr.send(&SendPayload { text: Some("capture-me".into()), hex: None, newline: "\n".into() }).unwrap();
-    assert!(wait_until(|| mgr.capture_state().1 >= 11, Duration::from_secs(3)),
-        "捕获缓冲未收到数据 state={:?}", mgr.capture_state());
+    mgr.send(&SendPayload {
+        text: Some("capture-me".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    assert!(
+        wait_until(|| mgr.capture_state().1 >= 11, Duration::from_secs(3)),
+        "捕获缓冲未收到数据 state={:?}",
+        mgr.capture_state()
+    );
 
     let path = std::env::temp_dir().join("maxcom_capture_test.bin");
     let n = mgr.save_capture(path.to_str().unwrap()).expect("save");

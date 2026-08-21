@@ -100,10 +100,12 @@ impl TransportWrite for SerialWrite {
     }
 
     fn set_dtr(&mut self, on: bool) -> io::Result<()> {
-        self.port.write_data_terminal_ready(on)
+        self.port
+            .write_data_terminal_ready(on)
+            .map_err(io::Error::from)
     }
 
     fn set_rts(&mut self, on: bool) -> io::Result<()> {
-        self.port.write_request_to_send(on)
+        self.port.write_request_to_send(on).map_err(io::Error::from)
     }
 }

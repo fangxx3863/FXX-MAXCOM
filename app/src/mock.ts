@@ -22,6 +22,12 @@ interface ApiShape {
   getStats(): Promise<StatsSnapshot>;
   setPlotFormat(fmt: DataFormat): Promise<void>;
   plotSnapshot(maxPoints: number): Promise<PlotSnapshotDto>;
+  setDtr(on: boolean): Promise<void>;
+  setRts(on: boolean): Promise<void>;
+  setAutoReconnect(on: boolean): Promise<void>;
+  startCapture(): Promise<void>;
+  saveCapture(path: string): Promise<number>;
+  captureState(): Promise<[boolean, number, number]>;
 }
 
 const DEMO_PORTS: PortInfo[] = [
@@ -73,6 +79,7 @@ class MockBackend implements ApiShape {
 
   private channels = 1;
   private points = 0;
+  private captureBuf: number[] = [];
   private filters: Array<{ pattern: string; action: string; enabled: boolean }> = [];
 
   private next<T>(set: Set<Listener<T>>, payload: T) {
@@ -136,6 +143,35 @@ class MockBackend implements ApiShape {
 
   async setLogOptions(_o: { idle_timeout_ms: number; timestamp_mode: string; encoding: string }) {}
   async clearLog() {}
+  async setDtr(_on: boolean) {}
+  async setRts(_on: boolean) {}
+  async setAutoReconnect(_on: boolean) {}
+
+  private capturing = false;
+
+  async startCapture() {
+    this.capturing = true;
+    this.captureBuf = [];
+  }
+
+  async saveCapture(path: string): Promise<number> {
+    const data = this.captureBuf;
+    this.capturing = false;
+    // 浏览器演示模式：触发下载（path 仅作文件名提示）
+    const name = (path.split(/[\\/]/).pop() ?? "maxcom_capture.bin").trim() || "maxcom_capture.bin";
+    const blob = new Blob([new Uint8Array(data)], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+    return data.length;
+  }
+
+  async captureState(): Promise<[boolean, number, number]> {
+    return [this.capturing, this.captureBuf.length, 0];
+  }
 
   async setFilters(rules: unknown[]) {
     this.filters = rules as never[];
@@ -214,6 +250,7 @@ class MockBackend implements ApiShape {
 
     // RX 统计随数据增长
     const n = rawBytes.length + text.length;
+    if (this.capturing) this.captureBuf.push(...rawBytes, ...new TextEncoder().encode(text + "\n"));
     this.rxTotal += n;
     this.rxWindow.push([performance.now(), n]);
     if (Math.random() < 0.02) this.errors++; // 偶发 CRC 错误演示
