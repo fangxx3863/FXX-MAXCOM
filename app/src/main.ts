@@ -7,6 +7,7 @@ import { TerminalPage } from "./pages/terminal";
 import { LogViewPage } from "./pages/logview";
 import { PlotPage } from "./pages/plot";
 import { StatsPage } from "./pages/stats";
+import { RulesPanel } from "./pages/rules";
 
 const $ = <T extends HTMLElement>(sel: string): T => document.querySelector<T>(sel)!;
 
@@ -62,22 +63,26 @@ const databitsDd = makeInline("databits", ["8", "7", "6", "5"], "8");
 const stopbitsDd = makeInline("stopbits", ["1", "2"], "1");
 const flowctlDd = makeInline("flowctl", ["none", "software(XON/XOFF)", "hardware(RTS/CTS)"], "none");
 
-// DTR / RTS 引脚开关
+// DTR / RTS 引脚（复选框；连接串口时默认拉高）
 let dtrOn = false;
 let rtsOn = false;
-function syncPin(btnSel: string, on: boolean) {
-  const btn = $(btnSel);
-  btn.classList.toggle("on", on);
-}
-$("#dtr-btn").addEventListener("click", () => {
-  dtrOn = !dtrOn;
-  syncPin("#dtr-btn", dtrOn);
-  void api.setDtr(dtrOn).catch(() => {});
+const dtrChk = $<HTMLInputElement>("#dtr-chk");
+const rtsChk = $<HTMLInputElement>("#rts-chk");
+dtrChk.addEventListener("change", () => {
+  dtrOn = dtrChk.checked;
+  void api.setDtr(dtrOn).catch((e) => setHint(`DTR 设置失败: ${e}`));
 });
-$("#rts-btn").addEventListener("click", () => {
-  rtsOn = !rtsOn;
-  syncPin("#rts-btn", rtsOn);
-  void api.setRts(rtsOn).catch(() => {});
+rtsChk.addEventListener("change", () => {
+  rtsOn = rtsChk.checked;
+  void api.setRts(rtsOn).catch((e) => setHint(`RTS 设置失败: ${e}`));
+});
+
+// 「更多串口设置」弹窗
+$("#more-serial").addEventListener("click", () => {
+  $("#serial-setup").classList.toggle("hidden");
+});
+$("#setup-ok").addEventListener("click", () => {
+  $("#serial-setup").classList.add("hidden");
 });
 
 const autoReconnectChk = $<HTMLInputElement>("#auto-reconnect");
@@ -85,11 +90,10 @@ autoReconnectChk.addEventListener("change", () => void api.setAutoReconnect(auto
 
 function syncConnTypeUI() {
   const isSerial = connKind === "serial";
+  document.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
   portDd.el.classList.toggle("hidden", !isSerial);
   $("#refresh-ports").classList.toggle("hidden", !isSerial);
   baudDd.el.classList.toggle("hidden", !isSerial);
-  $("#serial-params").classList.toggle("hidden", !isSerial);
-  document.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
   $("#tcp-host-dd").classList.toggle("hidden", isSerial);
   $("#tcp-port").classList.toggle("hidden", isSerial);
 }
@@ -110,6 +114,18 @@ const connectBtn = $("#connect-btn");
 const connDot = $("#conn-state");
 const connLabel = $("#conn-label");
 const sbState = $("#sb-state");
+
+/** 全局轻提示：发送区 hint + 状态栏短暂红字 */
+export function setHint(msg: string, isError = true) {
+  const hint = $("#send-hint");
+  hint.textContent = msg;
+  hint.style.color = isError ? "var(--err)" : "var(--ok)";
+  if (isError) sbState.style.color = "var(--err)";
+  window.setTimeout(() => {
+    hint.textContent = "";
+    sbState.style.color = "";
+  }, 4000);
+}
 
 connectBtn.addEventListener("click", () => {
   if (connected) {
@@ -150,10 +166,18 @@ connectBtn.addEventListener("click", () => {
   if (connKind === "serial") {
     dtrOn = true;
     rtsOn = true;
-    syncPin("#dtr-btn", true);
-    syncPin("#rts-btn", true);
+    dtrChk.checked = true;
+    rtsChk.checked = true;
   }
-  api.connect(cfg).catch((e) => alert(`连接失败: ${e}`));
+  api
+    .connect(cfg)
+    .then(() => {
+      if (connKind === "serial") {
+        void api.setDtr(dtrOn).catch(() => {});
+        void api.setRts(rtsOn).catch(() => {});
+      }
+    })
+    .catch((e) => alert(`连接失败: ${e}`));
 });
 
 on.state((s: ConnState) => {
@@ -166,10 +190,43 @@ on.state((s: ConnState) => {
   connectBtn.textContent = s.connected ? "断开" : "连接";
 });
 
+// ── 串口回环自检：发送标记字节，分层定位 断在 OS 写入 / 设备回环 / 前端事件 ──
+$("#selftest-btn").addEventListener("click", () => {
+  void (async () => {
+    const marker = new TextEncoder().encode(`MAXCOM-SELFTEST-${Date.now() % 100000}`);
+    const hex = [...marker].map((b) => b.toString(16).padStart(2, "0")).join("");
+    let sawRaw = false;
+    const unlisten = await on.raw((bytes) => {
+      if (bytes.length >= marker.length && marker.every((b, i) => bytes[i] === b)) sawRaw = true;
+    });
+    try {
+      const st0 = await api.getStats();
+      const n = await api.send({ hex, newline: "none" });
+      await new Promise((r) => setTimeout(r, 1200));
+      const st1 = await api.getStats();
+      const txDelta = st1.tx_bytes - st0.tx_bytes;
+      const rxDelta = st1.rx_bytes - st0.rx_bytes;
+      if (txDelta < n) {
+        setHint(`自检：OS 层写入异常（TX 仅 +${txDelta}/${n}B）`);
+      } else if (rxDelta === 0 && !sawRaw) {
+        setHint(`自检：写入 ${n}B ✓，但 1.2s 无回环字节 → 查 TX/RX/GND 接线、波特率两端一致、驱动`);
+      } else if (rxDelta > 0 && !sawRaw) {
+        setHint(`自检：设备已回环(RX+${rxDelta}) 但前端没收到事件 → 前端链路问题，把这条发我`);
+      } else {
+        setHint(`自检通过：写入→回环→前端渲染 全链路 OK`, false);
+      }
+    } catch (e) {
+      setHint(`自检：发送失败 → ${e}`);
+    } finally {
+      unlisten();
+    }
+  })();
+});
+
 // ── 页面 ──
 const pages = ["terminal", "logview", "plot", "stats"] as const;
 type PageId = (typeof pages)[number];
-const terminalPage = new TerminalPage($("#page-terminal"));
+const terminalPage = new TerminalPage($("#page-terminal"), (msg) => setHint(msg));
 const logViewPage = new LogViewPage($("#log-view"), $("#log-controls"));
 const plotPage = new PlotPage($("#plot-holder"), $("#plot-controls"));
 const statsPage = new StatsPage($("#page-stats"));
@@ -211,6 +268,9 @@ $("#clear-log").addEventListener("click", () => {
 $("#toggle-multistr").addEventListener("click", () => {
   $("#multistr-panel").classList.toggle("hidden");
 });
+
+// 过滤/染色规则面板
+new RulesPanel().init();
 
 // ── 发送区 ──
 const sendInput = $<HTMLTextAreaElement>("#send-input");

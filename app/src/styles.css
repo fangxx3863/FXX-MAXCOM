@@ -140,3 +140,104 @@ select option, select optgroup {
 
 /* ── 数字输入框去 spinner 拥挤感 ── */
 input[type="number"] { padding: 3px 6px; }
+
+/* ═══ 自绘下拉（dropdown.ts）═══ */
+.dd { position: relative; display: inline-flex; vertical-align: middle; }
+.dd-face {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 10px; font: inherit; cursor: pointer; outline: none;
+  min-height: 28px;
+}
+button.dd-face { justify-content: space-between; }
+.dd-face:hover, .dd-face:focus { border-color: var(--accent); }
+.dd-input { width: 110px; }
+.dd-arrow {
+  width: 7px; height: 7px; flex: none;
+  border-right: 1.5px solid var(--fg-dim); border-bottom: 1.5px solid var(--fg-dim);
+  transform: rotate(45deg) translateY(-2px);
+}
+.dd-popup {
+  position: absolute; left: 0; min-width: 100%;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+  padding: 4px; z-index: 1000; max-height: 300px; overflow-y: auto;
+}
+.dd-item {
+  padding: 6px 14px 6px 10px; border-radius: 4px;
+  cursor: pointer; white-space: nowrap; color: var(--fg);
+}
+.dd-item:hover { background: #2f3540; }
+.dd-item.active { color: var(--accent); background: #26303c; }
+
+/* ═══ 顶栏：两行改单行 + 设置弹窗 ═══ */
+#topbar {
+  flex-direction: row; flex-wrap: wrap; align-items: center;
+  gap: 8px; position: relative;
+}
+.grow { flex: 1; min-width: 160px; }
+.chk { display: inline-flex; align-items: center; gap: 4px; color: var(--fg-dim); cursor: pointer; }
+.setup-pop {
+  position: absolute; top: calc(100% + 4px); right: 180px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 14px 16px; z-index: 900;
+  display: flex; flex-direction: column; gap: 10px; min-width: 240px;
+}
+.setup-title { font-weight: 600; margin-bottom: 2px; }
+.setup-pop label {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; color: var(--fg-dim);
+}
+.setup-pop button { margin-top: 4px; }
+
+/* ═══ 收发页布局 ═══ */
+.logview-grid { display: flex; flex: 1; min-height: 0; width: 100%; }
+.logview-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#multistr-panel, #rules-panel {
+  width: 360px; flex: none; display: flex; flex-direction: column;
+  background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto;
+}
+.ms-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+  color: var(--fg-dim); flex-wrap: wrap;
+}
+.rowtag { font-size: 12px; color: var(--fg-dim); }
+.ms-row, .flt-row, .color-row {
+  display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+}
+.ms-content {
+  flex: 1; min-width: 0;
+  background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 8px; outline: none; font-family: Consolas, monospace; font-size: 12.5px;
+}
+.ms-content:focus { border-color: var(--accent); }
+.ms-type { padding: 3px 8px; font-size: 11px; }
+.ms-delay { width: 64px; background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
+
+/* 发送区 */
+.send-row { display: flex; gap: 8px; align-items: flex-start; }
+.send-row.send-actions { align-items: center; }
+#send-input {
+  flex: 1; min-height: 60px; resize: vertical;
+  background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 6px 10px; outline: none;
+  font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace;
+}
+#send-input:focus { border-color: var(--accent); }
+.hint { color: var(--ok); font-size: 12px; }
+#capture-btn.recording { color: var(--err); border-color: var(--err); }
+
+/* 终端工具条 */
+.term-bar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 10px; background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 引脚按钮态（保留兼容） */
+.pin.on { border-color: var(--ok); color: var(--ok); }

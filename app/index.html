@@ -7,28 +7,28 @@
   </head>
   <body>
     <header id="topbar">
-      <div class="toprow">
-        <span class="brand">MAXCOM</span>
-        <div id="conn-type-dd"></div>
-        <div id="serial-port-dd" class="grow"></div>
-        <button id="refresh-ports" title="刷新串口列表">⟳</button>
-        <div id="tcp-host-dd" class="hidden"></div>
-        <input id="tcp-port" type="number" placeholder="端口" value="8888" class="hidden" />
-        <div id="baud-dd"></div>
-        <label class="chk serial-only"><input id="auto-reconnect" type="checkbox" checked />自动重连</label>
-        <button id="connect-btn" class="primary">连接</button>
-        <span id="conn-state" class="dot off" title="未连接"></span>
-        <span id="conn-label"></span>
-      </div>
-      <div class="toprow serial-only hidden" id="serial-params">
-        <span class="rowtag">串口参数</span>
-        <label>校验 <div id="parity-dd" class="inline-dd"></div></label>
-        <label>数据位 <div id="databits-dd" class="inline-dd"></div></label>
-        <label>停止位 <div id="stopbits-dd" class="inline-dd"></div></label>
-        <label>流控 <div id="flowctl-dd" class="inline-dd"></div></label>
-        <span class="sep"></span>
-        <button id="dtr-btn" class="pin">DTR</button>
-        <button id="rts-btn" class="pin">RTS</button>
+      <span class="brand">MAXCOM</span>
+      <div id="conn-type-dd"></div>
+      <div id="serial-port-dd" class="grow"></div>
+      <button id="refresh-ports" title="刷新串口列表">⟳</button>
+      <div id="baud-dd"></div>
+      <button id="more-serial" class="serial-only" title="数据位/停止位/校验/流控">更多串口设置 ⚙</button>
+      <button id="selftest-btn" class="serial-only" title="发送标记字节并等待回环，定位链路断层">回环自检</button>
+      <label class="chk serial-only"><input id="dtr-chk" type="checkbox" />DTR</label>
+      <label class="chk serial-only"><input id="rts-chk" type="checkbox" />RTS</label>
+      <div id="tcp-host-dd" class="hidden"></div>
+      <input id="tcp-port" type="number" placeholder="端口" value="8888" class="hidden" />
+      <label class="chk"><input id="auto-reconnect" type="checkbox" checked />自动重连</label>
+      <button id="connect-btn" class="primary">连接</button>
+      <span id="conn-state" class="dot off" title="未连接"></span>
+      <span id="conn-label"></span>
+      <div id="serial-setup" class="setup-pop hidden">
+        <div class="setup-title">串口设置</div>
+        <label>数据位 <div id="databits-dd"></div></label>
+        <label>停止位 <div id="stopbits-dd"></div></label>
+        <label>校验 <div id="parity-dd"></div></label>
+        <label>流控 <div id="flowctl-dd"></div></label>
+        <button id="setup-ok" class="primary">确定</button>
       </div>
     </header>
     <div id="layout">
@@ -50,6 +50,7 @@
                 <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
                 <button id="clear-log">清空</button>
                 <button id="toggle-multistr" title="多字符串/HEX 发送面板">☰ 多字符串</button>
+                <button id="toggle-rules" title="过滤与染色规则">🎨 规则</button>
               </div>
               <div id="log-view"></div>
               <div id="send-panel">
@@ -70,6 +71,26 @@
                 </div>
               </div>
             </div>
+            <aside id="rules-panel" class="hidden">
+              <div class="ms-toolbar">
+                <span class="rowtag">过滤规则</span>
+                <button id="flt-add">＋ 添加</button>
+                <span class="spacer"></span>
+                <button id="flt-clear">清空</button>
+              </div>
+              <div id="flt-rows"></div>
+              <div class="ms-toolbar">
+                <label class="chk"><input id="color-master" type="checkbox" checked />染色总开关</label>
+                <label class="chk"><input id="color-yield" type="checkbox" checked />ANSI 让位</label>
+              </div>
+              <div class="ms-toolbar">
+                <span class="rowtag">用户染色规则</span>
+                <button id="color-add">＋ 添加</button>
+                <span class="spacer"></span>
+                <button id="color-clear">清空</button>
+              </div>
+              <div id="color-rows"></div>
+            </aside>
             <aside id="multistr-panel" class="hidden">
               <div class="ms-toolbar">
                 <button id="ms-add">＋ 添加</button>
