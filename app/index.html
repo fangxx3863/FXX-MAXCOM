@@ -45,8 +45,8 @@
           <div class="logview-grid">
             <div class="logview-main">
               <div id="log-controls">
-                <span class="ctl">时间戳 <div id="ts-mode-dd" class="inline-dd"></div></label>
-                <span class="ctl">编码 <div id="encoding-dd" class="inline-dd"></div></label>
+                <span class="ctl">时间戳 <div id="ts-mode-dd" class="inline-dd"></div></span>
+                <span class="ctl">编码 <div id="encoding-dd" class="inline-dd"></div></span>
                 <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="100" /></label>
                 <label><input id="hex-display" type="checkbox" />HEX显示</label>
                 <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
@@ -61,7 +61,7 @@
                   <textarea id="send-input" rows="3" placeholder="输入要发送的内容…&#10;Enter 换行 / Ctrl+Enter 发送 / ↑↓ 历史"></textarea>
                 </div>
                 <div class="send-row send-actions">
-                  <span class="ctl">换行 <div id="send-newline-dd" class="inline-dd"></div></label>
+                  <span class="ctl">换行 <div id="send-newline-dd" class="inline-dd"></div></span>
                   <label class="chk"><input id="timer-send" type="checkbox" />定时</label>
                   <input id="timer-ms" type="number" min="10" value="1000" title="定时发送间隔(ms)" />
                   <span class="hint" id="send-hint"></span>
@@ -79,6 +79,7 @@
                 <button id="flt-add">＋ 添加</button>
                 <span class="spacer"></span>
                 <button id="flt-clear">清空</button>
+                <button id="rules-close" class="icon-btn" title="关闭面板">✕</button>
               </div>
               <div id="flt-rows"></div>
               <div class="ms-toolbar">
@@ -100,6 +101,7 @@
                 <span id="ms-status"></span>
                 <span class="spacer"></span>
                 <button id="ms-clear">清空</button>
+                <button id="ms-close" class="icon-btn" title="关闭面板">✕</button>
               </div>
               <div id="ms-rows"></div>
             </aside>
@@ -107,10 +109,10 @@
         </section>
         <section id="page-plot" class="page hidden">
           <div id="plot-controls">
-            <span class="ctl">格式 <div id="plot-fmt-dd" class="inline-dd"></div></label>
+            <span class="ctl">格式 <div id="plot-fmt-dd" class="inline-dd"></div></span>
             <label>通道数 <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
-            <span class="ctl">类型 <div id="plot-dtype-dd" class="inline-dd"></div></label>
-            <span class="ctl">端序 <div id="plot-endian-dd" class="inline-dd"></div></label>
+            <span class="ctl">类型 <div id="plot-dtype-dd" class="inline-dd"></div></span>
+            <span class="ctl">端序 <div id="plot-endian-dd" class="inline-dd"></div></span>
             <label>分隔符 <input id="plot-delimiter" value="," size="3" /></label>
             <label>点数上限 <input id="plot-maxpoints" type="number" min="100" max="20000" value="2000" /></label>
             <button id="plot-apply">应用</button>
@@ -125,22 +127,41 @@
           <table id="ch-metrics"><thead><tr></tr></thead><tbody></tbody></table>
         </section>
         <section id="page-settings" class="page hidden">
-          <h3>外观</h3>
-          <div class="setting-row">
-            <label>收发区字体大小 <input id="set-log-size" type="number" min="9" max="28" step="0.5" /></label>
-            <label>收发区字体
-              <select id="set-log-family">
-                <option value='Consolas, "Cascadia Mono", monospace'>Consolas</option>
-                <option value='"Cascadia Mono", Consolas, monospace'>Cascadia Mono</option>
-                <option value='"JetBrains Mono", monospace'>JetBrains Mono</option>
-                <option value='"Microsoft YaHei", sans-serif'>微软雅黑（非等宽）</option>
-                <option value='system-ui, sans-serif'>系统默认（非等宽）</option>
-              </select>
-            </label>
-            <label>终端字号 <input id="set-term-size" type="number" min="8" max="32" /></label>
+          <div class="settings-body">
+            <div class="settings-header">
+              <h3>外观</h3>
+              <button id="set-reset" class="ghost" title="恢复所有外观设置为默认值">恢复默认</button>
+            </div>
+            <p class="hint-p">设置即时生效并保存在浏览器本地。恢复默认可点击右上角按钮。</p>
+            <div class="settings-grid">
+              <div class="set-card">
+                <div class="set-card-head">📄 收发区</div>
+                <div class="set-field">
+                  <span class="set-label">字体大小</span>
+                  <input id="set-log-size" type="number" min="9" max="28" step="0.5" />
+                </div>
+                <div class="set-field">
+                  <span class="set-label">字体</span>
+                  <select id="set-log-family">
+                    <option value='Consolas, "Cascadia Mono", monospace'>Consolas</option>
+                    <option value='"Cascadia Mono", Consolas, monospace'>Cascadia Mono</option>
+                    <option value='"JetBrains Mono", monospace'>JetBrains Mono</option>
+                    <option value='"Microsoft YaHei", sans-serif'>微软雅黑（非等宽）</option>
+                    <option value='system-ui, sans-serif'>系统默认（非等宽）</option>
+                  </select>
+                </div>
+                <div class="set-note">影响日志视图与 HEX 显示的字体。</div>
+              </div>
+              <div class="set-card">
+                <div class="set-card-head">⌨️ 终端</div>
+                <div class="set-field">
+                  <span class="set-label">终端字号</span>
+                  <input id="set-term-size" type="number" min="8" max="32" />
+                </div>
+                <div class="set-note">xterm 终端模拟器的显示字号。</div>
+              </div>
+            </div>
           </div>
-          <p class="hint-p">设置即时生效并本地保存。恢复默认：清空浏览器存储或点下方按钮。</p>
-          <button id="set-reset">恢复默认</button>
         </section>
       </main>
     </div>

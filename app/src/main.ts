@@ -286,6 +286,7 @@ function switchPage(id: PageId) {
   document.querySelectorAll<HTMLButtonElement>("#sidebar button").forEach((b) =>
     b.classList.toggle("active", b.dataset.page === id),
   );
+  if (id === "plot") plotPage.onShow(); // 隐藏期间量不到尺寸，显示后按真实容器重建
 }
 
 // ── 收发页：日志控制条（ts/encoding 下拉已在顶部创建）──
@@ -310,9 +311,12 @@ $("#clear-log").addEventListener("click", () => {
   void api.clearLog();
 });
 
-// 多字符串面板开合
+// 多字符串面板开合（☰ 按钮与面板内 ✕ 均可）
 $("#toggle-multistr").addEventListener("click", () => {
   $("#multistr-panel").classList.toggle("hidden");
+});
+$("#ms-close").addEventListener("click", () => {
+  $("#multistr-panel").classList.add("hidden");
 });
 
 // 过滤/染色规则面板
@@ -383,15 +387,23 @@ sendInput.addEventListener("keydown", (e) => {
     void doSend();
     return;
   }
-  if (e.key === "ArrowUp" && sendInput.selectionStart === 0 && history.length) {
+  if (!history.length) return;
+  // 单行内容（无换行符）时 ↑↓ 直接翻历史，不经历“先移到行首/行尾”的中间步；
+  // 多行编辑时退回边界规则：光标在首列才上翻、末列才下翻
+  const singleLine = !sendInput.value.includes("\n");
+  const col0 = sendInput.selectionStart === 0 && sendInput.selectionEnd === 0;
+  const colEnd =
+    sendInput.selectionStart === sendInput.value.length && sendInput.selectionEnd === sendInput.value.length;
+  if (e.key === "ArrowUp" && (singleLine || col0)) {
     e.preventDefault();
     historyIdx = Math.min(historyIdx + 1, history.length - 1);
     sendInput.value = history[historyIdx];
     sendInput.selectionStart = sendInput.selectionEnd = sendInput.value.length;
-  } else if (e.key === "ArrowDown" && sendInput.selectionStart === sendInput.value.length && history.length) {
+  } else if (e.key === "ArrowDown" && (singleLine || colEnd)) {
     e.preventDefault();
     historyIdx = Math.max(historyIdx - 1, -1);
     sendInput.value = historyIdx >= 0 ? history[historyIdx] : "";
+    sendInput.selectionStart = sendInput.selectionEnd = sendInput.value.length;
   }
 });
 

@@ -30,6 +30,10 @@ export class RulesPanel {
     $("#toggle-rules").addEventListener("click", () => {
       document.querySelector("#rules-panel")!.classList.toggle("hidden");
     });
+    // 面板内 ✕ 关闭
+    $("#rules-close").addEventListener("click", () => {
+      document.querySelector("#rules-panel")!.classList.add("hidden");
+    });
 
     const masterChk = $<HTMLInputElement>("#color-master");
     const yieldChk = $<HTMLInputElement>("#color-yield");
