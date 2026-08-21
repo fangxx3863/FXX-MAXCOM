@@ -1,6 +1,8 @@
-// 复现：下拉第二次打不开
+// 下拉回归：含 label 包裹场景（label 会把点击转发给内部按钮 → 曾导致选完重新弹开）
 import { JSDOM } from "jsdom";
-const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/", pretendToBeVisual: true });
+const dom = new JSDOM(`<!doctype html><html><body>
+<label>校验 <div id="host"></div></label>
+</body></html>`, { url: "http://localhost/", pretendToBeVisual: true });
 const w = dom.window;
 w.ResizeObserver = class { observe(){} unobserve(){} disconnect(){} };
 global.document = w.document;
@@ -15,15 +17,12 @@ const dd = createDropdown({
   items: [{ value: "a", label: "选项A" }, { value: "b", label: "选项B" }],
   onChange: () => {},
 });
-document.body.appendChild(dd.el);
+document.querySelector("#host").replaceWith(dd.el);
 const face = dd.el.querySelector(".dd-face");
 const popup = () => dd.el.querySelector(".dd-popup");
-
 const click = (el) => el.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
 
 click(face);
-console.log("第1次点击后 popup hidden?", popup().className.includes("hidden"));
-click(face); // 再点一次应关闭
-console.log("第2次点击后(应关闭) hidden?", popup().className.includes("hidden"));
-click(face); // 第3次应重新打开
-console.log("第3次点击后(应打开) hidden?", popup().className.includes("hidden"));
+click(dd.el.querySelectorAll(".dd-item")[0]);
+console.log("label 包裹下选中后关闭:", popup().className.includes("hidden"));
+process.exit(0);

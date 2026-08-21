@@ -265,7 +265,7 @@ $("#selftest-btn").addEventListener("click", () => {
 });
 
 // ── 页面 ──
-const pages = ["terminal", "logview", "plot", "stats"] as const;
+const pages = ["terminal", "logview", "plot", "stats", "settings"] as const;
 type PageId = (typeof pages)[number];
 const terminalPage = new TerminalPage($("#page-terminal"), (msg) => setHint(msg));
 const logViewPage = new LogViewPage($("#log-view"), {
@@ -651,3 +651,58 @@ setInterval(() => void pollPlot(), 50);
 
 // 初始化完成标记（smoke 测试断言用）
 (window as unknown as { __MAXCOM_READY__?: boolean }).__MAXCOM_READY__ = true;
+
+// ── 设置页：字体/字号，即时生效 + localStorage 持久化 ──
+interface AppSettings {
+  logSize: number;
+  logFamily: string;
+  termSize: number;
+}
+const DEFAULT_SETTINGS: AppSettings = { logSize: 12.5, logFamily: 'Consolas, "Cascadia Mono", monospace', termSize: 14 };
+const SETTINGS_KEY = "maxcom.settings";
+
+function loadSettings(): AppSettings {
+  try {
+    return { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? "{}") as Partial<AppSettings>) };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+let currentSettings = loadSettings();
+
+function applySettings(st: AppSettings) {
+  const rootStyle = document.documentElement.style;
+  rootStyle.setProperty("--log-size", `${st.logSize}px`);
+  rootStyle.setProperty("--log-family", st.logFamily);
+  terminalPage.setFontSize(st.termSize);
+}
+
+const logSizeInput = $<HTMLInputElement>("#set-log-size");
+const logFamilySel = $<HTMLSelectElement>("#set-log-family");
+const termSizeInput = $<HTMLInputElement>("#set-term-size");
+
+function saveSettings(st: AppSettings) {
+  currentSettings = st;
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(st));
+  applySettings(st);
+}
+
+logSizeInput.value = String(currentSettings.logSize);
+logFamilySel.value = currentSettings.logFamily;
+termSizeInput.value = String(currentSettings.termSize);
+
+logSizeInput.addEventListener("change", () =>
+  saveSettings({ ...currentSettings, logSize: Number(logSizeInput.value) || 12.5 }),
+);
+logFamilySel.addEventListener("change", () => saveSettings({ ...currentSettings, logFamily: logFamilySel.value }));
+termSizeInput.addEventListener("change", () =>
+  saveSettings({ ...currentSettings, termSize: Number(termSizeInput.value) || 14 }),
+);
+$("#set-reset").addEventListener("click", () => {
+  saveSettings({ ...DEFAULT_SETTINGS });
+  logSizeInput.value = String(DEFAULT_SETTINGS.logSize);
+  logFamilySel.value = DEFAULT_SETTINGS.logFamily;
+  termSizeInput.value = String(DEFAULT_SETTINGS.termSize);
+});
+applySettings(currentSettings);

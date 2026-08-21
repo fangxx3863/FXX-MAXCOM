@@ -16,10 +16,23 @@ export class PlotPage {
     this.holder = holder;
     this.info = controls.querySelector<HTMLElement>("#plot-info")!;
     controls.querySelector("#plot-apply")!.addEventListener("click", () => this.applyFormat());
+    // 窗口/容器尺寸变化 → 重建图（防抖 150ms）
+    let t: number | null = null;
+    const ro = new ResizeObserver(() => {
+      if (t !== null) window.clearTimeout(t);
+      t = window.setTimeout(() => {
+        t = null;
+        if (this.plots.length) this.rebuild(this.lastSnap!);
+      }, 150);
+    });
+    ro.observe(holder);
   }
+
+  private lastSnap: PlotSnapshotDto | null = null;
 
   /** 每 ~50ms 由 main 轮询调用 */
   update(snap: PlotSnapshotDto) {
+    this.lastSnap = snap;
     if (snap.series.length !== this.plots.length || snap.total_points < this.lastTotal) {
       this.rebuild(snap);
       this.lastTotal = snap.total_points;

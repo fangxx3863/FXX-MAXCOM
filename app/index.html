@@ -24,10 +24,10 @@
       <span id="conn-label"></span>
       <div id="serial-setup" class="setup-pop hidden">
         <div class="setup-title">串口设置</div>
-        <label>数据位 <div id="databits-dd"></div></label>
-        <label>停止位 <div id="stopbits-dd"></div></label>
-        <label>校验 <div id="parity-dd"></div></label>
-        <label>流控 <div id="flowctl-dd"></div></label>
+        <span class="ctl">数据位 <div id="databits-dd"></div></span>
+        <span class="ctl">停止位 <div id="stopbits-dd"></div></span>
+        <span class="ctl">校验 <div id="parity-dd"></div></span>
+        <span class="ctl">流控 <div id="flowctl-dd"></div></span>
         <button id="setup-ok" class="primary">确定</button>
       </div>
     </header>
@@ -37,6 +37,7 @@
         <button data-page="logview" class="active" title="传统收发">📄<span>收发</span></button>
         <button data-page="plot" title="数据绘图">📈<span>绘图</span></button>
         <button data-page="stats" title="统计仪表盘">📊<span>统计</span></button>
+        <button data-page="settings" title="设置">⚙️<span>设置</span></button>
       </nav>
       <main id="pages">
         <section id="page-terminal" class="page hidden"></section>
@@ -44,8 +45,8 @@
           <div class="logview-grid">
             <div class="logview-main">
               <div id="log-controls">
-                <label>时间戳 <div id="ts-mode-dd" class="inline-dd"></div></label>
-                <label>编码 <div id="encoding-dd" class="inline-dd"></div></label>
+                <span class="ctl">时间戳 <div id="ts-mode-dd" class="inline-dd"></div></label>
+                <span class="ctl">编码 <div id="encoding-dd" class="inline-dd"></div></label>
                 <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="100" /></label>
                 <label><input id="hex-display" type="checkbox" />HEX显示</label>
                 <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
@@ -60,7 +61,7 @@
                   <textarea id="send-input" rows="3" placeholder="输入要发送的内容…&#10;Enter 换行 / Ctrl+Enter 发送 / ↑↓ 历史"></textarea>
                 </div>
                 <div class="send-row send-actions">
-                  <label>换行 <div id="send-newline-dd" class="inline-dd"></div></label>
+                  <span class="ctl">换行 <div id="send-newline-dd" class="inline-dd"></div></label>
                   <label class="chk"><input id="timer-send" type="checkbox" />定时</label>
                   <input id="timer-ms" type="number" min="10" value="1000" title="定时发送间隔(ms)" />
                   <span class="hint" id="send-hint"></span>
@@ -106,10 +107,10 @@
         </section>
         <section id="page-plot" class="page hidden">
           <div id="plot-controls">
-            <label>格式 <div id="plot-fmt-dd" class="inline-dd"></div></label>
+            <span class="ctl">格式 <div id="plot-fmt-dd" class="inline-dd"></div></label>
             <label>通道数 <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
-            <label>类型 <div id="plot-dtype-dd" class="inline-dd"></div></label>
-            <label>端序 <div id="plot-endian-dd" class="inline-dd"></div></label>
+            <span class="ctl">类型 <div id="plot-dtype-dd" class="inline-dd"></div></label>
+            <span class="ctl">端序 <div id="plot-endian-dd" class="inline-dd"></div></label>
             <label>分隔符 <input id="plot-delimiter" value="," size="3" /></label>
             <label>点数上限 <input id="plot-maxpoints" type="number" min="100" max="20000" value="2000" /></label>
             <button id="plot-apply">应用</button>
@@ -122,6 +123,24 @@
           <div id="stat-cards" class="cards"></div>
           <h3>通道指标（来自绘图引擎）</h3>
           <table id="ch-metrics"><thead><tr></tr></thead><tbody></tbody></table>
+        </section>
+        <section id="page-settings" class="page hidden">
+          <h3>外观</h3>
+          <div class="setting-row">
+            <label>收发区字体大小 <input id="set-log-size" type="number" min="9" max="28" step="0.5" /></label>
+            <label>收发区字体
+              <select id="set-log-family">
+                <option value='Consolas, "Cascadia Mono", monospace'>Consolas</option>
+                <option value='"Cascadia Mono", Consolas, monospace'>Cascadia Mono</option>
+                <option value='"JetBrains Mono", monospace'>JetBrains Mono</option>
+                <option value='"Microsoft YaHei", sans-serif'>微软雅黑（非等宽）</option>
+                <option value='system-ui, sans-serif'>系统默认（非等宽）</option>
+              </select>
+            </label>
+            <label>终端字号 <input id="set-term-size" type="number" min="8" max="32" /></label>
+          </div>
+          <p class="hint-p">设置即时生效并本地保存。恢复默认：清空浏览器存储或点下方按钮。</p>
+          <button id="set-reset">恢复默认</button>
         </section>
       </main>
     </div>

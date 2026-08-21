@@ -49,7 +49,7 @@ export class TerminalPage {
     echoLabel.append(echoChk, document.createTextNode("本地回显"));
     const clearBtn = document.createElement("button");
     clearBtn.textContent = "清屏";
-    clearBtn.addEventListener("click", () => this.term.clear());
+    clearBtn.addEventListener("click", () => this.clear());
     bar.append(echoLabel, clearBtn);
     el.prepend(bar);
 
@@ -62,7 +62,13 @@ export class TerminalPage {
     this.term.writeln(s);
   }
 
+  setFontSize(px: number) {
+    this.term.options.fontSize = px;
+    this.fit.fit();
+  }
+
   clear() {
-    this.term.clear();
+    // reset 连滚动缓冲一起清（clear() 只清视口上方，用户感知为'没清掉'）
+    this.term.reset();
   }
 }
