@@ -1,0 +1,14 @@
+[package]
+name = "maxcom-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "MAXCOM 纯逻辑引擎：编码/分包/分行/过滤/染色/统计/绘图解析（无 IO、无 GUI 依赖）"
+
+[dependencies]
+serde = { workspace = true }
+regex = { workspace = true }
+encoding_rs = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
