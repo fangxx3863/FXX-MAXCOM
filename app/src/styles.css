@@ -99,8 +99,67 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
 }
 .plot-cell { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 4px; min-width: 0; }
 .uplot { min-width: 0 !important; }
-.uplot .legend { display: none; }
+/* 子图隐藏图例；单图叠加显示多色图例 */
+.plot-cell.sub .legend { display: none; }
+.uplot .legend { font-size: 11px; color: var(--fg-dim); }
 #plot-info { color: var(--fg-dim); }
+
+/* 二进制/ASCII 控件分组：contents 让子元素直接参与控制条 flex 布局 */
+#plot-binary-ctl { display: contents; }
+#plot-binary-ctl.hidden { display: none; }
+#plot-ascii-ctl.hidden { display: none; }
+
+/* 每通道条：颜色 / 显隐 / 增益 / 偏移 */
+#plot-chbar {
+  display: flex; gap: 6px; padding: 6px 10px; flex-wrap: wrap;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.ch-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  padding: 3px 8px; white-space: nowrap;
+}
+.ch-name { font-size: 11px; color: var(--fg-dim); }
+.ch-chip input[type="color"] {
+  width: 18px; height: 18px; padding: 0; border: 1px solid var(--border);
+  border-radius: 4px; background: none; cursor: pointer;
+}
+.ch-io { color: var(--fg-dim); display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
+.ch-gain, .ch-off {
+  width: 54px; background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 5px; outline: none; font-size: 11.5px;
+}
+.ch-gain:focus, .ch-off:focus { border-color: var(--accent); }
+
+/* 垂直柱状表（Bar Process） */
+#plot-bars { display: flex; gap: 8px; padding: 8px 8px 0; flex: none; overflow-x: auto; }
+.bar-meter {
+  width: 84px; height: 190px; flex: none;
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 10px;
+}
+.bar-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-dim); white-space: nowrap; }
+.bar-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.bar-track {
+  position: relative; flex: 1; min-height: 110px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+  overflow: hidden;
+}
+.bar-fill { position: absolute; left: 0; right: 0; bottom: 0; height: 0%; opacity: 0.9; }
+.bar-val {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; align-items: center; justify-content: center;
+  font: 600 12px Consolas, "Cascadia Mono", monospace;
+  color: var(--fg); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  font-variant-numeric: tabular-nums;
+}
+.bar-range {
+  display: flex; justify-content: space-between; font-size: 10px;
+  color: var(--fg-dim); font-variant-numeric: tabular-nums;
+}
 
 /* ── 统计页 ── */
 #page-stats { padding: 14px 18px; overflow-y: auto; user-select: text; }

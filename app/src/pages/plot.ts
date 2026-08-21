@@ -1,130 +1,428 @@
-// 绘图页：uPlot 流式波形（每通道一个图），数据来自 Rust 引擎快照轮询
+// 绘图页：uPlot 波形（分开子图 / 单图叠加多色图例）+ 垂直柱状表（Bar Process）。
+// 显示模式（波形/柱状/同屏）与布局可切换；Y 轴支持自动缩放与位宽预设；
+// 每通道可调 颜色 / 显隐 / 增益 / 偏移。数据来自 Rust 引擎快照轮询。
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { api } from "../api";
-import type { DataFormat, DType, PlotSnapshotDto } from "../types";
+import type { PlotSnapshotDto } from "../types";
 
-const CH_COLORS = ["#4da3ff", "#33cc70", "#ffb340", "#ff5544", "#c792ea", "#33d1d1", "#f7a8b8", "#a3e635"];
+export const CH_COLORS = ["#4da3ff", "#33cc70", "#ffb340", "#ff5544", "#c792ea", "#33d1d1", "#f7a8b8", "#a3e635"];
+
+export type ViewMode = "waveform" | "bars" | "both";
+export type PlotLayout = "subplots" | "overlay";
+
+/** Y 轴范围预设（key 与 main.ts 下拉 value 一致；null = 自动缩放） */
+export const Y_PRESETS: Record<string, [number, number] | null> = {
+  auto: null,
+  s8: [-128, 127],
+  u8: [0, 255],
+  s16: [-32768, 32767],
+  u16: [0, 65535],
+  s32: [-2147483648, 2147483647],
+  u32: [0, 4294967295],
+  pm1: [-1, 1],
+  pm100: [-100, 100],
+  pm1000: [-1000, 1000],
+};
+
+interface ChState {
+  visible: boolean;
+  gain: number;
+  offset: number;
+  color: string;
+}
+
+interface Meter {
+  root: HTMLElement;
+  swatch: HTMLElement;
+  fill: HTMLElement;
+  val: HTMLElement;
+  loEl: HTMLElement;
+  hiEl: HTMLElement;
+  lo: number;
+  hi: number;
+  init: boolean;
+}
+
+const AXES: uPlot.Axis[] = [
+  { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 60, label: "样本序号" },
+  { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 24 },
+];
+
+function fmtNum(v: number): string {
+  const a = Math.abs(v);
+  if (a >= 1000) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1);
+  return v.toFixed(2);
+}
 
 export class PlotPage {
   private holder: HTMLElement;
+  private barsEl: HTMLElement;
+  private chbar: HTMLElement;
   private info: HTMLElement;
-  private plots: uPlot[] = [];
-  private lastTotal = -1;
 
-  constructor(holder: HTMLElement, controls: HTMLElement) {
+  private plots: uPlot[] = [];
+  private cells: HTMLElement[] = [];
+  private overlay: uPlot | null = null;
+  private meters: Meter[] = [];
+  private chState: ChState[] = [];
+
+  private yRange: [number, number] | null = null;
+  private viewMode: ViewMode = "waveform";
+  private layout: PlotLayout = "subplots";
+
+  private lastTotal = -1;
+  private lastSnap: PlotSnapshotDto | null = null;
+
+  constructor(holder: HTMLElement, controls: HTMLElement, chbar: HTMLElement) {
     this.holder = holder;
+    this.barsEl = document.querySelector<HTMLElement>("#plot-bars")!;
+    this.chbar = chbar;
     this.info = controls.querySelector<HTMLElement>("#plot-info")!;
-    controls.querySelector("#plot-apply")!.addEventListener("click", () => this.applyFormat());
+
     // 窗口/容器尺寸变化 → 重建图（防抖 150ms）
     let t: number | null = null;
     const ro = new ResizeObserver(() => {
       if (t !== null) window.clearTimeout(t);
       t = window.setTimeout(() => {
         t = null;
-        if (this.plots.length) this.rebuild(this.lastSnap!);
+        if (this.viewMode !== "bars" && (this.plots.length || this.overlay)) this.rebuildAll(this.lastSnap!);
       }, 150);
     });
     ro.observe(holder);
+
+    // 通道条事件委托（input: 颜色/增益/偏移实时；change: 显隐）
+    this.chbar.addEventListener("input", (e) => this.onChInput(e));
+    this.chbar.addEventListener("change", (e) => this.onChInput(e));
   }
 
-  private lastSnap: PlotSnapshotDto | null = null;
+  // ── 外部配置入口（main.ts 下拉调用）──
+
+  setViewMode(m: ViewMode) {
+    this.viewMode = m;
+    this.rebuildAll(this.lastSnap);
+  }
+
+  setLayout(l: PlotLayout) {
+    this.layout = l;
+    this.rebuildAll(this.lastSnap);
+  }
+
+  setYRange(key: string) {
+    this.yRange = Y_PRESETS[key] ?? null;
+    this.rebuildAll(this.lastSnap);
+  }
 
   /** 切到绘图页时调用：页面隐藏期间 holder 无尺寸，显示后按真实容器重建 */
   onShow() {
     requestAnimationFrame(() => {
-      if (this.lastSnap && this.plots.length) this.rebuild(this.lastSnap);
+      if (this.lastSnap) this.rebuildAll(this.lastSnap);
     });
   }
 
-  /** 每 ~50ms 由 main 轮询调用 */
+  // ── 快照轮询（main.ts 每 ~50ms 调用）──
+
   update(snap: PlotSnapshotDto) {
     this.lastSnap = snap;
-    // 尺寸漂移兜底：图宽与格子实测宽差 >3px 时就地 setSize（容器变化而 RO 未触发的场景）
-    for (let i = 0; i < this.plots.length; i++) {
-      const cell = this.plots[i].root.parentElement as HTMLElement | null;
-      if (!cell || !cell.clientWidth) continue;
-      const target = Math.max(220, cell.clientWidth - 10); // 减 cell 左右 padding+border
-      if (Math.abs(this.plots[i].width - target) > 3) {
-        this.plots[i].setSize({ width: target, height: this.plots[i].height });
-      }
-    }
-    if (snap.series.length !== this.plots.length || snap.total_points < this.lastTotal) {
-      this.rebuild(snap);
+    const n = Math.max(1, snap.channel_count);
+    this.ensureChStates(n);
+    const needWave = this.viewMode !== "bars";
+    const needBars = this.viewMode !== "waveform";
+    const waveOk =
+      !needWave ||
+      (this.layout === "overlay"
+        ? !!this.overlay && this.overlay.series.length - 1 === n
+        : this.plots.length === n && this.plots.length > 0);
+    const barsOk = !needBars || this.meters.length === n;
+    if (!waveOk || !barsOk || snap.total_points < this.lastTotal) {
       this.lastTotal = snap.total_points;
+      this.rebuildAll(snap);
       return;
     }
     this.lastTotal = snap.total_points;
-    for (let ch = 0; ch < snap.series.length; ch++) {
-      const data = snap.series[ch];
-      const n = data.length;
-      // x 轴用样本序号（环形缓冲起点未知，以最新点为 n-1）
-      const xs = new Float64Array(n);
-      for (let i = 0; i < n; i++) xs[i] = i;
-      this.plots[ch].setData([xs, Float64Array.from(data)]);
-    }
+    this.syncSizes();
+    if (needWave) this.updateWave(snap);
+    if (needBars) this.updateBars(snap);
     this.info.textContent = `总点数 ${snap.total_points}`;
   }
 
-  private rebuild(snap: PlotSnapshotDto) {
+  // ── 重建 ──
+
+  private rebuildAll(snap: PlotSnapshotDto | null) {
+    if (!snap) return;
     for (const p of this.plots) p.destroy();
     this.plots = [];
+    this.cells = [];
+    if (this.overlay) {
+      this.overlay.destroy();
+      this.overlay = null;
+    }
+    this.meters = [];
     this.holder.replaceChildren();
+    this.barsEl.replaceChildren();
     const n = Math.max(1, snap.channel_count);
-    const rows = n <= 1 ? 1 : Math.ceil(n / 2); // 每行最多两个（grid auto-fit 实际排布）
-    // 行高按 holder 可视高度均分；holder 隐藏时 clientHeight 为 0 → 落到最小值，onShow 会重建
-    const h = Math.max(150, Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 10);
-    // 先建格子并入文档，布局稳定后按格子实测宽度建图 —— 杜绝量到过期/为零的宽度导致溢出
-    const cells: HTMLElement[] = [];
-    for (let ch = 0; ch < n; ch++) {
+    this.ensureChStates(n);
+    this.buildChBar();
+    this.syncVisibility();
+    if (this.viewMode !== "bars") this.buildWave(n);
+    if (this.viewMode !== "waveform") this.buildBars(n);
+    this.update(snap); // 立即灌一次数据
+  }
+
+  private syncVisibility() {
+    this.barsEl.classList.toggle("hidden", this.viewMode === "waveform");
+    this.holder.classList.toggle("hidden", this.viewMode === "bars");
+  }
+
+  private buildWave(n: number) {
+    if (this.layout === "overlay") {
+      // 单图叠加：全部通道进一个 uPlot，多色曲线 + 图例
       const cell = document.createElement("div");
       cell.className = "plot-cell";
       this.holder.appendChild(cell);
-      cells.push(cell);
-    }
-    for (let ch = 0; ch < n; ch++) {
-      const w = Math.max(220, cells[ch].clientWidth - 10); // 减 cell 左右 padding+border
-      const plot = new uPlot(this.buildOpts(ch, w, h), undefined, cells[ch]);
-      this.plots.push(plot);
-    }
-    // 立即灌一次数据
-    this.update(snap);
-  }
-
-  private buildOpts(ch: number, w: number, h: number): uPlot.Options {
-    return {
-      width: w,
-      height: h,
-      title: `CH${ch + 1}`,
-      // x 是样本序号，不是 unix 时间戳（不关的话 0..n 会被当成 epoch 秒渲染成钟点）
-      scales: { x: { time: false } },
-      padding: [18, 14, 8, 10],
-      series: [{}, {
-        label: `CH${ch + 1}`,
-        stroke: CH_COLORS[ch % CH_COLORS.length],
-        width: 1.4,
-        points: { show: false },
-      }],
-      axes: [
-        { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 60, label: "样本序号" },
-        { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 24 },
-      ],
-      legend: { show: false },
-    };
-  }
-
-  private applyFormat() {
-    const channels = Number(this.holder.closest("#page-plot")?.querySelector<HTMLInputElement>("#plot-channels")?.value ?? 1);
-    const fmtSel = this.holder.closest("#page-plot")?.querySelector<HTMLSelectElement>("#plot-fmt")!;
-    const dtype = this.holder.closest("#page-plot")?.querySelector<HTMLSelectElement>("#plot-dtype")!.value as DType;
-    const endian = this.holder.closest("#page-plot")?.querySelector<HTMLSelectElement>("#plot-endian")!.value as "little" | "big";
-    const delim = this.holder.closest("#page-plot")?.querySelector<HTMLInputElement>("#plot-delimiter")!.value || ",";
-    let fmt: DataFormat;
-    if (fmtSel.value === "simple_binary") {
-      fmt = { type: "simple_binary", channel_count: channels, dtype, byte_order: endian };
+      const w = Math.max(220, cell.clientWidth - 10);
+      const h = Math.max(140, Math.floor(this.holder.clientHeight - 16) - 14);
+      const series: uPlot.Series[] = [{}, ...this.chState.map((st, i) => (
+        {
+          label: `CH${i + 1}`,
+          stroke: st.color,
+          width: 1.4,
+          show: st.visible,
+          points: { show: false },
+        }
+      ))];
+      this.overlay = new uPlot(
+        {
+          width: w,
+          height: h,
+          scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
+          padding: [18, 14, 8, 10],
+          series,
+          axes: AXES,
+          legend: { show: true },
+        },
+        undefined,
+        cell,
+      );
     } else {
-      fmt = { type: "ascii_delimited", delimiter: delim, channel_count: channels };
+      // 分开子图：每行最多两个，行高按可视高度均分（留 4px 冗余防 1px 溢出滚动条）
+      const rows = n <= 1 ? 1 : Math.ceil(n / 2);
+      const h = Math.max(140, Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 14);
+      for (let ch = 0; ch < n; ch++) {
+        const cell = document.createElement("div");
+        cell.className = "plot-cell sub";
+        cell.classList.toggle("hidden", !(this.chState[ch]?.visible ?? true));
+        this.holder.appendChild(cell);
+        this.cells.push(cell);
+        const w = Math.max(220, cell.clientWidth - 10);
+        const plot = new uPlot(
+          {
+            width: w,
+            height: h,
+            title: `CH${ch + 1}`,
+            scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
+            padding: [18, 14, 8, 10],
+            series: [{}, {
+              label: `CH${ch + 1}`,
+              stroke: this.chState[ch]?.color ?? CH_COLORS[ch % CH_COLORS.length],
+              width: 1.4,
+              points: { show: false },
+            }],
+            axes: AXES,
+            legend: { show: false },
+          },
+          undefined,
+          cell,
+        );
+        this.plots.push(plot);
+      }
     }
-    void api.setPlotFormat(fmt);
+  }
+
+  private buildBars(n: number) {
+    for (let ch = 0; ch < n; ch++) {
+      const st = this.chState[ch];
+      const root = document.createElement("div");
+      root.className = "bar-meter";
+      root.classList.toggle("hidden", !(st?.visible ?? true));
+      root.innerHTML =
+        `<div class="bar-head"><i class="bar-swatch" style="background:${st.color}"></i>CH${ch + 1}</div>` +
+        `<div class="bar-track"><div class="bar-fill" style="background:${st.color}"></div><span class="bar-val">--</span></div>` +
+        `<div class="bar-range"><span class="lo">--</span><span class="hi">--</span></div>`;
+      this.barsEl.appendChild(root);
+      this.meters.push({
+        root,
+        swatch: root.querySelector<HTMLElement>(".bar-swatch")!,
+        fill: root.querySelector<HTMLElement>(".bar-fill")!,
+        val: root.querySelector<HTMLElement>(".bar-val")!,
+        loEl: root.querySelector<HTMLElement>(".lo")!,
+        hiEl: root.querySelector<HTMLElement>(".hi")!,
+        lo: 0,
+        hi: 1,
+        init: false,
+      });
+    }
+  }
+
+  // ── 数据更新 ──
+
+  /** 增益/偏移变换：v' = v*gain + offset（默认恒等时走零变换路径） */
+  private transform(data: number[], ch: number): Float64Array {
+    const st = this.chState[ch];
+    const gain = st?.gain ?? 1;
+    const off = st?.offset ?? 0;
+    const arr = new Float64Array(data.length);
+    if (gain === 1 && off === 0) {
+      for (let i = 0; i < data.length; i++) arr[i] = data[i];
+    } else {
+      for (let i = 0; i < data.length; i++) arr[i] = data[i] * gain + off;
+    }
+    return arr;
+  }
+
+  private updateWave(snap: PlotSnapshotDto) {
+    if (this.layout === "overlay" && this.overlay) {
+      const series = snap.series.map((d, ch) => this.transform(d, ch));
+      const L = series.length ? Math.min(...series.map((s) => s.length)) : 0;
+      const xs = new Float64Array(L);
+      for (let i = 0; i < L; i++) xs[i] = i;
+      this.overlay.setData([xs, ...series.map((s) => s.subarray(0, L))]);
+    } else {
+      for (let ch = 0; ch < this.plots.length && ch < snap.series.length; ch++) {
+        const d = this.transform(snap.series[ch], ch);
+        const xs = new Float64Array(d.length);
+        for (let i = 0; i < d.length; i++) xs[i] = i;
+        this.plots[ch].setData([xs, d]);
+      }
+    }
+  }
+
+  private updateBars(snap: PlotSnapshotDto) {
+    for (let ch = 0; ch < this.meters.length && ch < snap.series.length; ch++) {
+      const data = snap.series[ch];
+      if (!data.length) continue;
+      const m = this.meters[ch];
+      let mn = Infinity;
+      let mx = -Infinity;
+      for (const v of data) {
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+      }
+      let pad = (mx - mn) * 0.08;
+      if (!(pad > 0)) pad = Math.max(Math.abs(mx) * 0.08, 1);
+      const tLo = mn - pad;
+      const tHi = mx + pad;
+      if (!m.init) {
+        m.lo = tLo;
+        m.hi = tHi;
+        m.init = true;
+      } else {
+        // 平滑跟随，避免量程抖动
+        m.lo += (tLo - m.lo) * 0.25;
+        m.hi += (tHi - m.hi) * 0.25;
+      }
+      const latest = data[data.length - 1];
+      const pct = Math.max(0, Math.min(1, (latest - m.lo) / (m.hi - m.lo || 1))) * 100;
+      m.fill.style.height = pct.toFixed(1) + "%";
+      m.val.textContent = fmtNum(latest);
+      m.loEl.textContent = fmtNum(m.lo);
+      m.hiEl.textContent = fmtNum(m.hi);
+    }
+  }
+
+  /** 容器尺寸漂移兜底：图宽与格子实测差 >3px 时就地 setSize */
+  private syncSizes() {
+    const all = this.overlay ? [...this.plots, this.overlay] : this.plots;
+    for (const p of all) {
+      const cell = p.root.parentElement as HTMLElement | null;
+      if (!cell || !cell.clientWidth) continue;
+      const target = Math.max(220, cell.clientWidth - 10); // 减 cell 左右 padding+border
+      if (Math.abs(p.width - target) > 3) {
+        p.setSize({ width: target, height: p.height });
+      }
+    }
+  }
+
+  // ── 通道状态与通道条 ──
+
+  private ensureChStates(n: number) {
+    while (this.chState.length < n) {
+      this.chState.push({
+        visible: true,
+        gain: 1,
+        offset: 0,
+        color: CH_COLORS[this.chState.length % CH_COLORS.length],
+      });
+    }
+    if (this.chState.length > n) this.chState.length = n;
+  }
+
+  private buildChBar() {
+    if (this.chbar.childElementCount === this.chState.length && this.chState.length > 0) return;
+    const frag = document.createDocumentFragment();
+    this.chState.forEach((st, i) => {
+      const chip = document.createElement("div");
+      chip.className = "ch-chip";
+      chip.dataset.ch = String(i);
+      chip.innerHTML =
+        `<input type="color" class="ch-color" value="${st.color}" title="通道颜色" />` +
+        `<span class="ch-name">CH${i + 1}</span>` +
+        `<label class="chk" title="显示通道"><input type="checkbox" class="ch-vis" ${st.visible ? "checked" : ""} />显</label>` +
+        `<span class="ch-io" title="增益">×<input type="number" class="ch-gain" value="${st.gain}" step="0.1" /></span>` +
+        `<span class="ch-io" title="偏移">+<input type="number" class="ch-off" value="${st.offset}" step="1" /></span>`;
+      frag.appendChild(chip);
+    });
+    this.chbar.replaceChildren(frag);
+    this.chbar.classList.toggle("hidden", this.chState.length === 0);
+  }
+
+  private onChInput(e: Event) {
+    const target = e.target as HTMLElement;
+    const chip = target.closest<HTMLElement>(".ch-chip");
+    if (!chip) return;
+    const i = Number(chip.dataset.ch);
+    const st = this.chState[i];
+    if (!st) return;
+    const el = e.target as HTMLInputElement;
+    if (el.classList.contains("ch-color")) {
+      st.color = el.value;
+      this.applyChLive(i);
+    } else if (el.classList.contains("ch-vis")) {
+      st.visible = el.checked;
+      this.applyChLive(i);
+    } else if (el.classList.contains("ch-gain")) {
+      const v = Number(el.value);
+      st.gain = Number.isFinite(v) && v !== 0 ? v : 1;
+    } else if (el.classList.contains("ch-off")) {
+      const v = Number(el.value);
+      st.offset = Number.isFinite(v) ? v : 0;
+    }
+  }
+
+  /** 颜色/显隐变更即时生效（不重建） */
+  private applyChLive(i: number) {
+    const st = this.chState[i];
+    if (!st) return;
+    if (this.layout === "overlay" && this.overlay) {
+      const s = this.overlay.series[i + 1];
+      if (s) {
+        s.stroke = st.color;
+        s.show = st.visible;
+      }
+      this.overlay.redraw();
+    } else {
+      const p = this.plots[i];
+      if (p) {
+        p.series[1].stroke = st.color;
+        p.redraw();
+      }
+      this.cells[i]?.classList.toggle("hidden", !st.visible);
+    }
+    const m = this.meters[i];
+    if (m) {
+      m.swatch.style.background = st.color;
+      m.fill.style.background = st.color;
+      m.root.classList.toggle("hidden", !st.visible);
+    }
   }
 }

@@ -13,7 +13,6 @@
       <button id="refresh-ports" title="刷新串口列表">⟳</button>
       <div id="baud-dd"></div>
       <button id="more-serial" class="serial-only" title="数据位/停止位/校验/流控">更多串口设置 ⚙</button>
-      <button id="selftest-btn" class="serial-only" title="发送标记字节并等待回环，定位链路断层">回环自检</button>
       <label class="chk serial-only"><input id="dtr-chk" type="checkbox" />DTR</label>
       <label class="chk serial-only"><input id="rts-chk" type="checkbox" />RTS</label>
       <div id="tcp-host-dd" class="hidden"></div>
@@ -110,14 +109,20 @@
         <section id="page-plot" class="page hidden">
           <div id="plot-controls">
             <span class="ctl">格式 <div id="plot-fmt-dd" class="inline-dd"></div></span>
-            <label>通道数 <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
-            <span class="ctl">类型 <div id="plot-dtype-dd" class="inline-dd"></div></span>
-            <span class="ctl">端序 <div id="plot-endian-dd" class="inline-dd"></div></span>
-            <label>分隔符 <input id="plot-delimiter" value="," size="3" /></label>
-            <label>点数上限 <input id="plot-maxpoints" type="number" min="100" max="20000" value="2000" /></label>
+            <span id="plot-binary-ctl">
+              <label>通道数 <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
+              <span class="ctl">类型 <div id="plot-dtype-dd" class="inline-dd"></div></span>
+              <span class="ctl">端序 <div id="plot-endian-dd" class="inline-dd"></div></span>
+            </span>
+            <label id="plot-ascii-ctl" class="hidden" title="列数由首行数据自动探测">分隔符 <input id="plot-delimiter" value="," size="3" /></label>
+            <span class="ctl">显示 <div id="plot-view-dd" class="inline-dd"></div></span>
+            <span class="ctl">布局 <div id="plot-layout-dd" class="inline-dd"></div></span>
+            <span class="ctl">Y轴范围 <div id="plot-yrange-dd" class="inline-dd"></div></span>
             <button id="plot-apply">应用</button>
             <span id="plot-info"></span>
           </div>
+          <div id="plot-chbar" class="hidden"></div>
+          <div id="plot-bars" class="hidden"></div>
           <div id="plot-holder"></div>
         </section>
         <section id="page-stats" class="page hidden">

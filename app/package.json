@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-selectors.mjs && tsc --noEmit && vite build && node scripts/smoke.mjs",
+    "build": "node scripts/check-selectors.mjs && tsc --noEmit && vite build && node scripts/smoke.mjs && node scripts/plot-test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

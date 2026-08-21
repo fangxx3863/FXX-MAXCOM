@@ -5,7 +5,7 @@ import type { ConnState } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { TerminalPage } from "./pages/terminal";
 import { LogViewPage } from "./pages/logview";
-import { PlotPage } from "./pages/plot";
+import { PlotPage, Y_PRESETS, type PlotLayout, type ViewMode } from "./pages/plot";
 import { StatsPage } from "./pages/stats";
 import { RulesPanel } from "./pages/rules";
 
@@ -221,48 +221,6 @@ on.state((s: ConnState) => {
   connectBtn.textContent = s.connected ? "断开" : "连接";
 });
 
-// ── 串口回环自检：发送标记字节，分层定位 断在 OS 写入 / 设备回环 / 前端事件 ──
-$("#selftest-btn").addEventListener("click", () => {
-  void (async () => {
-    const marker = new TextEncoder().encode(`MAXCOM-SELFTEST-${Date.now() % 100000}`);
-    const hex = [...marker].map((b) => b.toString(16).padStart(2, "0")).join("");
-    // 累积整个窗口内的原始字节再搜标记（串口常把回环拆成多个 chunk，单 chunk 前缀匹配会误报）
-    let acc = new Uint8Array(0);
-    let chunks = 0;
-    const unlisten = await on.raw((bytes) => {
-      chunks++;
-      const merged = new Uint8Array(acc.length + bytes.length);
-      merged.set(acc);
-      merged.set(bytes, acc.length);
-      acc = merged;
-      if (acc.length > 65536) acc = acc.slice(-4096); // 防爆内存
-    });
-    try {
-      const st0 = await api.getStats();
-      const n = await api.send({ hex, newline: "none" });
-      await new Promise((r) => setTimeout(r, 1200));
-      const st1 = await api.getStats();
-      const txDelta = st1.tx_bytes - st0.tx_bytes;
-      const rxDelta = st1.rx_bytes - st0.rx_bytes;
-      const needle = [...marker].map((b) => b.toString(16).padStart(2, "0")).join("");
-      const accHex = [...acc.slice(-256)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      const sawMarker = accHex.includes(needle);
-      if (txDelta < n) {
-        setHint(`自检：OS 层写入异常（TX 仅 +${txDelta}/${n}B）`);
-      } else if (rxDelta === 0 && chunks === 0) {
-        setHint(`自检：写入 ${n}B ✓，但 1.2s 内零回环字节、零事件 → 查 TX/RX/GND 接线、波特率两端一致、驱动`);
-      } else if (!sawMarker) {
-        setHint(`自检：RX+${rxDelta}B/${chunks}个chunk 但未含标记 → 若终端页有乱码请截图；否则发我这段`);
-      } else {
-        setHint(`自检通过：写入→回环→前端事件 全链路 OK（${chunks} 个chunk）`, false);
-      }
-    } catch (e) {
-      setHint(`自检：发送失败 → ${e}`);
-    } finally {
-      unlisten();
-    }
-  })();
-});
 
 // ── 页面 ──
 const pages = ["terminal", "logview", "plot", "stats", "settings"] as const;
@@ -273,7 +231,7 @@ const logViewPage = new LogViewPage($("#log-view"), {
   getTsMode: () => tsModeDd.value,
 });
 logViewRef = logViewPage;
-const plotPage = new PlotPage($("#plot-holder"), $("#plot-controls"));
+const plotPage = new PlotPage($("#plot-holder"), $("#plot-controls"), $("#plot-chbar"));
 const statsPage = new StatsPage($("#page-stats"));
 
 let currentPage: PageId = "logview";
@@ -287,6 +245,12 @@ function switchPage(id: PageId) {
     b.classList.toggle("active", b.dataset.page === id),
   );
   if (id === "plot") plotPage.onShow(); // 隐藏期间量不到尺寸，显示后按真实容器重建
+  // 强制重新合成一层，清掉 WebView2 页面切换后的右缘残影
+  requestAnimationFrame(() => {
+    const el = $("#pages") as HTMLElement;
+    el.style.transform = "translateZ(0)";
+    requestAnimationFrame(() => (el.style.transform = ""));
+  });
 }
 
 // ── 收发页：日志控制条（ts/encoding 下拉已在顶部创建）──
@@ -589,6 +553,7 @@ const plotFmtDd = createDropdown({
     { value: "ascii_delimited", label: "ASCII 分隔" },
   ],
   value: "simple_binary",
+  onChange: () => applyPlotFmtControls(),
 });
 $("#plot-fmt-dd").replaceWith(plotFmtDd.el);
 const plotDtypeDd = makeInline("plot-dtype", ["uint8", "int8", "uint16", "int16", "uint32", "int32", "float32", "float64"], "int16");
@@ -601,24 +566,73 @@ const plotEndianDd = createDropdown({
 });
 $("#plot-endian-dd").replaceWith(plotEndianDd.el);
 
+// 格式联动：二进制显示 类型/端序，ASCII 显示 分隔符（通道数由引擎按首行自动探测）
+function applyPlotFmtControls() {
+  const binary = plotFmtDd.value === "simple_binary";
+  $("#plot-binary-ctl").classList.toggle("hidden", !binary);
+  $("#plot-ascii-ctl").classList.toggle("hidden", binary);
+}
+applyPlotFmtControls();
+
+// 显示模式：波形 / 垂直柱状 / 同屏
+const plotViewDd = createDropdown({
+  items: [
+    { value: "waveform", label: "波形图" },
+    { value: "bars", label: "垂直柱状" },
+    { value: "both", label: "同屏显示" },
+  ],
+  value: "waveform",
+  onChange: (v) => plotPage.setViewMode(v as ViewMode),
+});
+$("#plot-view-dd").replaceWith(plotViewDd.el);
+
+// 布局：分开子图 / 单图叠加（多色图例）
+const plotLayoutDd = createDropdown({
+  items: [
+    { value: "subplots", label: "分开子图" },
+    { value: "overlay", label: "单图叠加" },
+  ],
+  value: "subplots",
+  onChange: (v) => plotPage.setLayout(v as PlotLayout),
+});
+$("#plot-layout-dd").replaceWith(plotLayoutDd.el);
+
+// Y 轴范围：自动缩放 / 位宽预设 / 常用固定范围
+const plotYRangeDd = createDropdown({
+  items: [
+    { value: "auto", label: "自动缩放" },
+    { value: "s8", label: "int8: -128~127" },
+    { value: "u8", label: "uint8: 0~255" },
+    { value: "s16", label: "int16: ±32768" },
+    { value: "u16", label: "uint16: 0~65535" },
+    { value: "s32", label: "int32: ±2³¹" },
+    { value: "u32", label: "uint32: 0~2³²" },
+    { value: "pm1", label: "-1 ~ 1" },
+    { value: "pm100", label: "-100 ~ 100" },
+    { value: "pm1000", label: "-1000 ~ 1000" },
+  ],
+  value: "auto",
+  onChange: (v) => plotPage.setYRange(Y_PRESETS[v] !== undefined ? v : "auto"),
+});
+$("#plot-yrange-dd").replaceWith(plotYRangeDd.el);
+
 $("#plot-apply").addEventListener("click", () => {
-  const channels = Math.max(1, Number(($("#plot-channels") as HTMLInputElement).value) || 1);
-  let fmt;
   if (plotFmtDd.value === "simple_binary") {
-    fmt = {
+    const channels = Math.max(1, Number(($("#plot-channels") as HTMLInputElement).value) || 1);
+    void api.setPlotFormat({
       type: "simple_binary" as const,
       channel_count: channels,
       dtype: plotDtypeDd.value as never,
       byte_order: plotEndianDd.value as "little" | "big",
-    };
+    });
   } else {
-    fmt = {
+    // ASCII：channel_count 传 0 → 引擎按首行数据自动探测列数
+    void api.setPlotFormat({
       type: "ascii_delimited" as const,
       delimiter: ($("#plot-delimiter") as HTMLInputElement).value || ",",
-      channel_count: channels,
-    };
+      channel_count: 0,
+    });
   }
-  void api.setPlotFormat(fmt);
 });
 
 // ── 事件与轮询 ──
