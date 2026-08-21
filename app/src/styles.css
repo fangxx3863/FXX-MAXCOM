@@ -250,3 +250,17 @@ button.dd-face { justify-content: space-between; }
 
 /* 引脚按钮态（保留兼容） */
 .pin.on { border-color: var(--ok); color: var(--ok); }
+
+/* 控制条输入框统一暗色（分包超时/通道数/分隔符/点数上限等） */
+#log-controls input[type="number"],
+#log-controls input[type="text"],
+#plot-controls input[type="number"],
+#plot-controls input[type="text"] {
+  background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 8px; outline: none;
+}
+#log-controls input:focus, #plot-controls input:focus { border-color: var(--accent); }
+#log-controls label, #plot-controls label {
+  color: var(--fg-dim); display: inline-flex; gap: 6px; align-items: center; white-space: nowrap;
+}

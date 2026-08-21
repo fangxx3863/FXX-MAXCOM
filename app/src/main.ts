@@ -63,6 +63,35 @@ const databitsDd = makeInline("databits", ["8", "7", "6", "5"], "8");
 const stopbitsDd = makeInline("stopbits", ["1", "2"], "1");
 const flowctlDd = makeInline("flowctl", ["none", "software(XON/XOFF)", "hardware(RTS/CTS)"], "none");
 
+// 日志控制条下拉（先于页面创建；副作用经 logViewRef 可空引用挂接）
+const tsModeDd = createDropdown({
+  items: [
+    { value: "absolute", label: "绝对" },
+    { value: "relative", label: "相对" },
+    { value: "delta", label: "差值 Δ" },
+    { value: "none", label: "无" },
+  ],
+  value: "absolute",
+  onChange: () => {
+    logViewRef?.resetDeltaBase();
+    applyLogOptions();
+  },
+});
+document.querySelector("#ts-mode-dd")?.replaceWith(tsModeDd.el);
+const encodingDd = createDropdown({
+  items: [
+    { value: "auto", label: "自动" },
+    { value: "utf-8", label: "UTF-8" },
+    { value: "gbk", label: "GBK" },
+    { value: "gb2312", label: "GB2312" },
+    { value: "latin-1", label: "Latin-1" },
+  ],
+  value: "auto",
+  onChange: () => applyLogOptions(),
+});
+document.querySelector("#encoding-dd")?.replaceWith(encodingDd.el);
+let logViewRef: { resetDeltaBase(): void } | null = null;
+
 // DTR / RTS 引脚（复选框；连接串口时默认拉高）
 let dtrOn = false;
 let rtsOn = false;
@@ -239,7 +268,11 @@ $("#selftest-btn").addEventListener("click", () => {
 const pages = ["terminal", "logview", "plot", "stats"] as const;
 type PageId = (typeof pages)[number];
 const terminalPage = new TerminalPage($("#page-terminal"), (msg) => setHint(msg));
-const logViewPage = new LogViewPage($("#log-view"), $("#log-controls"));
+const logViewPage = new LogViewPage($("#log-view"), {
+  autoscroll: $<HTMLInputElement>("#autoscroll"),
+  getTsMode: () => tsModeDd.value,
+});
+logViewRef = logViewPage;
 const plotPage = new PlotPage($("#plot-holder"), $("#plot-controls"));
 const statsPage = new StatsPage($("#page-stats"));
 
@@ -255,9 +288,7 @@ function switchPage(id: PageId) {
   );
 }
 
-// ── 收发页：日志控制条 ──
-const tsModeDd = makeInline("ts-mode", ["absolute", "relative", "delta", "none"], "absolute");
-const encodingDd = makeInline("encoding", ["auto", "utf-8", "gbk", "gb2312", "latin-1"], "auto");
+// ── 收发页：日志控制条（ts/encoding 下拉已在顶部创建）──
 
 // 日志控制条选项变更 → 推送到引擎日志线程
 function applyLogOptions() {
@@ -614,3 +645,6 @@ async function pollPlot() {
   }
 }
 setInterval(() => void pollPlot(), 50);
+
+// 初始化完成标记（smoke 测试断言用）
+(window as unknown as { __MAXCOM_READY__?: boolean }).__MAXCOM_READY__ = true;

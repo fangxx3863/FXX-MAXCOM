@@ -1,41 +1,26 @@
 // 传统收发页（模式 B）：时间戳 + 自动染色 + 过滤 + 发送面板
+// 控件所有权在 main.ts（自绘下拉），本类只收：视图、自动滚动框、时间戳模式取值器
 import type { EntriesBatch, LogEntryDto } from "../types";
-import { api } from "../api";
 
 const MAX_LINES = 100_000; // ADR-0010：接收区上限，超出丢旧行
 
 export class LogViewPage {
   private view: HTMLElement;
   private autoscroll: HTMLInputElement;
-  private tsMode: HTMLSelectElement;
+  private getTsMode: () => string;
   private epochAnchor = Date.now();
   private lastTs: number | null = null;
   private lines = 0;
 
-  constructor(view: HTMLElement, controls: HTMLElement) {
+  constructor(view: HTMLElement, opts: { autoscroll: HTMLInputElement; getTsMode: () => string }) {
     this.view = view;
-    this.autoscroll = controls.querySelector<HTMLInputElement>("#autoscroll")!;
-    this.tsMode = controls.querySelector<HTMLSelectElement>("#ts-mode")!;
+    this.autoscroll = opts.autoscroll;
+    this.getTsMode = opts.getTsMode;
+  }
 
-    controls.querySelector("#clear-log")!.addEventListener("click", () => this.clear());
-    controls.querySelector("#idle-timeout")!.addEventListener("change", (e) => {
-      const v = Number((e.target as HTMLInputElement).value) || 100;
-      void api.setLogOptions({
-        idle_timeout_ms: v,
-        timestamp_mode: this.tsMode.value,
-        encoding: controls.querySelector<HTMLSelectElement>("#encoding")!.value,
-      });
-    });
-    controls.querySelector("#encoding")!.addEventListener("change", (e) => {
-      void api.setLogOptions({
-        idle_timeout_ms: Number(controls.querySelector<HTMLInputElement>("#idle-timeout")!.value) || 100,
-        timestamp_mode: this.tsMode.value,
-        encoding: (e.target as HTMLSelectElement).value,
-      });
-    });
-    this.tsMode.addEventListener("change", () => {
-      this.lastTs = null; // 切换差值基准重置
-    });
+  /** 时间戳模式切换后重置差值基准 */
+  resetDeltaBase() {
+    this.lastTs = null;
   }
 
   /** 收到批量日志条目 */
@@ -57,7 +42,7 @@ export class LogViewPage {
   private renderLine(e: LogEntryDto): HTMLElement {
     const div = document.createElement("div");
     div.className = "log-line";
-    const mode = this.tsMode.value;
+    const mode = this.getTsMode();
     if (mode !== "none") {
       const ts = document.createElement("span");
       ts.className = "log-ts";
@@ -76,7 +61,7 @@ export class LogViewPage {
   }
 
   private formatTs(tsMs: number): string {
-    switch (this.tsMode.value) {
+    switch (this.getTsMode()) {
       case "relative":
         return `+${tsMs}ms`;
       case "delta": {
