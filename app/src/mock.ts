@@ -47,8 +47,11 @@ const LINES: Array<{ segs: ColoredSegment[] }> = [
   },
   { segs: [{ text: "samples 3.14 -2.5e3 0xFF 42 done", fg: undefined }] },
   {
-    // 含 ANSI 的行（让位路径：前端原样显示文本）
-    segs: [{ text: "\x1b[32mroot@maxcom:~$\x1b[0m tail -f /var/log/syslog" }],
+    // 模拟"ANSI 让位"后的日志形态：提示符绿色段 + 普通文本段
+    segs: [
+      { text: "root@maxcom:~$", fg: "green" },
+      { text: " tail -f /var/log/syslog" },
+    ],
   },
 ];
 
@@ -61,7 +64,7 @@ class MockBackend implements ApiShape {
   private stateListeners = new Set<Listener<ConnState>>();
 
   private ts = 0;
-  private anchor = Date.now();
+  private startWall = Date.now(); // 固定墙钟锚点：wall = startWall + ts_ms（随时间前进）
   private rxTotal = 0;
   private txTotal = 0;
   private rxWindow: Array<[number, number]> = [];
@@ -203,7 +206,7 @@ class MockBackend implements ApiShape {
     if (show) {
       this.ts += 40 + Math.floor(Math.random() * 120);
       const batch: EntriesBatch = {
-        epoch_anchor_ms: this.anchor - this.ts,
+        epoch_anchor_ms: this.startWall,
         items: [{ ts_ms: this.ts, text, segments: pick.segs }],
       };
       this.next(this.entryListeners, batch);

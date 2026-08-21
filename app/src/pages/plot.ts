@@ -51,6 +51,9 @@ export class PlotPage {
         width: w,
         height: h,
         title: `CH${ch + 1}`,
+        // x 是样本序号，不是 unix 时间戳（不关的话 0..n 会被当成 epoch 秒渲染成钟点）
+        scales: { x: { time: false } },
+        padding: [18, 14, 8, 10],
         series: [{}, {
           label: `CH${ch + 1}`,
           stroke: CH_COLORS[ch % CH_COLORS.length],
@@ -58,8 +61,8 @@ export class PlotPage {
           points: { show: false },
         }],
         axes: [
-          { stroke: "#8b919c", grid: { stroke: "#23272f" } },
-          { stroke: "#8b919c", grid: { stroke: "#23272f" } },
+          { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 60, label: "样本序号" },
+          { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 24 },
         ],
         legend: { show: false },
       };

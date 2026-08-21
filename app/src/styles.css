@@ -108,3 +108,35 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
   color: var(--fg-dim); font-size: 12px; font-variant-numeric: tabular-nums;
 }
 .spacer { flex: 1; }
+
+/* ── 下拉框：统一暗色、自绘箭头（Chromium/WebView2 下 option 同步暗色）── */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 4px 26px 4px 10px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238b919c' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  cursor: pointer;
+}
+select:hover { border-color: var(--accent); }
+select:focus { border-color: var(--accent); }
+select option, select optgroup {
+  background: var(--bg3);
+  color: var(--fg);
+}
+
+/* ── 滚动条：细圆角暗色（Chromium）── */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #2c313a;
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: #3a4150; }
+::-webkit-scrollbar-corner { background: transparent; }
+* { scrollbar-width: thin; scrollbar-color: #2c313a transparent; } /* Firefox 兜底 */
+
+/* ── 数字输入框去 spinner 拥挤感 ── */
+input[type="number"] { padding: 3px 6px; }
