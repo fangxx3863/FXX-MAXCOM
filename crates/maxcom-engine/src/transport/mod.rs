@@ -94,6 +94,16 @@ pub trait TransportRead: Send {
 /// 写入端：独立句柄（TCP/UDP clone、串口 try_clone），与读端互不阻塞。
 pub trait TransportWrite: Send {
     fn write_all(&mut self, data: &[u8]) -> io::Result<()>;
+
+    /// DTR 引脚（仅串口有意义；其余传输 no-op）
+    fn set_dtr(&mut self, _on: bool) -> io::Result<()> {
+        Ok(())
+    }
+
+    /// RTS 引脚（仅串口有意义；其余传输 no-op）
+    fn set_rts(&mut self, _on: bool) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// 打开一次连接产出（读端 + 写端）。

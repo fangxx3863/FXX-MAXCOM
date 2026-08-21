@@ -203,3 +203,91 @@ fn plot_snapshot_shape_follows_format() {
     assert_eq!(snap.channel_count, 3);
     assert_eq!(snap.series.len(), 3);
 }
+
+// ── 自动重连 / 捕获 ──
+
+/// 每个连接只回显一条消息就断开（触发客户端 EOF），但持续接受新连接
+fn spawn_drop_after_echo_server() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut s = stream;
+            let _ = s.set_read_timeout(Some(Duration::from_millis(200)));
+            let mut buf = [0u8; 512];
+            if let Ok(n @ 1..) = s.read(&mut buf) {
+                let _ = s.write_all(&buf[..n]);
+            }
+            drop(s); // 主动断开 → 客户端读到 EOF
+        }
+    });
+    port
+}
+
+#[test]
+fn auto_reconnect_restores_link() {
+    let port = spawn_drop_after_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_reconnect_delay_ms(100);
+
+    mgr.connect(tcp_cfg(port)).unwrap();
+    let connected_count = |rec: &Recorder| {
+        rec.states.lock().unwrap().iter().filter(|s| s.connected).count()
+    };
+    // 第一条：回显成功后服务端断开
+    mgr.send(&SendPayload { text: Some("ping-1".into()), hex: None, newline: "\n".into() }).unwrap();
+    assert!(wait_until(
+        || rec.raw.lock().unwrap().windows(6).any(|w| w == b"ping-1"),
+        Duration::from_secs(3)
+    ), "第一次回显未到达");
+    assert!(wait_until(|| connected_count(&rec) >= 2, Duration::from_secs(5)),
+        "自动重连未发生，states={:?}", rec.states.lock().unwrap());
+    // 重连后链路可用
+    mgr.send(&SendPayload { text: Some("ping-2".into()), hex: None, newline: "\n".into() }).unwrap();
+    assert!(wait_until(
+        || rec.raw.lock().unwrap().windows(6).any(|w| w == b"ping-2"),
+        Duration::from_secs(3)
+    ), "重连后发送未到达");
+    mgr.disconnect();
+}
+
+#[test]
+fn no_reconnect_when_disabled() {
+    let port = spawn_drop_after_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_auto_reconnect(false);
+    mgr.connect(tcp_cfg(port)).unwrap();
+
+    mgr.send(&SendPayload { text: Some("bye".into()), hex: None, newline: "\n".into() }).unwrap();
+    assert!(wait_until(
+        || rec.states.lock().unwrap().iter().any(|s| !s.connected),
+        Duration::from_secs(3)
+    ), "掉线事件未上报");
+    std::thread::sleep(Duration::from_millis(400));
+    let reconnected = rec.states.lock().unwrap().iter().filter(|s| s.connected).count();
+    assert_eq!(reconnected, 1, "关闭重连后不应再连");
+    // 注：不在此断言 send 必失败——TCP 写在对端 RST 到达前可能仍入缓冲成功（非确定性）
+}
+
+#[test]
+fn capture_roundtrip_to_file() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec);
+    mgr.connect(tcp_cfg(port)).unwrap();
+
+    mgr.start_capture();
+    mgr.send(&SendPayload { text: Some("capture-me".into()), hex: None, newline: "\n".into() }).unwrap();
+    assert!(wait_until(|| mgr.capture_state().1 >= 11, Duration::from_secs(3)),
+        "捕获缓冲未收到数据 state={:?}", mgr.capture_state());
+
+    let path = std::env::temp_dir().join("maxcom_capture_test.bin");
+    let n = mgr.save_capture(path.to_str().unwrap()).expect("save");
+    assert_eq!(n, 11);
+    let saved = std::fs::read(&path).unwrap();
+    assert_eq!(saved, b"capture-me\n");
+    let _ = std::fs::remove_file(&path);
+    mgr.disconnect();
+}

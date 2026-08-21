@@ -99,3 +99,35 @@ pub fn set_plot_format(fmt: DataFormat, state: State<'_, AppState>) {
 pub fn plot_snapshot(max_points: u32, state: State<'_, AppState>) -> PlotSnapshotDto {
     state.mgr.plot_snapshot(max_points as usize)
 }
+
+#[tauri::command]
+pub fn set_dtr(on: bool, state: State<'_, AppState>) -> Result<(), String> {
+    state.mgr.set_dtr(on)
+}
+
+#[tauri::command]
+pub fn set_rts(on: bool, state: State<'_, AppState>) -> Result<(), String> {
+    state.mgr.set_rts(on)
+}
+
+#[tauri::command]
+pub fn set_auto_reconnect(on: bool, state: State<'_, AppState>) {
+    state.mgr.set_auto_reconnect(on);
+}
+
+#[tauri::command]
+pub fn start_capture(state: State<'_, AppState>) {
+    state.mgr.start_capture();
+}
+
+/// 停止捕获并落盘（path 由前端 dialog 插件取得），返回写入字节数
+#[tauri::command]
+pub fn save_capture(path: String, state: State<'_, AppState>) -> Result<u64, String> {
+    state.mgr.save_capture(&path)
+}
+
+/// (捕获中?, 已捕获字节, 超限丢弃字节)
+#[tauri::command]
+pub fn capture_state(state: State<'_, AppState>) -> (bool, u64, u64) {
+    state.mgr.capture_state()
+}

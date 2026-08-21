@@ -98,4 +98,12 @@ impl TransportWrite for SerialWrite {
     fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         self.port.write_all(data)
     }
+
+    fn set_dtr(&mut self, on: bool) -> io::Result<()> {
+        self.port.write_data_terminal_ready(on)
+    }
+
+    fn set_rts(&mut self, on: bool) -> io::Result<()> {
+        self.port.write_request_to_send(on)
+    }
 }

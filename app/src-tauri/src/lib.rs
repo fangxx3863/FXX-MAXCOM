@@ -5,9 +5,11 @@ pub mod commands;
 pub mod events;
 
 use std::sync::Arc;
+use tauri::Manager;
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let events = Arc::new(events::TauriEvents::new(app.handle().clone()));
             app.manage(commands::AppState::new(events));
@@ -25,6 +27,12 @@ pub fn run() {
             commands::get_stats,
             commands::set_plot_format,
             commands::plot_snapshot,
+            commands::set_dtr,
+            commands::set_rts,
+            commands::set_auto_reconnect,
+            commands::start_capture,
+            commands::save_capture,
+            commands::capture_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MAXCOM");

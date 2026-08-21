@@ -51,3 +51,39 @@ jobs:
         working-directory: app
       - run: npm run build
         working-directory: app
+
+  desktop-build:
+    # Windows 可执行产物（目标平台）。push 到主分支构建 artifact；打 tag 额外发 Release
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - name: 构建前端依赖
+        run: npm ci
+        working-directory: app
+      - name: Tauri 构建（release）
+        run: npm run tauri build
+        working-directory: app
+      - name: 收集产物
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-artifacts | Out-Null
+          Copy-Item app\src-tauri\target\release\maxcom.exe dist-artifacts\
+          Get-ChildItem app\src-tauri\target\release\bundle\nsis\*.exe | Copy-Item -Destination dist-artifacts\
+          Get-ChildItem dist-artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MAXCOM-windows-x64
+          path: dist-artifacts/*
+      - name: 发布 Release（仅 tag）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-artifacts/*
+          generate_release_notes: true

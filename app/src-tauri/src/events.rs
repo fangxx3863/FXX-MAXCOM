@@ -9,12 +9,12 @@ pub const EV_RAW: &str = "conn://raw";
 pub const EV_ENTRIES: &str = "conn://entries";
 pub const EV_STATE: &str = "conn://state";
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct RawPayload {
     b64: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct EntriesPayload<'a> {
     epoch_anchor_ms: u64,
     items: &'a [LogEntryDto],

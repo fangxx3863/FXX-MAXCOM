@@ -27,6 +27,8 @@ struct TcpRead {
 impl TransportRead for TcpRead {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.stream.read(buf) {
+            // 对端正常关闭（EOF）→ 报错，交给上层自动重连
+            Ok(0) => Err(io::Error::new(io::ErrorKind::UnexpectedEof, "connection closed by peer")),
             Ok(n) => Ok(n),
             // 读超时 = 本节拍无数据（对齐 pyserial timeout 语义）
             Err(e)
