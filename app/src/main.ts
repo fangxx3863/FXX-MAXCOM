@@ -197,9 +197,16 @@ $("#selftest-btn").addEventListener("click", () => {
   void (async () => {
     const marker = new TextEncoder().encode(`MAXCOM-SELFTEST-${Date.now() % 100000}`);
     const hex = [...marker].map((b) => b.toString(16).padStart(2, "0")).join("");
-    let sawRaw = false;
+    // 累积整个窗口内的原始字节再搜标记（串口常把回环拆成多个 chunk，单 chunk 前缀匹配会误报）
+    let acc = new Uint8Array(0);
+    let chunks = 0;
     const unlisten = await on.raw((bytes) => {
-      if (bytes.length >= marker.length && marker.every((b, i) => bytes[i] === b)) sawRaw = true;
+      chunks++;
+      const merged = new Uint8Array(acc.length + bytes.length);
+      merged.set(acc);
+      merged.set(bytes, acc.length);
+      acc = merged;
+      if (acc.length > 65536) acc = acc.slice(-4096); // 防爆内存
     });
     try {
       const st0 = await api.getStats();
@@ -208,14 +215,17 @@ $("#selftest-btn").addEventListener("click", () => {
       const st1 = await api.getStats();
       const txDelta = st1.tx_bytes - st0.tx_bytes;
       const rxDelta = st1.rx_bytes - st0.rx_bytes;
+      const needle = [...marker].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const accHex = [...acc.slice(-256)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const sawMarker = accHex.includes(needle);
       if (txDelta < n) {
         setHint(`自检：OS 层写入异常（TX 仅 +${txDelta}/${n}B）`);
-      } else if (rxDelta === 0 && !sawRaw) {
-        setHint(`自检：写入 ${n}B ✓，但 1.2s 无回环字节 → 查 TX/RX/GND 接线、波特率两端一致、驱动`);
-      } else if (rxDelta > 0 && !sawRaw) {
-        setHint(`自检：设备已回环(RX+${rxDelta}) 但前端没收到事件 → 前端链路问题，把这条发我`);
+      } else if (rxDelta === 0 && chunks === 0) {
+        setHint(`自检：写入 ${n}B ✓，但 1.2s 内零回环字节、零事件 → 查 TX/RX/GND 接线、波特率两端一致、驱动`);
+      } else if (!sawMarker) {
+        setHint(`自检：RX+${rxDelta}B/${chunks}个chunk 但未含标记 → 若终端页有乱码请截图；否则发我这段`);
       } else {
-        setHint(`自检通过：写入→回环→前端渲染 全链路 OK`, false);
+        setHint(`自检通过：写入→回环→前端事件 全链路 OK（${chunks} 个chunk）`, false);
       }
     } catch (e) {
       setHint(`自检：发送失败 → ${e}`);
@@ -568,8 +578,23 @@ $("#plot-apply").addEventListener("click", () => {
 // ── 事件与轮询 ──
 void on.entries((batch) => logViewPage.append(batch));
 
+const sbRx = $("#sb-rx");
+const sbTx = $("#sb-tx");
+const sbRate = $("#sb-rate");
+function fmtBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${n} B`;
+}
 setInterval(() => {
-  api.getStats().then(statsPage.updateConn.bind(statsPage)).catch(() => {});
+  api.getStats()
+    .then((st) => {
+      statsPage.updateConn(st);
+      sbRx.textContent = `RX ${fmtBytes(st.rx_bytes)}`;
+      sbTx.textContent = `TX ${fmtBytes(st.tx_bytes)}`;
+      sbRate.textContent = `↓ ${st.rx_rate_kbs.toFixed(2)} KB/s ↑ ${st.tx_rate_kbs.toFixed(2)} KB/s`;
+    })
+    .catch(() => {});
 }, 500);
 
 setInterval(() => {

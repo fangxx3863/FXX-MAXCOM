@@ -363,6 +363,7 @@ impl SessionManager {
             let heartbeat = tick(Duration::from_millis(50));
             let mut batch: Vec<LogEntryDto> = Vec::new();
             let mut last_flush = std::time::Instant::now();
+            let mut last_data_ms = now_mono_ms();
             loop {
                 select! {
                     recv(cmd_rx_log) -> msg => {
@@ -385,6 +386,7 @@ impl SessionManager {
                     recv(log_q) -> data => {
                         if let Ok(data) = data {
                             let now = now_mono_ms();
+                            last_data_ms = now;
                             for raw in splitter.feed(&data) {
                                 let text = detector.decode(&raw, &options.encoding);
                                 let segments = colorize.process_line(&text);
@@ -395,6 +397,18 @@ impl SessionManager {
                         }
                     }
                     recv(heartbeat) -> _ => {
+                        // 空闲封行：无换行的残余数据在 idle_timeout 后作为一行产出
+                        // （时间戳取最后活动时刻；对齐 ADR-0008 智能分包语义）
+                        if splitter.pending_bytes() > 0
+                            && now_mono_ms().saturating_sub(last_data_ms) >= options.idle_timeout_ms
+                        {
+                            let raw = splitter.flush_pending_line();
+                            let text = detector.decode(&raw, &options.encoding);
+                            let segments = colorize.process_line(&text);
+                            if filter.should_show(&text) {
+                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments });
+                            }
+                        }
                         if !batch.is_empty() && last_flush.elapsed() >= Duration::from_millis(30) {
                             ev.entries(&batch);
                             batch.clear();

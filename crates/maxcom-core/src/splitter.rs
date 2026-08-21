@@ -64,6 +64,15 @@ impl LineSplitter {
         lines
     }
 
+    /// 取走未完成行（若有），用于空闲超时封行。
+    pub fn flush_pending_line(&mut self) -> Vec<u8> {
+        if self.pending.is_empty() {
+            Vec::new()
+        } else {
+            std::mem::take(&mut self.pending)
+        }
+    }
+
     /// 返回未尾随换行的残余行，并清空缓冲。
     pub fn flush(&mut self) -> Vec<Vec<u8>> {
         if self.pending.is_empty() {
