@@ -1,7 +1,8 @@
 // 下拉回归：含 label 包裹场景（label 会把点击转发给内部按钮 → 曾导致选完重新弹开）
 import { JSDOM } from "jsdom";
 const dom = new JSDOM(`<!doctype html><html><body>
-<label>校验 <div id="host"></div></label>
+<span class="ctl">校验 <div id="host"></div></span>
+<!-- 注：曾用 <label> 包裹，浏览器把 item 点击转发给 face 按钮 → 选完重新弹开；已改 span -->
 </body></html>`, { url: "http://localhost/", pretendToBeVisual: true });
 const w = dom.window;
 w.ResizeObserver = class { observe(){} unobserve(){} disconnect(){} };
@@ -24,5 +25,5 @@ const click = (el) => el.dispatchEvent(new w.MouseEvent("click", { bubbles: true
 
 click(face);
 click(dd.el.querySelectorAll(".dd-item")[0]);
-console.log("label 包裹下选中后关闭:", popup().className.includes("hidden"));
+console.log("span 包裹下选中后关闭:", popup().className.includes("hidden"));
 process.exit(0);
