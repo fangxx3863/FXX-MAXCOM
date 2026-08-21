@@ -218,17 +218,26 @@ button.dd-face { justify-content: space-between; }
 .ms-type { padding: 3px 8px; font-size: 11px; }
 .ms-delay { width: 64px; background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
 
-/* 发送区 */
-.send-row { display: flex; gap: 8px; align-items: flex-start; }
-.send-row.send-actions { align-items: center; }
+/* 发送区：纵向两行（内容行 + 动作行） */
+#send-panel { flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 12px; }
+.send-row { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.send-actions { flex-wrap: wrap; }
 #send-input {
-  flex: 1; min-height: 60px; resize: vertical;
+  flex: 1; min-height: 64px; resize: vertical; width: auto;
   background: var(--bg3); color: var(--fg);
   border: 1px solid var(--border); border-radius: 4px;
   padding: 6px 10px; outline: none;
   font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace;
 }
 #send-input:focus { border-color: var(--accent); }
+/* 发送动作行的输入控件统一暗色 */
+.send-actions input[type="number"], .send-actions input[type="text"] {
+  background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 4px 8px; outline: none; width: 90px;
+}
+.send-actions input:focus { border-color: var(--accent); }
+.send-actions label { color: var(--fg-dim); display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
 .hint { color: var(--ok); font-size: 12px; }
 #capture-btn.recording { color: var(--err); border-color: var(--err); }
 

@@ -88,18 +88,7 @@ $("#setup-ok").addEventListener("click", () => {
 const autoReconnectChk = $<HTMLInputElement>("#auto-reconnect");
 autoReconnectChk.addEventListener("change", () => void api.setAutoReconnect(autoReconnectChk.checked));
 
-function syncConnTypeUI() {
-  const isSerial = connKind === "serial";
-  document.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
-  portDd.el.classList.toggle("hidden", !isSerial);
-  $("#refresh-ports").classList.toggle("hidden", !isSerial);
-  baudDd.el.classList.toggle("hidden", !isSerial);
-  $("#tcp-host-dd").classList.toggle("hidden", isSerial);
-  $("#tcp-port").classList.toggle("hidden", isSerial);
-}
-syncConnTypeUI();
-
-// TCP 主机输入也做成可编辑下拉（保留常用主机历史）
+// TCP 主机输入：可编辑下拉（保留常用主机历史）
 const tcpHostDd = createDropdown({
   items: (JSON.parse(localStorage.getItem("maxcom.tcphosts") ?? '["127.0.0.1"]') as string[]).map((h) => ({ value: h, label: h })),
   value: "127.0.0.1",
@@ -107,7 +96,18 @@ const tcpHostDd = createDropdown({
   placeholder: "主机",
   width: 150,
 });
-$("#tcp-host-dd").replaceWith(tcpHostDd.el);
+document.querySelector("#tcp-host-dd")?.replaceWith(tcpHostDd.el);
+
+function syncConnTypeUI() {
+  const isSerial = connKind === "serial";
+  document.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
+  portDd.el.classList.toggle("hidden", !isSerial);
+  $("#refresh-ports").classList.toggle("hidden", !isSerial);
+  baudDd.el.classList.toggle("hidden", !isSerial);
+  tcpHostDd.el.classList.toggle("hidden", isSerial);
+  $("#tcp-port").classList.toggle("hidden", isSerial);
+}
+syncConnTypeUI();
 
 // ── 连接/断开 ──
 const connectBtn = $("#connect-btn");
@@ -115,13 +115,15 @@ const connDot = $("#conn-state");
 const connLabel = $("#conn-label");
 const sbState = $("#sb-state");
 
+let hintTimer: number | null = null;
 /** 全局轻提示：发送区 hint + 状态栏短暂红字 */
 export function setHint(msg: string, isError = true) {
   const hint = $("#send-hint");
+  if (hintTimer !== null) window.clearTimeout(hintTimer);
   hint.textContent = msg;
   hint.style.color = isError ? "var(--err)" : "var(--ok)";
-  if (isError) sbState.style.color = "var(--err)";
-  window.setTimeout(() => {
+  sbState.style.color = isError ? "var(--err)" : "";
+  hintTimer = window.setTimeout(() => {
     hint.textContent = "";
     sbState.style.color = "";
   }, 4000);
