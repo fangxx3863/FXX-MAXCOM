@@ -119,6 +119,8 @@ pub struct SessionManager {
     events: Arc<dyn SessionEvents>,
     plot: Arc<Mutex<ChannelStore>>,
     plot_format: Mutex<Option<maxcom_core::plot::format::DataFormat>>,
+    /// 格式版本号：变更 +1，绘图线程据此热重建 parser（修复连接中改格式不生效）
+    plot_fmt_ver: Arc<AtomicU64>,
     /// 掉线自动重连开关
     auto_reconnect: Arc<AtomicBool>,
     /// 重连间隔（ms，测试可调小）
@@ -135,6 +137,7 @@ impl SessionManager {
             events,
             plot: Arc::new(Mutex::new(ChannelStore::new(1, 10000))),
             plot_format: Mutex::new(None),
+            plot_fmt_ver: Arc::new(AtomicU64::new(0)),
             auto_reconnect: Arc::new(AtomicBool::new(true)),
             reconnect_delay_ms: AtomicU64::new(2000),
             capture: Arc::new(Mutex::new(None)),
@@ -210,10 +213,12 @@ impl SessionManager {
         )
     }
 
-    /// 设置绘图数据格式（切换时清空缓冲）
+    /// 设置绘图数据格式（切换时清空缓冲；绘图线程经版本号感知并热重建 parser）
     pub fn set_plot_format(&self, fmt: maxcom_core::plot::format::DataFormat) {
-        let ch = fmt.channel_count() as usize;
         *self.plot_format.lock().unwrap() = Some(fmt);
+        self.plot_fmt_ver.fetch_add(1, Ordering::Relaxed);
+        let ch = fmt.channel_count() as usize;
+        // ASCII 自动（channel_count == 0）先按 1 通道占位，首帧到达后按实际列数重建
         *self.plot.lock().unwrap() = ChannelStore::new(ch.max(1), 10000);
     }
 
@@ -438,22 +443,51 @@ impl SessionManager {
         let plot_q = bus.subscribe("plot");
         let stop_p = stop.clone();
         let plot_store = self.plot.clone();
-        let fmt = self.plot_format.lock().unwrap().clone();
+        let fmt_shared = Arc::new(Mutex::new(self.plot_format.lock().unwrap().clone()));
+        let fmt_ver = self.plot_fmt_ver.clone();
         threads.push(
             std::thread::Builder::new()
                 .name("plot".into())
                 .spawn(move || {
-                    let mut parser: Option<Box<dyn FrameParser>> =
-                        fmt.as_ref().and_then(|f| make_parser(f).ok());
+                    // ASCII 自动通道：列数变化时按新宽度重建存储（首帧锁定后不再抖动）
+                    fn is_auto_ascii(fmt: &Option<maxcom_core::plot::format::DataFormat>) -> bool {
+                        matches!(
+                            fmt.as_ref(),
+                            Some(maxcom_core::plot::format::DataFormat::AsciiDelimited {
+                                channel_count: 0,
+                                ..
+                            })
+                        )
+                    }
+                    let mut cur_ver = fmt_ver.load(Ordering::Relaxed);
+                    let mut parser: Option<Box<dyn FrameParser>> = fmt_shared
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .and_then(|f| make_parser(f).ok());
                     loop {
                         match plot_q.recv_timeout(Duration::from_millis(200)) {
                             Ok(data) => {
+                                let ver = fmt_ver.load(Ordering::Relaxed);
+                                if ver != cur_ver {
+                                    // 格式热切换：按最新配置重建 parser
+                                    cur_ver = ver;
+                                    parser = fmt_shared
+                                        .lock()
+                                        .unwrap()
+                                        .as_ref()
+                                        .and_then(|f| make_parser(f).ok());
+                                }
                                 if let Some(p) = parser.as_mut() {
                                     drop(plot_store.lock().unwrap()); // 解析在锁外；push 时短暂加锁
                                     let mut frames = Vec::new();
                                     p.feed(&data, &mut |f| frames.push(f));
+                                    let auto = is_auto_ascii(&fmt_shared.lock().unwrap());
                                     let mut store = plot_store.lock().unwrap();
                                     for f in frames {
+                                        if auto && store.channel_count() != f.len() {
+                                            *store = ChannelStore::new(f.len(), 10000);
+                                        }
                                         store.push_frame(&f);
                                     }
                                 }

@@ -49,9 +49,7 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
             filter_prefix,
             channel_count,
         } => {
-            if *channel_count == 0 {
-                return Err(ParseError::BadChannelCount);
-            }
+            // channel_count == 0 表示自动：以首条含有效数值的行锁定列数（前端 ASCII 模式固定传 0）
             if delimiter.is_empty() {
                 return Err(ParseError::Unsupported("ascii_delimited: empty delimiter"));
             }
@@ -181,6 +179,16 @@ impl AsciiDelimitedParser {
             .split(self.delimiter.as_str())
             .filter_map(|s| s.trim().parse::<f64>().ok())
             .collect();
+        if self.channel_count == 0 {
+            // 自动通道：首条有效行锁定列数，其后列数不齐按坏行跳过
+            if vals.is_empty() {
+                self.errors += 1;
+                return;
+            }
+            self.channel_count = vals.len();
+            out(vals);
+            return;
+        }
         if vals.len() != self.channel_count {
             self.errors += 1; // 坏行：列数不齐（含混入文本），跳过
             return;
@@ -297,6 +305,36 @@ mod tests {
         assert!(collect(p.as_mut(), b"1 2 ").is_empty());
         let frames = collect(p.as_mut(), b"3\r");
         assert_eq!(frames, vec![vec![1.0, 2.0, 3.0]]);
+    }
+
+    #[test]
+    fn ascii_auto_locks_channel_count_on_first_line() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            channel_count: 0, // 自动
+        })
+        .unwrap();
+        let frames = collect(p.as_mut(), b"1,2,3\n");
+        assert_eq!(frames, vec![vec![1.0, 2.0, 3.0]]);
+        // 锁定为 3 列后，同宽行正常、异宽行计为坏行
+        let frames = collect(p.as_mut(), b"4,5,6\n7,8\n8,9,10\n");
+        assert_eq!(frames, vec![vec![4.0, 5.0, 6.0], vec![8.0, 9.0, 10.0]]);
+        assert_eq!(p.error_count(), 1);
+    }
+
+    #[test]
+    fn ascii_auto_with_prefix_and_crlf() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: " ".into(),
+            filter_prefix: Some("DATA:".into()),
+            channel_count: 0,
+        })
+        .unwrap();
+        let frames = collect(p.as_mut(), b"DATA: 1.5 2.5\r\nnoise line\nDATA: 3 4\r\n");
+        // "noise line" 无前缀 → 静默过滤；锁定 2 列后正常出帧
+        assert_eq!(frames, vec![vec![1.5, 2.5], vec![3.0, 4.0]]);
+        assert_eq!(p.error_count(), 0);
     }
 
     #[test]
