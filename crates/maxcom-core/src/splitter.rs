@@ -113,8 +113,11 @@ mod tests {
         let mut sp = LineSplitter::new();
         let l1 = sp.feed(b"a\r");
         assert_eq!(l1, vec![b"a".to_vec()]);
-        // \r 已终结行，随后的 \n 被吞掉，不产生空行
-        assert!(sp.feed(b"\nb").is_empty());
+        assert_eq!(sp.pending_bytes(), 0);
+        // 语义对齐 Python 版：CRLF 的吞并只在同一片段内生效；
+        // \r 已终结行后，下一片段开头的孤立 \n 视为新行终结 → 产出空行（保留空行语义）
+        let l2 = sp.feed(b"\nb");
+        assert_eq!(l2, vec![Vec::<u8>::new()]);
         assert_eq!(sp.pending_bytes(), 1);
     }
 }

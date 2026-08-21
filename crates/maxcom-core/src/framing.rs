@@ -173,7 +173,7 @@ pub fn format_timestamp(
         },
         TimestampMode::Relative => {
             let base = base_ms.unwrap_or_else(|| epoch_ms.unwrap_or(0));
-            format!("+{}", timestamp_ms - base)
+            format!("+{}ms", timestamp_ms - base)
         }
         TimestampMode::Absolute => {
             let total_ms = epoch_ms.unwrap_or(0) + timestamp_ms;

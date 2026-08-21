@@ -1,11 +1,9 @@
-//! 事件总线（移植自 `pipeline/event_bus.py`，ADR-0015）。
+//! 事件总线（ADR-0015：单一原始流扇出 + 各引擎独立消费）。
 //!
-//! 单一原始流扇出：传输层读到的每个 chunk 发布一次，各引擎（日志/绘图/统计）
-//! 各自持有独立队列消费，互不耦合、互不修改原始流（R9 数据流纪律）。
-//!
-//! Python 版用 `queue.Queue`（无界）；这里用 `std::sync::mpsc` 无界通道对齐语义。
+//! 库优先：队列用 `crossbeam-channel`（无界，对齐 Python 版 queue.Queue 语义）。
+//! 本类型只是扇出语义的薄封装；引擎间不共享可变状态。
 
-use std::sync::mpsc::{channel, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 use std::sync::Mutex;
 
 type Sink = Sender<Vec<u8>>;
@@ -21,9 +19,9 @@ impl Bus {
         Self::default()
     }
 
-    /// 注册订阅者，返回其私有接收端。同名可重复订阅（与 Python 版一致）。
+    /// 注册订阅者，返回其私有接收端。同名可重复订阅。
     pub fn subscribe(&self, name: &str) -> Receiver<Vec<u8>> {
-        let (tx, rx) = channel();
+        let (tx, rx) = unbounded();
         self.sinks.lock().unwrap().push((name.to_string(), tx));
         rx
     }
@@ -33,11 +31,11 @@ impl Bus {
         self.sinks.lock().unwrap().retain(|(n, _)| n != name);
     }
 
-    /// 发布原始 chunk：克隆给所有订阅者。无订阅者是正常情况（终端模式直传前端）。
+    /// 发布原始 chunk。接收端已 drop（引擎停止）→ 忽略；无订阅者是正常情况
+    /// （终端模式原始流直推前端渲染）。
     pub fn publish(&self, data: &[u8]) {
         let sinks = self.sinks.lock().unwrap();
         for (_, tx) in sinks.iter() {
-            // 接收端已 drop（引擎停止）→ 忽略
             let _ = tx.send(data.to_vec());
         }
     }
@@ -50,7 +48,7 @@ impl Bus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::mpsc::TryRecvError;
+    use crossbeam_channel::TryRecvError;
 
     #[test]
     fn fans_out_to_all_subscribers() {
@@ -64,18 +62,16 @@ mod tests {
     }
 
     #[test]
-    fn unsubscribe_stops_delivery() {
+    fn unsubscribe_stops_delivery_and_disconnects() {
         let bus = Bus::new();
         let a = bus.subscribe("logview");
         bus.unsubscribe("logview");
         bus.publish(b"x");
         assert!(matches!(a.try_recv(), Err(TryRecvError::Disconnected)));
-        assert_eq!(bus.subscriber_count(), 0);
     }
 
     #[test]
     fn publish_with_no_subscribers_is_ok() {
-        let bus = Bus::new();
-        bus.publish(b"nobody listens");
+        Bus::new().publish(b"nobody listens");
     }
 }

@@ -10,5 +10,12 @@ description = "MAXCOM 纯逻辑引擎：编码/分包/分行/过滤/染色/统�
 serde = { workspace = true }
 regex = { workspace = true }
 encoding_rs = { workspace = true }
+chardetng = "1"
+ansitok = "0.3"
 toml = { workspace = true }
 thiserror = { workspace = true }
+crossbeam-channel = "0.5"
+ringbuffer = "0.15"
+
+[dev-dependencies]
+serde_json = { workspace = true }
