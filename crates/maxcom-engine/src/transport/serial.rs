@@ -41,8 +41,8 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
             "not a serial config",
         ));
     };
-    let builder = serialport::Builder::new()
-        .baud_rate(*baud)
+    // serialport 4.x：serialport::new(path, baud) 链式构建，open() 打开内置路径
+    let port_obj = serialport::new(port.as_str(), *baud)
         .data_bits(match *data_bits {
             5 => serialport::DataBits::Five,
             6 => serialport::DataBits::Six,
@@ -63,8 +63,8 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
             super::FlowControl::Software => serialport::FlowControl::Software,
             super::FlowControl::Hardware => serialport::FlowControl::Hardware,
         })
-        .timeout(READ_TIMEOUT);
-    let port_obj = builder.open_path(port)?;
+        .timeout(READ_TIMEOUT)
+        .open()?; // From<serialport::Error> for io::Error
     let write_half = port_obj
         .try_clone()
         .map_err(|e| io::Error::other(e.to_string()))?;
