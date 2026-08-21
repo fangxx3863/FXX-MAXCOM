@@ -18,7 +18,9 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(events: Arc<TauriEvents>) -> Self {
-        Self { mgr: SessionManager::new(events) }
+        Self {
+            mgr: SessionManager::new(events),
+        }
     }
 }
 

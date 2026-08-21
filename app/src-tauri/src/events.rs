@@ -27,7 +27,10 @@ fn unix_anchor_ms() -> u64 {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    let mono = START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64;
+    let mono = START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64;
     unix.saturating_sub(mono)
 }
 
@@ -38,7 +41,10 @@ pub struct TauriEvents {
 
 impl TauriEvents {
     pub fn new(app: AppHandle) -> Self {
-        Self { app, anchor: unix_anchor_ms() }
+        Self {
+            app,
+            anchor: unix_anchor_ms(),
+        }
     }
 }
 
@@ -49,7 +55,13 @@ impl SessionEvents for TauriEvents {
     }
 
     fn entries(&self, entries: &[LogEntryDto]) {
-        let _ = self.app.emit(EV_ENTRIES, EntriesPayload { epoch_anchor_ms: self.anchor, items: entries });
+        let _ = self.app.emit(
+            EV_ENTRIES,
+            EntriesPayload {
+                epoch_anchor_ms: self.anchor,
+                items: entries,
+            },
+        );
     }
 
     fn state(&self, state: &ConnState) {
