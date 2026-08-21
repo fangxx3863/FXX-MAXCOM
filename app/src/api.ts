@@ -1,16 +1,21 @@
-// Tauri command/event 封装。命令名与 src-tauri 的 #[tauri::command] 一一对应。
+// Tauri command/event 封装；浏览器演示模式下自动切换到 mock（src/mock.ts）。
+// 命令名与 src-tauri 的 #[tauri::command] 一一对应。
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   ConnConfig, ConnState, DataFormat, EntriesBatch, PlotSnapshotDto,
   PortInfo, SendPayload, StatsSnapshot,
 } from "./types";
+import { mock } from "./mock";
 
 export const EV_RAW = "conn://raw";
 export const EV_ENTRIES = "conn://entries";
 export const EV_STATE = "conn://state";
 
-export const api = {
+/** 是否运行在 Tauri WebView 内（v2 注入 __TAURI_INTERNALS__） */
+const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const realApi = {
   listPorts: () => invoke<PortInfo[]>("list_ports"),
   connect: (config: ConnConfig) => invoke<void>("connect", { config }),
   disconnect: () => invoke<void>("disconnect"),
@@ -26,23 +31,24 @@ export const api = {
   plotSnapshot: (maxPoints: number) => invoke<PlotSnapshotDto>("plot_snapshot", { maxPoints }),
 };
 
-export const on = {
-  raw: (fn: (data: Uint8Array) => void) =>
-    listen<{ b64: string }>(EV_RAW, (e) => fn(b64ToBytes(e.payload.b64))),
-  entries: (fn: (batch: EntriesBatch) => void) => listen<EntriesBatch>(EV_ENTRIES, (e) => fn(e.payload)),
-  state: (fn: (s: ConnState) => void) => listen<ConnState>(EV_STATE, (e) => fn(e.payload)),
-};
+export const api = IS_TAURI ? realApi : mock;
+
+export const on = IS_TAURI
+  ? {
+      raw: (fn: (data: Uint8Array) => void) =>
+        listen<{ b64: string }>(EV_RAW, (e) => fn(b64ToBytes(e.payload.b64))),
+      entries: (fn: (batch: EntriesBatch) => void) => listen<EntriesBatch>(EV_ENTRIES, (e) => fn(e.payload)),
+      state: (fn: (s: ConnState) => void) => listen<ConnState>(EV_STATE, (e) => fn(e.payload)),
+    }
+  : {
+      raw: (fn: (data: Uint8Array) => void) => Promise.resolve(mock.onRaw(fn)),
+      entries: (fn: (batch: EntriesBatch) => void) => Promise.resolve(mock.onEntries(fn)),
+      state: (fn: (s: ConnState) => void) => Promise.resolve(mock.onState(fn)),
+    };
 
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
-}
-
-/** base64 编码（发送 HEX 时前端先转字节再交由后端 hex 解码；文本直接走后端） */
-export function bytesToB64(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s);
 }

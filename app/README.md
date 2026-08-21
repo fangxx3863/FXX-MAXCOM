@@ -22,7 +22,9 @@ cargo test --workspace
 
 # 前端
 cd app && npm install
-npm run dev            # 浏览器调试（invoke 不可用，仅 UI）
+npm run dev            # 浏览器演示模式：自动注入模拟后端（假串口数据/统计/波形），
+                       # 打开 http://localhost:1420 即可完整调试 UI 样式（F12 = DevTools）
+
 
 # 桌面（Windows：推荐目标平台 / Linux 需 webkit2gtk-4.1 开发包）
 npm run tauri dev
