@@ -3,7 +3,7 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath } from "./api";
-import type { ConnConfig, ConnState, DataFormat, DType, StatsSnapshot } from "./types";
+import type { ConnConfig, ConnState, DataFormat, DType, PortInfo, StatsSnapshot } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
 import { TerminalPage } from "./pages/terminal";
@@ -22,14 +22,33 @@ interface MsRow {
   delayMs: number;
 }
 
-// ── 设置（全局共享：字体/字号跨标签一致）──
+// ── 设置（全局共享：字体/字号/配色跨标签一致）──
 interface AppSettings {
   logSize: number;
   logFamily: string;
   termSize: number;
+  theme: string;
 }
-const DEFAULT_SETTINGS: AppSettings = { logSize: 12.5, logFamily: 'Consolas, "Cascadia Mono", monospace', termSize: 14 };
+const DEFAULT_SETTINGS: AppSettings = {
+  logSize: 12.5,
+  logFamily: 'Consolas, "Cascadia Mono", monospace',
+  termSize: 14,
+  theme: "dark",
+};
 const SETTINGS_KEY = "maxcom.settings";
+const THEME_PRESETS: Record<string, string> = {
+  dark: "dark",
+  light: "light",
+  midnight: "midnight",
+  solar: "solar",
+};
+
+const TERMINAL_THEMES: Record<string, { background: string; foreground: string; cursor: string }> = {
+  dark: { background: "#14161a", foreground: "#dce0e8", cursor: "#4da3ff" },
+  light: { background: "#f4f6f9", foreground: "#1b1f27", cursor: "#1f6feb" },
+  midnight: { background: "#0b1020", foreground: "#d5e2ff", cursor: "#6aa9ff" },
+  solar: { background: "#002b36", foreground: "#eee8d5", cursor: "#268bd2" },
+};
 
 function loadSettings(): AppSettings {
   try {
@@ -39,6 +58,26 @@ function loadSettings(): AppSettings {
   }
 }
 let currentSettings = loadSettings();
+applyTheme();
+
+function resolveThemeId(): string {
+  if (currentSettings.theme === "system") {
+    return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  }
+  return THEME_PRESETS[currentSettings.theme] ?? "dark";
+}
+
+function applyTheme() {
+  document.documentElement.dataset.theme = resolveThemeId();
+}
+
+// 跟随系统时监听系统深浅色变化
+if (typeof window.matchMedia === "function") {
+  const mq = window.matchMedia("(prefers-color-scheme: light)");
+  mq.addEventListener?.("change", () => {
+    if (currentSettings.theme === "system") applyTheme();
+  });
+}
 
 function deepCopy<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
@@ -100,6 +139,30 @@ function fmtBytes(n: number): string {
   if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(2)} MB`;
   if (n >= 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${n} B`;
+}
+
+/** 串口设备短名：Windows 保留 COMx，Linux/macOS 只显示 ttyUSB/ttyACM/cu.* 等 */
+function shortPortName(device: string): string {
+  const base = device.replace(/\\/g, "/").split("/").pop() ?? device;
+  const m = base.match(/(tty(?:USB|ACM|AMA|S|O|LP|THS|XR)?\d+|cu\.[A-Za-z0-9._-]+|COM\d+)/i);
+  return m ? m[0] : base;
+}
+
+/** 串口下拉标签：避免 Windows "COM14 | WCH-Link SERIAL (COM14)" 重复显示 COM 号 */
+function formatPortLabel(p: PortInfo): string {
+  const dev = shortPortName(p.device);
+  const desc = (p.description || "").trim();
+  if (!desc) return dev;
+  const dl = desc.toLowerCase();
+  const dvl = dev.toLowerCase();
+  const pvl = p.device.toLowerCase();
+  if (dl.includes(dvl) || dl.includes(pvl)) return desc;
+  return `${dev} | ${desc}`;
+}
+
+/** 状态栏/标签标题里的串口长路径也换成短名 */
+function displayLabel(label: string): string {
+  return label.replace(/\/dev\/[^\s@]+/g, (m) => shortPortName(m));
 }
 
 // ══════════════════════════ 单个会话（一个标签页）══════════════════════════
@@ -314,7 +377,7 @@ class SessionApp {
     try {
       const ports = await this.api.listPorts();
       this.portDd.setItems(
-        ports.map((p) => ({ value: p.device, label: p.description ? `${p.device} | ${p.description}` : p.device })),
+        ports.map((p) => ({ value: p.device, label: formatPortLabel(p) })),
       );
       // 恢复的端口可能不在当前列表（设备未插上）：setValue 可显示任意值，保住用户配置不被重置
       if (this.pendingPort) {
@@ -394,14 +457,18 @@ class SessionApp {
   /** 连接状态事件（引擎推送，经全局路由进入） */
   applyConnState(s: ConnState) {
     this.connected = s.connected;
-    this.stateLabel = s.label;
+    this.stateLabel = s.label ? displayLabel(s.label) : s.label;
     this.lastError = s.error ?? null;
     if (!s.connected) this.terminalPage.clear();
     const dot = this.q("#conn-state");
     dot.className = `dot ${s.connected ? "on" : "off"}`;
     dot.title = s.error ?? (s.connected ? "已连接" : "未连接");
-    this.q("#conn-label").textContent = s.label;
-    this.q("#sb-state").textContent = s.error ? `错误: ${s.error}` : s.connected ? `已连接 ${s.label}` : "未连接";
+    this.q("#conn-label").textContent = this.stateLabel ?? "";
+    this.q("#sb-state").textContent = s.error
+      ? `错误: ${s.error}`
+      : s.connected
+        ? `已连接 ${this.stateLabel ?? ""}`
+        : "未连接";
     this.q("#connect-btn").textContent = s.connected ? "断开" : "连接";
     renderTabs();
   }
@@ -1090,12 +1157,15 @@ class SessionApp {
     (this.q("#set-log-size") as HTMLInputElement).value = String(st.logSize);
     (this.q("#set-log-family") as HTMLSelectElement).value = st.logFamily;
     (this.q("#set-term-size") as HTMLInputElement).value = String(st.termSize);
+    const themeSel = this.q<HTMLSelectElement>("#set-theme");
+    if (themeSel) themeSel.value = st.theme;
   }
 
   wireSettings() {
     const logSizeInput = this.q<HTMLInputElement>("#set-log-size");
     const logFamilySel = this.q<HTMLSelectElement>("#set-log-family");
     const termSizeInput = this.q<HTMLInputElement>("#set-term-size");
+    const themeSel = this.q<HTMLSelectElement>("#set-theme");
     logSizeInput.addEventListener("change", () =>
       saveSettings({ ...currentSettings, logSize: Number(logSizeInput.value) || DEFAULT_SETTINGS.logSize }),
     );
@@ -1103,6 +1173,7 @@ class SessionApp {
     termSizeInput.addEventListener("change", () =>
       saveSettings({ ...currentSettings, termSize: Number(termSizeInput.value) || DEFAULT_SETTINGS.termSize }),
     );
+    themeSel.addEventListener("change", () => saveSettings({ ...currentSettings, theme: themeSel.value }));
     this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
   }
 }
@@ -1141,7 +1212,7 @@ function createSession(name: string | null, snap?: Record<string, string>, id?: 
 function tabTitle(s: SessionApp): string {
   if (s.customName) return s.customName;
   if (s.connected && s.stateLabel) return s.stateLabel;
-  if (s.connKind === "serial" && s.portDd.value) return `${s.portDd.value} @ ${s.baudDd.value}`;
+  if (s.connKind === "serial" && s.portDd.value) return `${shortPortName(s.portDd.value)} @ ${s.baudDd.value}`;
   if ((s.connKind === "tcp_client" || s.connKind === "udp_client") && s.tcpHostDd.value) {
     const proto = s.connKind === "udp_client" ? "UDP" : "TCP";
     return `${proto} ${s.tcpHostDd.value}:${(s.el.querySelector<HTMLInputElement>("#tcp-port") as HTMLInputElement).value || "8888"}`;
@@ -1396,9 +1467,13 @@ function applySettingsToAll() {
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty("--log-size", `${currentSettings.logSize}px`);
   rootStyle.setProperty("--log-family", currentSettings.logFamily);
+  applyTheme();
+  const resolved = resolveThemeId();
+  const termTheme = TERMINAL_THEMES[resolved] ?? TERMINAL_THEMES.dark;
   for (const s of sessions.values()) {
     s.applySettingsInputs(currentSettings);
     s.terminalPage.setFontSize(currentSettings.termSize);
+    s.terminalPage.setTheme(termTheme);
   }
 }
 

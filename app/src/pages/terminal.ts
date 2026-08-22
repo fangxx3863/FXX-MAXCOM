@@ -79,6 +79,10 @@ export class TerminalPage {
     this.fit.fit();
   }
 
+  setTheme(theme: { background: string; foreground: string; cursor: string }) {
+    this.term.options.theme = theme;
+  }
+
   clear() {
     // reset 连滚动缓冲一起清（clear() 只清视口上方，用户感知为'没清掉'）
     this.term.reset();
