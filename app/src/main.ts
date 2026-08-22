@@ -49,7 +49,7 @@ const THEME_PRESETS: Record<string, string> = {
 
 const TERMINAL_THEMES: Record<string, { background: string; foreground: string; cursor: string }> = {
   dark: { background: "#14161a", foreground: "#dce0e8", cursor: "#4da3ff" },
-  light: { background: "#f4f6f9", foreground: "#1b1f27", cursor: "#1f6feb" },
+  light: { background: "#eef1f6", foreground: "#12161d", cursor: "#1565d8" },
   midnight: { background: "#0b1020", foreground: "#d5e2ff", cursor: "#6aa9ff" },
   solar: { background: "#002b36", foreground: "#eee8d5", cursor: "#268bd2" },
   oled: { background: "#000000", foreground: "#e8e8ea", cursor: "#4da3ff" },
