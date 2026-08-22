@@ -44,10 +44,25 @@ interface Meter {
   init: boolean;
 }
 
-const AXES: uPlot.Axis[] = [
-  { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 60, label: "样本序号" },
-  { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 24 },
-];
+function cssVar(name: string): string {
+  // plot-test 在纯 Node 环境运行，没有 getComputedStyle；此时回退默认暗色。
+  if (typeof getComputedStyle !== "function") return "";
+  try {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "";
+  } catch {
+    return "";
+  }
+}
+
+/** 绘图坐标轴/网格颜色跟随当前主题（浅色下网格必须浅，不能沿用深色 #23272f） */
+function plotAxes(): uPlot.Axis[] {
+  const grid = cssVar("--border") || "#2c313a";
+  const stroke = cssVar("--fg-dim") || "#8b919c";
+  return [
+    { stroke, grid: { stroke: grid }, space: 60, label: "样本序号" },
+    { stroke, grid: { stroke: grid }, space: 24 },
+  ];
+}
 
 /** 子图最小列宽（与 styles.css 中 grid 回退值保持一致） */
 const PLOT_MIN_COL = 340;
@@ -239,7 +254,7 @@ export class PlotPage {
           scales,
           padding: [18, 14, 8, 10],
           series,
-          axes: AXES,
+          axes: plotAxes(),
           legend: { show: true },
         },
         undefined,
@@ -268,7 +283,7 @@ export class PlotPage {
               scales,
               padding: [18, 14, 8, 10],
               series: [{}, mk(ch)],
-              axes: AXES,
+              axes: plotAxes(),
               legend: { show: false },
             },
             undefined,

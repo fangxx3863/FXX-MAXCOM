@@ -189,20 +189,28 @@
                 <div class="set-field">
                   <span class="set-label">配色方案</span>
                   <select id="set-theme">
-                    <option value="system">跟随系统</option>
-                    <option value="dark">深色（默认）</option>
-                    <option value="light">浅色</option>
-                    <option value="midnight">午夜蓝</option>
-                    <option value="solar">Solarized Dark</option>
-                    <option value="solar-light">Solarized Light</option>
-                    <option value="oled">OLED 纯黑</option>
-                    <option value="nord">Nord</option>
-                    <option value="dracula">Dracula</option>
-                    <option value="orange">橙色</option>
-                    <option value="red">红色</option>
-                    <option value="green">绿色</option>
-                    <option value="pink">粉色</option>
-                    <option value="purple">紫色</option>
+                    <optgroup label="系统">
+                      <option value="system">跟随系统</option>
+                    </optgroup>
+                    <optgroup label="浅色">
+                      <option value="light">浅色</option>
+                      <option value="solar-light">Solarized 浅色</option>
+                    </optgroup>
+                    <optgroup label="深色">
+                      <option value="dark">深色（默认）</option>
+                      <option value="midnight">深色·午夜蓝</option>
+                      <option value="solar">深色·Solarized</option>
+                      <option value="oled">深色·OLED 纯黑</option>
+                      <option value="nord">深色·Nord</option>
+                      <option value="dracula">深色·Dracula</option>
+                    </optgroup>
+                    <optgroup label="彩色">
+                      <option value="orange">橙色</option>
+                      <option value="red">红色</option>
+                      <option value="green">绿色</option>
+                      <option value="pink">粉色</option>
+                      <option value="purple">紫色</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="set-note">选择“跟随系统”时会根据操作系统的深色/浅色模式自动切换。</div>
