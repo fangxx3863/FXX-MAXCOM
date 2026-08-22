@@ -45,17 +45,27 @@ const THEME_PRESETS: Record<string, string> = {
   nord: "nord",
   dracula: "dracula",
   "solar-light": "solar-light",
+  orange: "orange",
+  red: "red",
+  green: "green",
+  pink: "pink",
+  purple: "purple",
 };
 
 const TERMINAL_THEMES: Record<string, { background: string; foreground: string; cursor: string }> = {
   dark: { background: "#14161a", foreground: "#dce0e8", cursor: "#4da3ff" },
-  light: { background: "#eef1f6", foreground: "#12161d", cursor: "#1565d8" },
+  light: { background: "#eef1f6", foreground: "#12161d", cursor: "#6aa8ff" },
   midnight: { background: "#0b1020", foreground: "#d5e2ff", cursor: "#6aa9ff" },
   solar: { background: "#002b36", foreground: "#eee8d5", cursor: "#268bd2" },
   oled: { background: "#000000", foreground: "#e8e8ea", cursor: "#4da3ff" },
   nord: { background: "#2e3440", foreground: "#eceff4", cursor: "#88c0d0" },
   dracula: { background: "#282a36", foreground: "#f8f8f2", cursor: "#bd93f9" },
   "solar-light": { background: "#fdf6e3", foreground: "#586e75", cursor: "#268bd2" },
+  orange: { background: "#1a1206", foreground: "#ffe8c7", cursor: "#ff9838" },
+  red: { background: "#1c0a0d", foreground: "#ffdfe1", cursor: "#ff5b6a" },
+  green: { background: "#0a160d", foreground: "#dff5e4", cursor: "#39d97c" },
+  pink: { background: "#1b0e18", foreground: "#ffe1f2", cursor: "#ff6fb3" },
+  purple: { background: "#120a1e", foreground: "#eee4ff", cursor: "#a678ff" },
 };
 
 function loadSettings(): AppSettings {
