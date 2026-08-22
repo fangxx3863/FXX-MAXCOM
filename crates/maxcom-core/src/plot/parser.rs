@@ -10,7 +10,7 @@ use thiserror::Error;
 #[derive(Debug, Error, PartialEq)]
 pub enum ParseError {
     #[error("unsupported data format: {0}")]
-    Unsupported(&'static str),
+    Unsupported(String),
     #[error("channel_count must be >= 1")]
     BadChannelCount,
 }
@@ -52,7 +52,9 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
             // channel_count == 0 表示自动：首条有效行锁定列数；
             // 其后列数变更经去抖换锁（连续 ASCII_RELOCK_STREAK 条同宽行），固定列数模式则始终按坏行跳过
             if delimiter.is_empty() {
-                return Err(ParseError::Unsupported("ascii_delimited: empty delimiter"));
+                return Err(ParseError::Unsupported(
+                    "ascii_delimited: empty delimiter".into(),
+                ));
             }
             Ok(Box::new(AsciiDelimitedParser {
                 delimiter: delimiter.clone(),
@@ -65,8 +67,61 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
                 errors: 0,
             }))
         }
-        DataFormat::CustomFrame { .. } => Err(ParseError::Unsupported("custom_frame (M3)")),
+        DataFormat::CustomFrame {
+            frame_header,
+            frame_tail: _, // 帧尾暂不参与解析（SerialPlot 风格仅帧头+长度+校验）
+            frame_length,
+            dtype,
+            byte_order,
+            checksum,
+            channel_count,
+        } => {
+            if *channel_count == 0 {
+                return Err(ParseError::BadChannelCount);
+            }
+            let header = parse_hex(frame_header).map_err(|e| ParseError::Unsupported(e))?;
+            if header.is_empty() {
+                return Err(ParseError::Unsupported(
+                    "custom_frame: empty frame_header".into(),
+                ));
+            }
+            if let Some(n) = frame_length {
+                if *n == 0 {
+                    return Err(ParseError::Unsupported(
+                        "custom_frame: zero frame_length".into(),
+                    ));
+                }
+            }
+            if matches!(checksum, crate::plot::format::Checksum::Crc16) {
+                return Err(ParseError::Unsupported("custom_frame: crc16 (M3+)".into()));
+            }
+            Ok(Box::new(CustomFrameParser {
+                header,
+                fixed_payload: frame_length.map(|n| n as usize),
+                dtype: *dtype,
+                big_endian: *byte_order == ByteOrder::Big,
+                checksum_enabled: matches!(checksum, crate::plot::format::Checksum::Sum),
+                channel_count: *channel_count as usize,
+                buf: Vec::new(),
+                errors: 0,
+            }))
+        }
     }
+}
+
+/// 解析十六进制帧头字符串（容忍空格，如 "AA BB" / "AABB"）
+fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
+    let hex: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    if hex.len() % 2 != 0 {
+        return Err(format!("custom_frame: odd-length hex header: {s:?}"));
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| {
+            u8::from_str_radix(&hex[i..i + 2], 16)
+                .map_err(|e| format!("custom_frame: bad hex header: {e}"))
+        })
+        .collect()
 }
 
 /// Simple Binary：无帧头定长帧（channel_count × dtype.size），跨片段缓冲 + 本地游标。
@@ -116,39 +171,25 @@ impl FrameParser for SimpleBinaryParser {
 }
 
 fn read_scalar(bytes: &[u8], dtype: DType, big_endian: bool) -> f64 {
-    let n = dtype.size();
-    let mut t = [0u8; 8];
-    if big_endian {
-        // 高位对齐到尾部，保持字节序：t[8-n..] 即该宽度的完整值
-        t[8 - n..].copy_from_slice(&bytes[..n]);
-    } else {
-        t[..n].copy_from_slice(bytes);
-    }
-    // 各宽度取值切片：大端取尾部 n 字节（MSB→LSB），小端取头部 n 字节（LSB→MSB）
-    let (w16, w32): (&[u8], &[u8]) = if big_endian {
-        (&t[6..8], &t[4..8])
-    } else {
-        (&t[0..2], &t[0..4])
-    };
     match dtype {
-        DType::I8 => i8::from_be_bytes([t[7]]) as f64,
-        DType::U8 => t[7] as f64,
-        DType::I16 if big_endian => i16::from_be_bytes(w16.try_into().unwrap()) as f64,
-        DType::I16 => i16::from_le_bytes(w16.try_into().unwrap()) as f64,
-        DType::U16 if big_endian => u16::from_be_bytes(w16.try_into().unwrap()) as f64,
-        DType::U16 => u16::from_le_bytes(w16.try_into().unwrap()) as f64,
-        DType::I32 if big_endian => i32::from_be_bytes(w32.try_into().unwrap()) as f64,
-        DType::I32 => i32::from_le_bytes(w32.try_into().unwrap()) as f64,
-        DType::U32 if big_endian => u32::from_be_bytes(w32.try_into().unwrap()) as f64,
-        DType::U32 => u32::from_le_bytes(w32.try_into().unwrap()) as f64,
-        DType::I64 if big_endian => i64::from_be_bytes(t) as f64,
-        DType::I64 => i64::from_le_bytes(t) as f64,
-        DType::U64 if big_endian => u64::from_be_bytes(t) as f64,
-        DType::U64 => u64::from_le_bytes(t) as f64,
-        DType::F32 if big_endian => f32::from_be_bytes(w32.try_into().unwrap()) as f64,
-        DType::F32 => f32::from_le_bytes(w32.try_into().unwrap()) as f64,
-        DType::F64 if big_endian => f64::from_be_bytes(t),
-        DType::F64 => f64::from_le_bytes(t),
+        DType::I8 => bytes[0] as i8 as f64,
+        DType::U8 => bytes[0] as f64,
+        DType::I16 if big_endian => i16::from_be_bytes([bytes[0], bytes[1]]) as f64,
+        DType::I16 => i16::from_le_bytes([bytes[0], bytes[1]]) as f64,
+        DType::U16 if big_endian => u16::from_be_bytes([bytes[0], bytes[1]]) as f64,
+        DType::U16 => u16::from_le_bytes([bytes[0], bytes[1]]) as f64,
+        DType::I32 if big_endian => i32::from_be_bytes(bytes[..4].try_into().unwrap()) as f64,
+        DType::I32 => i32::from_le_bytes(bytes[..4].try_into().unwrap()) as f64,
+        DType::U32 if big_endian => u32::from_be_bytes(bytes[..4].try_into().unwrap()) as f64,
+        DType::U32 => u32::from_le_bytes(bytes[..4].try_into().unwrap()) as f64,
+        DType::I64 if big_endian => i64::from_be_bytes(bytes.try_into().unwrap()) as f64,
+        DType::I64 => i64::from_le_bytes(bytes.try_into().unwrap()) as f64,
+        DType::U64 if big_endian => u64::from_be_bytes(bytes.try_into().unwrap()) as f64,
+        DType::U64 => u64::from_le_bytes(bytes.try_into().unwrap()) as f64,
+        DType::F32 if big_endian => f32::from_be_bytes(bytes[..4].try_into().unwrap()) as f64,
+        DType::F32 => f32::from_le_bytes(bytes[..4].try_into().unwrap()) as f64,
+        DType::F64 if big_endian => f64::from_be_bytes(bytes.try_into().unwrap()),
+        DType::F64 => f64::from_le_bytes(bytes.try_into().unwrap()),
     }
 }
 
@@ -269,7 +310,149 @@ impl FrameParser for AsciiDelimitedParser {
     }
 }
 
-#[cfg(test)]
+/// 自定义帧（对齐 SerialPlot FramedDecoder 语义）：
+/// `[帧头][载荷][校验?]`；载荷 = 行数×通道数 个样本交织；
+/// 帧长两种模式：定长字节 / 载荷首字节为长度；校验 = 载荷逐字节累加和（低 8 位）。
+/// 失步/坏帧按 INV-2 从缓冲首字节跳过重同步。
+pub struct CustomFrameParser {
+    header: Vec<u8>,
+    /// Some(n)=定长载荷 n 字节；None=载荷首字节为长度
+    fixed_payload: Option<usize>,
+    dtype: DType,
+    big_endian: bool,
+    checksum_enabled: bool,
+    channel_count: usize,
+    buf: Vec<u8>,
+    errors: u64,
+}
+
+impl CustomFrameParser {
+    fn sample_size(&self) -> usize {
+        self.dtype.size()
+    }
+
+    fn checksum_len(&self) -> usize {
+        if self.checksum_enabled {
+            1
+        } else {
+            0
+        }
+    }
+
+    /// 尝试从缓冲提取帧（一帧载荷可含多行样本）。空 Vec=数据不足等待；
+    /// Err(())=坏帧已计错误并消费若干字节，外层循环继续。
+    fn try_extract(&mut self) -> Result<Vec<Frame>, ()> {
+        // 1. 定位帧头：非零前缀直接丢弃；无完整帧头时保留可能是半截头的尾部
+        let pos = find(&self.buf, &self.header);
+        match pos {
+            Some(0) => {}
+            Some(p) => {
+                self.buf.drain(..p);
+            }
+            None => {
+                let keep = self.header.len().saturating_sub(1);
+                if self.buf.len() > keep {
+                    self.buf.drain(..self.buf.len() - keep);
+                }
+                return Ok(Vec::new());
+            }
+        }
+        // 2. 载荷长度与载荷起点（首字节模式：长度字节本身不计入载荷）
+        let body_start = self.header.len();
+        let unit = self.channel_count * self.sample_size();
+        let (payload_start, payload_len) = match self.fixed_payload {
+            Some(n) => (body_start, n),
+            None => {
+                if self.buf.len() <= body_start {
+                    return Ok(Vec::new()); // 长度字节未到
+                }
+                let n = self.buf[body_start] as usize;
+                if n == 0 || n % unit != 0 {
+                    self.errors += 1;
+                    self.buf.drain(..body_start); // 连同帧头丢弃，重新同步
+                    return Err(());
+                }
+                (body_start + 1, n)
+            }
+        };
+        if payload_len % unit != 0 {
+            self.errors += 1;
+            self.buf.drain(..body_start);
+            return Err(());
+        }
+        // 3. 凑齐整帧（含可选校验字节）
+        let total = payload_start + payload_len + self.checksum_len();
+        if self.buf.len() < total {
+            return Ok(Vec::new());
+        }
+        let payload = self.buf[payload_start..payload_start + payload_len].to_vec();
+        if self.checksum_enabled {
+            let calc = payload.iter().fold(0u8, |a, b| a.wrapping_add(*b));
+            if calc != self.buf[payload_start + payload_len] {
+                self.errors += 1;
+                self.buf.drain(..1); // 仅跳 1 字节：帧头可能出现在数据中，保守重找
+                return Err(());
+            }
+        }
+        self.buf.drain(..total);
+        // 4. 解码交织样本 → 每行一个 Frame（通道数宽）
+        let sz = self.sample_size();
+        let rows = payload_len / (self.channel_count * sz);
+        let mut frames = Vec::with_capacity(rows);
+        for r in 0..rows {
+            let mut frame = Vec::with_capacity(self.channel_count);
+            for c in 0..self.channel_count {
+                let off = (r * self.channel_count + c) * sz;
+                frame.push(read_scalar(
+                    &payload[off..off + sz],
+                    self.dtype,
+                    self.big_endian,
+                ));
+            }
+            frames.push(frame);
+        }
+        Ok(frames)
+    }
+}
+
+/// 在 hay 中查找 needle 首次出现位置
+fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || hay.len() < needle.len() {
+        return None;
+    }
+    (0..=hay.len() - needle.len()).find(|&i| &hay[i..i + needle.len()] == needle)
+}
+
+impl FrameParser for CustomFrameParser {
+    fn feed(&mut self, data: &[u8], out: &mut dyn FnMut(Frame)) {
+        self.buf.extend_from_slice(data);
+        loop {
+            match self.try_extract() {
+                Ok(frames) if frames.is_empty() => break, // 数据不足，等待更多字节
+                Ok(frames) => {
+                    for f in frames {
+                        out(f);
+                    }
+                }
+                Err(()) => continue, // 坏帧已消费，继续找下一帧
+            }
+        }
+    }
+
+    fn skip_one(&mut self) {
+        if !self.buf.is_empty() {
+            self.buf.remove(0);
+        }
+    }
+
+    fn reset(&mut self) {
+        self.buf.clear();
+    }
+
+    fn error_count(&self) -> u64 {
+        self.errors
+    }
+}
 mod tests {
     use super::*;
 
@@ -458,7 +641,71 @@ mod tests {
                 checksum: Default::default(),
                 channel_count: 1,
             }),
+            Ok(_)
+        ));
+        // 空白帧头 → 非法
+        assert!(matches!(
+            make_parser(&DataFormat::CustomFrame {
+                frame_header: "  ".into(),
+                frame_tail: None,
+                frame_length: None,
+                dtype: DType::U16,
+                byte_order: ByteOrder::Big,
+                checksum: Default::default(),
+                channel_count: 1,
+            }),
             Err(ParseError::Unsupported(_))
         ));
+    }
+
+    #[test]
+    fn custom_frame_fixed_u8_resync_and_split() {
+        let mut p = make_parser(&DataFormat::CustomFrame {
+            frame_header: "AA BB".into(),
+            frame_tail: None,
+            frame_length: Some(1),
+            dtype: DType::U8,
+            byte_order: ByteOrder::Little,
+            checksum: crate::plot::format::Checksum::None,
+            channel_count: 1,
+        })
+        .unwrap();
+        // 帧头前噪声 + 两帧完整 + 半截帧头（跨片段）
+        let frames = collect(
+            p.as_mut(),
+            &[0x00, 0xAA, 0xBB, 0x2A, 0xAA, 0xBB, 0xFF, 0xAA],
+        );
+        assert_eq!(frames, vec![vec![42.0], vec![255.0]]);
+        let mut got = Vec::new();
+        p.feed(&[0xBB, 0x07], &mut |f| got.push(f));
+        assert_eq!(got, vec![vec![7.0]], "半截帧头应在下一片段补齐后出帧");
+    }
+
+    #[test]
+    fn custom_frame_first_byte_len_two_channels_checksum() {
+        let mut p = make_parser(&DataFormat::CustomFrame {
+            frame_header: "AABB".into(),
+            frame_tail: None,
+            frame_length: None, // 载荷首字节 = 长度
+            dtype: DType::U16,
+            byte_order: ByteOrder::Little,
+            checksum: crate::plot::format::Checksum::Sum,
+            channel_count: 2,
+        })
+        .unwrap();
+        // len=4；v0=LE(01 00)=1，v1=LE(02 00)=2；sum=01+00+02+00=3
+        let frames = collect(
+            p.as_mut(),
+            &[0xAA, 0xBB, 0x04, 0x01, 0x00, 0x02, 0x00, 0x03],
+        );
+        assert_eq!(frames, vec![vec![1.0, 2.0]]);
+        // 校验错坏帧跳过重同步；随后好帧照常
+        let bad_then_good: [u8; 16] = [
+            0xAA, 0xBB, 0x04, 0x01, 0x00, 0x02, 0x00, 0xFF, //
+            0xAA, 0xBB, 0x04, 0x03, 0x00, 0x04, 0x00, 0x07,
+        ];
+        let frames = collect(p.as_mut(), &bad_then_good);
+        assert_eq!(p.error_count(), 1);
+        assert_eq!(frames, vec![vec![3.0, 4.0]]);
     }
 }

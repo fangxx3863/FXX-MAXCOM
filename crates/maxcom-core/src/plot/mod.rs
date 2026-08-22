@@ -86,6 +86,7 @@ impl ChannelStore {
         let rms = (data.iter().map(|v| v * v).sum::<f64>() / n).sqrt();
         Some(ChannelMetrics {
             count: data.len(),
+            last: *data.last().unwrap(),
             mean,
             std: variance.sqrt(),
             variance,
@@ -107,6 +108,8 @@ impl ChannelStore {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ChannelMetrics {
     pub count: usize,
+    /// 当前值（缓冲内最新样本）
+    pub last: f64,
     pub mean: f64,
     pub std: f64,
     pub variance: f64,
