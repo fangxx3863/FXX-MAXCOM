@@ -23,11 +23,10 @@ struct EntriesPayload<'a> {
     items: &'a [LogEntryDto],
 }
 
-/// ConnState 平铺 + session 标签（前端拿到的对象形状不变，多一个 session 字段）
+/// 连接状态负载：嵌套 { session, state }（与前端 api.ts / mock.ts 的形状一致）
 #[derive(Serialize, Clone)]
 struct StatePayload<'a> {
     session: String,
-    #[serde(flatten)]
     state: &'a ConnState,
 }
 
