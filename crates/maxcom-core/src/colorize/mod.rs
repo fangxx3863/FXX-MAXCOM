@@ -306,8 +306,11 @@ mod tests {
         // kv 命中：KEY（不含冒号）默认色，VALUE cyan
         assert_eq!(segs[0].text, "temp");
         assert_eq!(segs[0].fg, None);
-        assert_eq!(segs[1].text, "42");
-        assert_eq!(segs[1].fg.as_deref(), Some("cyan"));
+        // INV-COLOR：KEY 与 VALUE 之间的 ": " 必须原样保留为独立段
+        assert_eq!(segs[1].text, ": ");
+        assert_eq!(segs[1].fg, None);
+        assert_eq!(segs[2].text, "42");
+        assert_eq!(segs[2].fg.as_deref(), Some("cyan"));
         // 纯数值行：kv 不命中（无 KEY: 形态）→ number 命中
         let segs = e.process_line("3.14");
         assert_eq!(segs[0].fg.as_deref(), Some("magenta"));

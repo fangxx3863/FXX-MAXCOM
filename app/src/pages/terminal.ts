@@ -6,7 +6,8 @@ import { api, on } from "../api";
 
 export class TerminalPage {
   private term = new Terminal({
-    convertEol: false,
+    // \n 也视为换行（很多设备只发 \n；标准终端要求 \r\n，这里宽容处理）
+    convertEol: true,
     cursorBlink: true,
     fontSize: 14,
     fontFamily: 'Consolas, "Cascadia Mono", monospace',

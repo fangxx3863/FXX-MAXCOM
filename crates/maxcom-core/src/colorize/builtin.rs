@@ -73,16 +73,22 @@ fn keyword_rule(line: &str) -> Option<Vec<ColoredSegment>> {
 
 /// 键值对规则（COLOR-T04）：`KEY: VALUE` 的 VALUE 用强调色，KEY 默认色。
 fn kv_rule(line: &str) -> Option<Vec<ColoredSegment>> {
+    // 不变量（INV-COLOR）：输出各段拼接 === 原行 —— 匹配区间内每个字符
+    // （含 KEY 与 VALUE 之间的 ": " 分隔符）都必须出现在输出里。
     let mut segs = Vec::new();
     let mut pos = 0;
     for m in KV.captures_iter(line) {
         let whole = m.get(0)?;
+        let key = m.get(1)?;
+        let val = m.get(2)?;
         if whole.start() > pos {
             segs.push(ColoredSegment::plain(&line[pos..whole.start()]));
         }
-        segs.push(ColoredSegment::plain(m.get(1)?.as_str())); // KEY 默认色
+        segs.push(ColoredSegment::plain(key.as_str())); // KEY 默认色
+                                                        // 关键：KEY 与 VALUE 之间的分隔符（如 ": "）原样保留，绝不吞字符
+        segs.push(ColoredSegment::plain(&line[key.end()..val.start()]));
         segs.push(ColoredSegment::colored(
-            m.get(2)?.as_str(),
+            val.as_str(),
             Some(KV_COLOR.to_string()),
             None,
             false,
@@ -132,3 +138,71 @@ pub const BUILTIN_RULES: [(&str, f64, BuiltinFunc); 4] = [
     ("kv", 3.0, kv_rule),
     ("number", 4.0, number_rule),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::super::ColorizeEngine;
+    use super::*;
+
+    /// INV-COLOR：任何规则产出的段拼接必须逐字等于原行（染色只附色，不改内容）
+    #[test]
+    fn segments_concatenate_to_original_line() {
+        let lines = [
+            "vol: 123, tmp 456",
+            "vol:123,tmp:456",
+            "baseline: 1234, raw: 4567",
+            "Voltage 123V, Amp 2.4A",
+            "a: 1, b: 2, c: 3",
+            "[W] temp=36.6, status OK",
+            "[E] boom",
+            "<E> code=0xFF count:-42",
+            "ERROR: disk full",
+            "I: started",
+            "F: critical failure",
+            "offset -3.14e+2 at 0x1A2B",
+            "key:",    // 有键无值 → kv 不匹配
+            "key:   ", // 值全空白 → kv 不匹配
+            ": 123",   // 冒号开头
+            "a:b:c:d", // 连续冒号
+            "no matches here",
+            "",
+            " ",
+            "中文键: 值123", // CJK：键非 ASCII 不匹配 kv，数字仍染色
+            "temp: 36C.",    // 值带单位与标点
+            "x 1 y 2 z 3",
+        ];
+        for line in lines {
+            for (name, _, rule) in BUILTIN_RULES {
+                let segs = rule(line).unwrap_or_else(|| vec![ColoredSegment::plain(line)]);
+                let joined: String = segs.iter().map(|s| s.text.as_str()).collect();
+                assert_eq!(joined, line, "规则 {name} 改写了内容");
+            }
+        }
+    }
+
+    /// 引擎全链路（含用户规则位）同样满足 INV-COLOR；ANSI 让位路径对剥离后文本成立
+    #[test]
+    fn engine_chain_preserves_content() {
+        let e = ColorizeEngine::new(true);
+        for line in [
+            "vol: 123, tmp 456",
+            "[W] battery 3.7V, chg 0x2A",
+            "plain text",
+            "\tTabbed: 1\tvalue 2",
+        ] {
+            let joined: String = e
+                .process_line(line)
+                .iter()
+                .map(|s| s.text.as_str())
+                .collect();
+            assert_eq!(joined, line);
+        }
+        // ANSI 让位：剥离控制码后内容保留（日志路径约定）
+        let joined: String = e
+            .process_line("\u{1b}[31mred\u{1b}[0m 42")
+            .iter()
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(joined, "red 42");
+    }
+}

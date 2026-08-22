@@ -243,40 +243,75 @@ impl AsciiDelimitedParser {
     }
 
     fn emit(&mut self, body: &str, out: &mut dyn FnMut(Frame)) {
-        // 表头智能识别：数据开始前，任一列非数字且含字母 → 整行为表头
-        // （"Voltage 123V, Amp 2.4A" → ["Voltage V","Amp A"]；"baseline: 1234, raw: 4567" → ["baseline","raw"]）
+        let segs: Vec<&str> = body.split(self.delimiter.as_str()).collect();
+        // 纯表头行识别：自动模式、尚未出数据、未锁定；所有段均无数字且含字母
+        // （"vol,tmp" → 名字 [vol,tmp]；带数字的行不走这里，走下方标签值提取）
         if self.auto && self.channel_count == 0 && !self.names_locked {
-            let segs: Vec<&str> = body.split(self.delimiter.as_str()).collect();
-            let all_numeric = segs.iter().all(|sg| sg.trim().parse::<f64>().is_ok());
-            // 分包模式仅整行单列标签视为表头（多列是数据数组）
-            let header_ok =
+            let has_letter = segs.iter().any(|sg| sg.chars().any(|c| c.is_alphabetic()));
+            let no_number = segs.iter().all(|sg| extract_number(sg).is_none());
+            let header_shape =
                 matches!(self.split, crate::plot::format::AsciiSplit::Channel) || segs.len() == 1;
-            if header_ok
-                && !all_numeric
-                && segs.iter().any(|sg| sg.chars().any(|c| c.is_alphabetic()))
-            {
+            if header_shape && has_letter && no_number {
                 self.names = segs.iter().map(|sg| clean_name(sg)).collect();
                 self.names_locked = true;
                 return; // 表头行不出帧、不计错误
             }
         }
-        let vals: Vec<f64> = body
-            .split(self.delimiter.as_str())
-            .filter_map(|s| s.trim().parse::<f64>().ok())
-            .collect();
+        // 数值提取：分通道模式容忍"标签+数值"混写（vol: 123 → 123，字母部分作通道名）；
+        // 分包模式严格要求数字（整行是样本数组）
+        let (vals, seg_names): (Vec<f64>, Vec<String>) =
+            if matches!(self.split, crate::plot::format::AsciiSplit::Channel) {
+                let mut vals: Vec<f64> = Vec::new();
+                let mut names: Vec<String> = Vec::new();
+                for sg in &segs {
+                    let t = sg.trim();
+                    if t.is_empty() {
+                        continue; // 行尾多余分隔符等空段
+                    }
+                    match extract_number(t) {
+                        Some(v) => {
+                            vals.push(v);
+                            names.push(clean_name(sg));
+                        }
+                        None => {
+                            self.errors += 1; // 有内容但无数值 → 坏行
+                            return;
+                        }
+                    }
+                }
+                (vals, names)
+            } else {
+                (
+                    segs.iter()
+                        .filter_map(|sg| sg.trim().parse::<f64>().ok())
+                        .collect(),
+                    Vec::new(),
+                )
+            };
+        if vals.is_empty() {
+            self.errors += 1;
+            return;
+        }
+        // 名字学习：先按本次列数对齐长度（无标签列留空占位，前端回退 CHn），
+        // 再把带字母标签的列写入对应下标
+        if seg_names.len() > self.names.len() {
+            self.names.resize(seg_names.len(), String::new());
+        }
+        for (i, n) in seg_names.iter().enumerate() {
+            if n.is_empty() {
+                continue;
+            }
+            self.names[i] = n.clone();
+        }
         if !self.auto {
             if vals.len() != self.channel_count {
-                self.errors += 1; // 坏行：列数不齐（含混入文本），跳过
+                self.errors += 1; // 坏行：列数不齐，跳过
                 return;
             }
             out(vals);
             return;
         }
         // 自动模式
-        if vals.is_empty() {
-            self.errors += 1;
-            return;
-        }
         let w = vals.len();
         if self.channel_count == 0 {
             // 首条有效行：立即锁定列数（避免上电初期的行被当噪声）
@@ -447,6 +482,50 @@ impl CustomFrameParser {
         }
         Ok(frames)
     }
+}
+
+/// 从段中提取首个数值（容忍标签/单位混写）："vol: 123"→123、"tmp456"→456、
+/// "bar-123"→-123、"2.4A"→2.4、"1e-3"→0.001、".5"→0.5；无数字返回 None
+fn extract_number(seg: &str) -> Option<f64> {
+    let chars: Vec<char> = seg.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let mut j = i;
+        if chars[j] == '+' || chars[j] == '-' {
+            j += 1;
+        }
+        let mantissa = j;
+        while j < chars.len() && chars[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j < chars.len() && chars[j] == '.' {
+            j += 1;
+            while j < chars.len() && chars[j].is_ascii_digit() {
+                j += 1;
+            }
+        }
+        if j == mantissa {
+            i += 1; // 当前字符不是数字起点
+            continue;
+        }
+        // 指数部分（e/E ± 数字齐全才纳入）
+        if j < chars.len() && (chars[j] == 'e' || chars[j] == 'E') {
+            let mut k = j + 1;
+            if k < chars.len() && (chars[k] == '+' || chars[k] == '-') {
+                k += 1;
+            }
+            let exp_digits = k;
+            while k < chars.len() && chars[k].is_ascii_digit() {
+                k += 1;
+            }
+            if k > exp_digits {
+                j = k;
+            }
+        }
+        let text: String = chars[i..j].iter().collect();
+        return text.parse::<f64>().ok();
+    }
+    None
 }
 
 /// 表头名清洗：只保留字母/空格/下划线，压缩空白（剔除数字与标点）
@@ -635,14 +714,15 @@ mod tests {
             channel_count: 0,
         })
         .unwrap();
-        // 首行含字母 → 表头；剔除数字与标点，保留字母与空格
-        assert!(collect(p.as_mut(), b"Voltage 123V, Amp 2.4A\n").is_empty());
+        // 带标签的行：数值提取为数据帧，字母部分成为通道名
+        let frames = collect(p.as_mut(), b"Voltage 123V, Amp 2.4A\n");
+        assert_eq!(frames, vec![vec![123.0, 2.4]]);
         assert_eq!(p.error_count(), 0);
         assert_eq!(
             p.channel_names(),
             vec!["Voltage V".to_string(), "Amp A".to_string()]
         );
-        // 后续纯数字行正常出帧（列数按表头列数锁定）
+        // 后续纯数字行正常出帧（列数已锁定）
         let frames = collect(p.as_mut(), b"12.5, 3.3\n");
         assert_eq!(frames, vec![vec![12.5, 3.3]]);
     }
@@ -656,11 +736,84 @@ mod tests {
             channel_count: 0,
         })
         .unwrap();
-        assert!(collect(p.as_mut(), b"baseline: 1234, raw: 4567\n").is_empty());
+        let frames = collect(p.as_mut(), b"baseline: 1234, raw: 4567\n");
+        assert_eq!(frames, vec![vec![1234.0, 4567.0]]);
         assert_eq!(
             p.channel_names(),
             vec!["baseline".to_string(), "raw".to_string()]
         );
+    }
+
+    #[test]
+    fn ascii_pure_header_line_then_data() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            split: Default::default(),
+            channel_count: 0,
+        })
+        .unwrap();
+        // 纯表头（整行无任何数字）：只记名字不出帧、不计错误
+        assert!(collect(p.as_mut(), b"vol,tmp\n").is_empty());
+        assert_eq!(p.error_count(), 0);
+        assert_eq!(
+            p.channel_names(),
+            vec!["vol".to_string(), "tmp".to_string()]
+        );
+        assert_eq!(collect(p.as_mut(), b"1,2\n"), vec![vec![1.0, 2.0]]);
+    }
+
+    #[test]
+    fn ascii_mixed_labels_signs_and_bare_numbers() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            split: Default::default(),
+            channel_count: 0,
+        })
+        .unwrap();
+        // 混合边界：冒号标签 / 紧贴标签 / 空格标签 / 负号归属 / 无标签裸数 / CRLF
+        let frames = collect(p.as_mut(), b"vol: 123, tmp456, foo 789, bar-123, 567\r\n");
+        assert_eq!(frames, vec![vec![123.0, 456.0, 789.0, -123.0, 567.0]]);
+        assert_eq!(
+            p.channel_names(),
+            vec![
+                "vol".to_string(),
+                "tmp".to_string(),
+                "foo".to_string(),
+                "bar".to_string(),
+                String::new(), // 无标签列 → 前端回退 CH5
+            ]
+        );
+        assert_eq!(p.error_count(), 0);
+    }
+
+    #[test]
+    fn ascii_number_extraction_edges_and_bad_lines() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            split: Default::default(),
+            channel_count: 0,
+        })
+        .unwrap();
+        // 数值扫描边界：指数、前导点、显式正负号；"0x1F" 只取到十进制前缀 0（不支持十六进制）
+        let frames = collect(p.as_mut(), b"a 1e-3, b +.5, c -2., d 0x1F\n");
+        assert_eq!(frames, vec![vec![0.001, 0.5, -2.0, 0.0]]);
+        // 有内容但无数值的段 → 坏行计错误
+        assert!(collect(p.as_mut(), b"1,abc\n").is_empty());
+        assert_eq!(p.error_count(), 1);
+        // 行尾多余分隔符：空段跳过不出错（新实例：上方 parser 的 auto 已锁 4 通道）
+        let mut p2 = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            split: Default::default(),
+            channel_count: 0,
+        })
+        .unwrap();
+        let frames = collect(p2.as_mut(), b"7,8,\n");
+        assert_eq!(frames, vec![vec![7.0, 8.0]]);
+        assert_eq!(p2.error_count(), 0);
     }
 
     #[test]
