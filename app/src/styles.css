@@ -15,6 +15,7 @@ body {
   margin: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* 应用壳固定视口，任何页面内容溢出都不产生整页滚动条 */
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.5 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
@@ -85,7 +86,8 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
 #send-input:focus { border-color: var(--accent); }
 
 /* ── 终端页 ── */
-#page-terminal { padding: 0; }
+#page-terminal { padding: 0; overflow: hidden; }
+#page-terminal .term-host { flex: 1; min-height: 0; }
 #page-terminal .xterm { height: 100%; }
 
 /* ── 绘图页 ── */

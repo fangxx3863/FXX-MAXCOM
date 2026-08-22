@@ -86,9 +86,10 @@ export function createDropdown(opts: DropdownOptions): DropdownHandle {
     );
   };
 
-  const open = () => {
+  // open 可带过滤词：聚焦/点击时全量展示，仅键入时过滤（否则打开即被当前值筛剩 1~2 项）
+  const open = (filter = "") => {
     closeOpen();
-    renderPopup(face instanceof HTMLInputElement ? face.value : "");
+    renderPopup(filter);
     popup.classList.remove("hidden");
     openDropdown = popup;
     // 弹层朝下展开；贴近视口底部时朝上
@@ -112,7 +113,7 @@ export function createDropdown(opts: DropdownOptions): DropdownHandle {
     face.addEventListener("focus", () => open());
     face.addEventListener("input", () => {
       value = face.value; // 自由输入即值（波特率）
-      open();
+      open(face.value); // 仅键入时按内容过滤候选
     });
     face.addEventListener("blur", () => {
       // 失焦时若精确匹配候选项则取其规范 label

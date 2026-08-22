@@ -20,10 +20,16 @@ export class TerminalPage {
   private fit = new FitAddon();
 
   constructor(el: HTMLElement, private onSendError?: (msg: string) => void) {
+    // 宿主容器占工具条以下剩余空间；FitAddon 按 parentElement 测量，
+    // 若直接以页面为父级会把工具条高度也算进行数 → 内容溢出引发整页滚动
+    const host = document.createElement("div");
+    host.className = "term-host";
+    el.appendChild(host);
+
     this.term.loadAddon(this.fit);
-    this.term.open(el);
+    this.term.open(host);
     this.fit.fit();
-    new ResizeObserver(() => this.fit.fit()).observe(el);
+    new ResizeObserver(() => this.fit.fit()).observe(host);
 
     // 击键直传：xterm 给出完整转义序列（方向键等），原样发往端口
     let localEcho = false;
