@@ -53,7 +53,7 @@ const PLOT_MIN_COL = 340;
 /** uPlot 标题(.u-title)实测高度：title 渲染在 canvas 之外，不占 opts.height */
 const U_TITLE_H = 28;
 /** uPlot 图例(.legend)估算高度：同样在画布之外（叠加布局用，实际以溢出实测闭环为准） */
-const U_LEGEND_H = 34;
+const U_LEGEND_H = 26;
 
 function fmtNum(v: number): string {
   const a = Math.abs(v);
@@ -185,98 +185,84 @@ export class PlotPage {
   }
 
   private buildWave(n: number) {
-    void this.holder.offsetHeight; // 强制同步布局：确保柱状区已参与排版
-    if (this.layout === "overlay") {
-      // 单图叠加：全部通道进一个 uPlot，多色曲线 + 图例（无标题；图例在画布外，需扣 U_LEGEND_H）
-      this.holder.style.gridTemplateColumns = "1fr";
-      let h = Math.max(120, Math.floor(this.holder.clientHeight - 16) - 10 - U_LEGEND_H);
-      for (let attempt = 0; ; attempt++) {
-        const cell = document.createElement("div");
-        cell.className = "plot-cell";
-        this.holder.appendChild(cell);
-        const w = Math.max(220, cell.clientWidth - 10);
-        const series: uPlot.Series[] = [{}, ...this.chState.map((st, i) => (
-          {
-            label: `CH${i + 1}`,
-            stroke: st.color,
-            width: 1.4,
-            show: st.visible,
-            points: { show: false },
-          }
-        ))];
-        this.overlay = new uPlot(
-          {
-            width: w,
-            height: h,
-            scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
-            padding: [18, 14, 8, 10],
-            series,
-            axes: AXES,
-            legend: { show: true },
-          },
-          undefined,
-          cell,
-        );
-        // 实测溢出收缩闭环（与子图一致）：图例实际高度随字体/缩放浮动，以实测为准
-        const over = this.holder.scrollHeight - this.holder.clientHeight;
-        if (over <= 0 || attempt >= 1) break;
-        h = Math.max(120, h - over - 4);
-        this.overlay.destroy();
-        this.overlay = null;
-        this.holder.replaceChildren();
-      }
-    } else {
-      // 分开子图：列数由容器宽显式计算（与 grid 列定义严格一致，避免 3+1 这类错排），
-      // 行高均分并扣除 cell 内边距边框(10) 与 uPlot 标题高度(U_TITLE_H≈28，title 不占 opts.height!)
+    void this.holder.offsetHeight; // 强制同步布局：柱状区先占位，网格再分配
+    const overlay = this.layout === "overlay";
+    let cols = 1, rows = 1;
+    if (!overlay) {
+      // 列数显式计算并与 grid 定义严格一致；平衡启发式：减列不增行则减列（4 通道 → 2×2）
       const availW = this.holder.clientWidth - 16;
-      let cols = Math.max(1, Math.min(n, Math.floor((availW + 8) / (PLOT_MIN_COL + 8))));
-      // 平衡网格：减少列数不增加行数时就减少（4 通道 → 2×2 而非 3+1）
+      cols = Math.max(1, Math.min(n, Math.floor((availW + 8) / (PLOT_MIN_COL + 8))));
       while (cols > 1 && Math.ceil(n / (cols - 1)) <= Math.ceil(n / cols)) cols--;
-      this.holder.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-      const rows = Math.ceil(n / cols);
-      let h = Math.max(
+      rows = Math.ceil(n / cols);
+    }
+    // minmax(0,1fr)：轨道可压缩到内容以下，杜绝“内容撑大行 → 反馈溢出”的死循环
+    this.holder.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    this.holder.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+
+    const mk = (ch: number): uPlot.Series => ({
+      label: `CH${ch + 1}`,
+      stroke: this.chState[ch]?.color ?? CH_COLORS[ch % CH_COLORS.length],
+      width: 1.4,
+      show: this.chState[ch]?.visible ?? true,
+      points: { show: false },
+    });
+    const scales = { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) };
+
+    if (overlay) {
+      // 单图叠加：一个 uPlot 承载全部通道（series 数量在构造时固定），多色曲线 + 图例
+      const cell = document.createElement("div");
+      cell.className = "plot-cell";
+      this.holder.appendChild(cell);
+      this.cells.push(cell);
+      const w = Math.max(220, cell.clientWidth - 10);
+      const h = Math.max(120, Math.floor(this.holder.clientHeight - 16) - 10 - U_LEGEND_H);
+      const series: uPlot.Series[] = [{}, ...Array.from({ length: n }, (_, ch) => mk(ch))];
+      this.overlay = new uPlot(
+        {
+          width: w,
+          height: h,
+          scales,
+          padding: [18, 14, 8, 10],
+          series,
+          axes: AXES,
+          legend: { show: true },
+        },
+        undefined,
+        cell,
+      );
+    } else {
+      // 分开子图：每通道一个 uPlot（带标题，图例隐藏）
+      const estH = Math.max(
         120,
         Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 10 - U_TITLE_H,
       );
-      for (let attempt = 0; ; attempt++) {
-        for (let ch = 0; ch < n; ch++) {
-          const cell = document.createElement("div");
-          cell.className = "plot-cell sub";
-          cell.classList.toggle("hidden", !(this.chState[ch]?.visible ?? true));
-          this.holder.appendChild(cell);
-          this.cells.push(cell);
-          const w = Math.max(220, cell.clientWidth - 10);
-          const plot = new uPlot(
+      for (let ch = 0; ch < n; ch++) {
+        const cell = document.createElement("div");
+        cell.className = "plot-cell sub";
+        cell.classList.toggle("hidden", !(this.chState[ch]?.visible ?? true));
+        this.holder.appendChild(cell);
+        this.cells.push(cell);
+        const w = Math.max(220, cell.clientWidth - 10);
+        this.plots.push(
+          new uPlot(
             {
               width: w,
-              height: h,
+              height: estH,
               title: `CH${ch + 1}`,
-              scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
+              scales,
               padding: [18, 14, 8, 10],
-              series: [{}, {
-                label: `CH${ch + 1}`,
-                stroke: this.chState[ch]?.color ?? CH_COLORS[ch % CH_COLORS.length],
-                width: 1.4,
-                points: { show: false },
-              }],
+              series: [{}, mk(ch)],
               axes: AXES,
               legend: { show: false },
             },
             undefined,
             cell,
-          );
-          this.plots.push(plot);
-        }
-        // 实测溢出 → 收缩行高重建（滚动条/DPI 取整兜底；杜绝“波形要滚动才能看全”）
-        const over = this.holder.scrollHeight - this.holder.clientHeight;
-        if (over <= 0 || attempt >= 1) break;
-        h = Math.max(120, h - Math.ceil(over / rows) - 4);
-        for (const p of this.plots) p.destroy();
-        this.plots = [];
-        this.cells = [];
-        this.holder.replaceChildren();
+          ),
+        );
       }
     }
+    // 布局稳定后差值精修：目标 = 格子内容高；实际 = uPlot 根高（含标题/图例）；差多少补多少
+    requestAnimationFrame(() => this.fitPlots());
   }
 
   /** 自定义 Y 轴范围 */
@@ -284,6 +270,22 @@ export class PlotPage {
     if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return;
     this.yRange = [lo, hi];
     this.rebuildAll(this.lastSnap);
+  }
+
+  /** 按格子实测尺寸精修所有图（宽对齐 + 高度差值补偿，标题/图例真实高度无需常数） */
+  private fitPlots() {
+    const all = this.overlay ? [...this.plots, this.overlay] : [...this.plots];
+    for (const p of all) {
+      const cell = p.root.parentElement as HTMLElement | null;
+      if (!cell || !cell.clientHeight) continue;
+      const targetW = Math.max(220, cell.clientWidth - 10);
+      const inner = cell.clientHeight - 10; // 减 cell 上下 padding+border
+      const delta = inner - p.root.offsetHeight; // 正=画布偏小，负=偏大
+      const nextH = Math.max(80, p.height + delta);
+      if (Math.abs(delta) > 2 || Math.abs(p.width - targetW) > 3) {
+        p.setSize({ width: targetW, height: nextH });
+      }
+    }
   }
 
   private buildBars(n: number) {
@@ -377,17 +379,9 @@ export class PlotPage {
     }
   }
 
-  /** 容器尺寸漂移兜底：图宽与格子实测差 >3px 时就地 setSize */
+  /** 容器尺寸漂移兜底：与格子实测差超阈值时 setSize（宽对齐 + 高差值补偿） */
   private syncSizes() {
-    const all = this.overlay ? [...this.plots, this.overlay] : this.plots;
-    for (const p of all) {
-      const cell = p.root.parentElement as HTMLElement | null;
-      if (!cell || !cell.clientWidth) continue;
-      const target = Math.max(220, cell.clientWidth - 10); // 减 cell 左右 padding+border
-      if (Math.abs(p.width - target) > 3) {
-        p.setSize({ width: target, height: p.height });
-      }
-    }
+    this.fitPlots();
   }
 
   // ── 通道状态与通道条 ──

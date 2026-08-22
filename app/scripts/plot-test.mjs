@@ -1,6 +1,5 @@
 // PlotPage 功能回归：esbuild 打包 src/pages/plot.ts（stub uplot/css），jsdom 中驱动状态机。
 // 场景：子图/叠加/柱状/同屏、通道显隐、增益偏移变换、Y 轴预设、ASCII 自动通道结构重建。
-import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,13 +71,20 @@ globalThis.PlotPage = PlotPage;
 globalThis.Y_PRESETS = Y_PRESETS;
 globalThis.LogViewPage = LogViewPage;
 `);
-execFileSync(join(process.cwd(), "node_modules/.bin/esbuild"), [
-  join(dir, "entry.ts"),
-  "--bundle", "--format=cjs", "--platform=node",
-  `--alias:uplot=${join(dir, "uplot-stub.js")}`,
-  `--alias:uplot/dist/uPlot.min.css=${join(dir, "css-stub.js")}`,
-  "--outfile=" + join(dir, "bundle.cjs"),
-], { stdio: "inherit" });
+// esbuild JS API：跨平台（Windows 下 node_modules/.bin/esbuild 是 sh 脚本，spawnSync 会 ENOENT）
+const { buildSync } = await import("esbuild");
+buildSync({
+  entryPoints: [join(dir, "entry.ts")],
+  bundle: true,
+  format: "cjs",
+  platform: "node",
+  alias: {
+    uplot: join(dir, "uplot-stub.js"),
+    "uplot/dist/uPlot.min.css": join(dir, "css-stub.js"),
+  },
+  outfile: join(dir, "bundle.cjs"),
+  logLevel: "silent",
+});
 
 await import("file://" + join(dir, "bundle.cjs"));
 const { PlotPage, Y_PRESETS } = globalThis;
