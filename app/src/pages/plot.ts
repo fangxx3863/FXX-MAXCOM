@@ -212,6 +212,7 @@ export class PlotPage {
       // 单图叠加：一个 uPlot 承载全部通道（series 数量在构造时固定），多色曲线 + 图例
       const cell = document.createElement("div");
       cell.className = "plot-cell";
+      cell.dataset.overlay = "1"; // 右键菜单识别：叠加图导出全通道
       this.holder.appendChild(cell);
       this.cells.push(cell);
       const w = Math.max(220, cell.clientWidth - 10);
@@ -240,6 +241,7 @@ export class PlotPage {
         const cell = document.createElement("div");
         cell.className = "plot-cell sub";
         cell.classList.toggle("hidden", !(this.chState[ch]?.visible ?? true));
+        cell.dataset.ch = String(ch); // 右键菜单识别：子图导出单通道
         this.holder.appendChild(cell);
         this.cells.push(cell);
         const w = Math.max(220, cell.clientWidth - 10);
@@ -286,6 +288,41 @@ export class PlotPage {
         p.setSize({ width: targetW, height: nextH });
       }
     }
+  }
+
+  /** 右键菜单：把子图（ch）或叠加图（null）合成为 PNG 写剪贴板，失败转下载 */
+  copyChartPng(ch: number | null) {
+    const cell =
+      ch === null
+        ? (this.cells.find((c) => c.dataset.overlay !== undefined) ?? null)
+        : (this.cells.find((c) => c.dataset.ch === String(ch)) ?? null);
+    if (!cell || !cell.clientWidth) return;
+    const shown =
+      ch === null
+        ? this.chState.filter((s) => s.visible).map((s, i) => ({ label: `CH${i + 1}`, color: s.color }))
+        : [{ label: `CH${ch + 1}`, color: this.chState[ch]?.color ?? CH_COLORS[0] }];
+    void composePng(cell, shown).then(async (blob) => {
+      if (!blob) return;
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      } catch {
+        downloadBlob(blob, `maxcom_chart_${Date.now()}.png`); // WebView 不允许写图像 → 落盘兜底
+      }
+    });
+  }
+
+  /** 右键菜单：导出 CSV。ch=null/undefined → 全部通道；数字 → 单通道 */
+  exportCsv(ch?: number | null) {
+    const snap = this.lastSnap;
+    if (!snap || !snap.series.length) return;
+    const idx = ch === null || ch === undefined ? snap.series.map((_, i) => i) : [ch];
+    const cols = idx
+      .filter((i) => i < snap.series.length)
+      .map((i) => ({ name: `CH${i + 1}`, data: snap.series[i] }));
+    downloadBlob(
+      new Blob([makeCsv(cols)], { type: "text/csv;charset=utf-8" }),
+      `maxcom_plot_${Date.now()}.csv`,
+    );
   }
 
   private buildBars(n: number) {
@@ -466,4 +503,69 @@ export class PlotPage {
       m.root.classList.toggle("hidden", !st.visible);
     }
   }
+}
+
+/** 把图表格子（标题 + 画布 + 图例标签）合成为一张 PNG */
+async function composePng(
+  cell: HTMLElement,
+  series: { label: string; color: string }[],
+): Promise<Blob | null> {
+  const rect = cell.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const cv = document.createElement("canvas");
+  cv.width = Math.round(rect.width);
+  cv.height = Math.round(rect.height);
+  const ctx = cv.getContext("2d")!;
+  ctx.fillStyle = "#14161a"; // 与主题底色一致
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  // 标题（uPlot 标题是 DOM，画布外 → 手动画）
+  const title = cell.querySelector<HTMLElement>(".u-title")?.textContent ?? "";
+  if (title) {
+    ctx.fillStyle = "#dce0e8";
+    ctx.font = '700 13px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(title, cv.width / 2, 6);
+    ctx.textAlign = "left";
+  }
+  // 画布逐个按位置贴上
+  cell.querySelectorAll("canvas").forEach((c) => {
+    const r = c.getBoundingClientRect();
+    ctx.drawImage(c, r.left - rect.left, r.top - rect.top, r.width, r.height);
+  });
+  // 图例：叠加模式的 DOM 表格不进画布，手动画色标+标签在顶部一行
+  ctx.textBaseline = "middle";
+  let lx = 12;
+  for (const s of series) {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(lx, 14);
+    ctx.lineTo(lx + 16, 14);
+    ctx.stroke();
+    ctx.fillStyle = "#8b919c";
+    ctx.font = '12px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.fillText(s.label, lx + 21, 14.5);
+    lx += 21 + ctx.measureText(s.label).width + 18;
+    if (lx > cv.width - 60) break; // 放不下就截断
+  }
+  return await new Promise<Blob | null>((res) => cv.toBlob(res, "image/png"));
+}
+
+/** 列集 → CSV 文本（带 BOM 方便 Excel 识别 UTF-8） */
+function makeCsv(cols: { name: string; data: number[] }[]): string {
+  const rows = Math.max(0, ...cols.map((c) => c.data.length));
+  const lines = [ ["idx", ...cols.map((c) => c.name)].join(",") ];
+  for (let i = 0; i < rows; i++) {
+    lines.push([i, ...cols.map((c) => c.data[i] ?? "")].join(","));
+  }
+  return "\ufeff" + lines.join("\r\n");
+}
+
+function downloadBlob(blob: Blob, name: string) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }

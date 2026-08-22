@@ -76,7 +76,11 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
   line-height: 1.45; user-select: text;
 }
 .log-line { white-space: pre-wrap; word-break: break-all; }
-.log-ts { color: var(--fg-dim); margin-right: 8px; }
+.log-ts {
+  color: var(--fg-dim); margin-right: 8px;
+  /* 定宽右对齐：Δ+1065ms / +999ms / 绝对时间戳混用时内容列仍对齐 */
+  display: inline-block; min-width: 12ch; text-align: right;
+}
 .seg-bold { font-weight: 700; }
 #send-panel {
   display: flex; gap: 8px; padding: 8px 10px;
@@ -112,9 +116,9 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
 #plot-info { color: var(--fg-dim); }
 
 /* 二进制/ASCII 控件分组：contents 让子元素直接参与控制条 flex 布局 */
-#plot-binary-ctl { display: contents; }
-#plot-binary-ctl.hidden { display: none; }
-#plot-ascii-ctl.hidden { display: none; }
+#plot-ch-ctl, #plot-custom-ctl { display: contents; }
+#plot-binary-ctl { display: contents; } /* 兼容旧选择器 */
+#plot-ascii-ctl.hidden, #plot-ch-ctl.hidden, #plot-custom-ctl.hidden, #plot-framelen-fixed.hidden { display: none; }
 
 /* 每通道条：颜色 / 显隐 / 增益 / 偏移 */
 #plot-chbar {
@@ -281,7 +285,30 @@ button.dd-face { justify-content: space-between; }
 #multistr-panel, #rules-panel {
   width: 360px; flex: none; display: flex; flex-direction: column;
   background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto;
+  position: relative;
 }
+/* 侧栏左缘拖宽手柄 */
+.panel-resizer {
+  position: absolute; left: -3px; top: 0; bottom: 0; width: 6px;
+  cursor: col-resize; z-index: 30; touch-action: none;
+}
+.panel-resizer:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* ── 自定义右键菜单 ── */
+.ctx-menu {
+  position: fixed; z-index: 1200; min-width: 160px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+  padding: 5px; user-select: none;
+}
+.ctx-item {
+  padding: 7px 14px 7px 10px; border-radius: 5px;
+  cursor: pointer; white-space: nowrap; color: var(--fg);
+}
+.ctx-item:hover { background: #2f3540; }
+.ctx-item.disabled { color: var(--fg-dim); opacity: .45; cursor: default; }
+.ctx-item.disabled:hover { background: transparent; }
+.ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 .ms-toolbar {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px; border-bottom: 1px solid var(--border);

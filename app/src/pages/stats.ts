@@ -46,7 +46,7 @@ export class StatsPage {
   }
 
   updateChannels(snap: PlotSnapshotDto) {
-    const cols = ["通道", "样本数", "均值", "标准差", "方差", "最小", "最大", "峰峰值", "RMS"];
+    const cols = ["通道", "当前值", "样本数", "均值", "标准差", "方差", "最小", "最大", "峰峰值", "RMS"];
     this.tableHead.replaceChildren(...cols.map((c) => th(c)));
     this.tableBody.replaceChildren();
     snap.metrics.forEach((m: ChannelMetrics | null, i: number) => {
@@ -58,9 +58,10 @@ export class StatsPage {
       nameTd.append(swatch, document.createTextNode(`CH${i + 1}`));
       tr.appendChild(nameTd);
       const vals = m
-        ? [String(m.count), m.mean.toPrecision(6), m.std.toPrecision(6), m.variance.toPrecision(6),
-           m.min.toPrecision(6), m.max.toPrecision(6), m.peak_to_peak.toPrecision(6), m.rms.toPrecision(6)]
-        : Array(8).fill("—");
+        ? [m.last.toPrecision(6), String(m.count), m.mean.toPrecision(6), m.std.toPrecision(6),
+           m.variance.toPrecision(6), m.min.toPrecision(6), m.max.toPrecision(6),
+           m.peak_to_peak.toPrecision(6), m.rms.toPrecision(6)]
+        : Array(9).fill("—");
       for (const v of vals) tr.appendChild(td(v));
       this.tableBody.appendChild(tr);
     });

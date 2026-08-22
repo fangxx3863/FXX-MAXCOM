@@ -1,8 +1,9 @@
 // MAXCOM 前端外壳：连接管理（含串口参数/DTR/RTS/自动重连）+ 页面切换 + 轮询循环
 import "./styles.css";
 import { api, on, pickSavePath } from "./api";
-import type { ConnState } from "./types";
+import type { ConnState, DataFormat, DType } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
+import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
 import { TerminalPage } from "./pages/terminal";
 import { LogViewPage } from "./pages/logview";
 import { PlotPage, Y_PRESETS, type PlotLayout, type ViewMode } from "./pages/plot";
@@ -211,6 +212,8 @@ connectBtn.addEventListener("click", () => {
         void api.setDtr(dtrOn).catch(() => {});
         void api.setRts(rtsOn).catch(() => {});
       }
+      // 连接即按当前绘图控件下发格式（默认 ASCII），无需手动点应用
+      void api.setPlotFormat(buildPlotFormat()).catch(() => {});
     })
     .catch((e) => alert(`连接失败: ${e}`));
 });
@@ -297,6 +300,35 @@ $("#ms-close").addEventListener("click", () => {
 
 // 过滤/染色规则面板
 new RulesPanel().init();
+
+// 侧栏（多字符串/规则）左缘拖拽调宽，记忆到 localStorage
+function makePanelResizable(panel: HTMLElement) {
+  const h = document.createElement("div");
+  h.className = "panel-resizer";
+  h.title = "拖拽调整宽度";
+  panel.prepend(h);
+  const saved = Number(localStorage.getItem(`maxcom.panelw.${panel.id}`));
+  if (saved >= 220) panel.style.width = `${Math.min(760, saved)}px`;
+  h.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    h.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startW = panel.getBoundingClientRect().width;
+    const move = (ev: PointerEvent) => {
+      const w = Math.round(startW + (startX - ev.clientX));
+      panel.style.width = `${Math.min(760, Math.max(220, w))}px`;
+    };
+    const up = () => {
+      localStorage.setItem(`maxcom.panelw.${panel.id}`, String(parseInt(panel.style.width)));
+      h.removeEventListener("pointermove", move);
+      h.removeEventListener("pointerup", up);
+    };
+    h.addEventListener("pointermove", move);
+    h.addEventListener("pointerup", up);
+  });
+}
+makePanelResizable($("#multistr-panel"));
+makePanelResizable($("#rules-panel"));
 
 // ── 发送区 ──
 const sendInput = $<HTMLTextAreaElement>("#send-input");
@@ -561,10 +593,11 @@ renderMsRows();
 // ── 绘图页配置 ──
 const plotFmtDd = createDropdown({
   items: [
-    { value: "simple_binary", label: "Simple Binary" },
     { value: "ascii_delimited", label: "ASCII 分隔" },
+    { value: "simple_binary", label: "Simple Binary" },
+    { value: "custom_frame", label: "自定义帧" },
   ],
-  value: "simple_binary",
+  value: "ascii_delimited",
   onChange: () => applyPlotFmtControls(),
 });
 $("#plot-fmt-dd").replaceWith(plotFmtDd.el);
@@ -577,12 +610,25 @@ const plotEndianDd = createDropdown({
   value: "little",
 });
 $("#plot-endian-dd").replaceWith(plotEndianDd.el);
+const plotFrameLenDd = createDropdown({
+  items: [
+    { value: "fixed", label: "定长字节" },
+    { value: "payload", label: "首字节=长度" },
+  ],
+  value: "fixed",
+  onChange: () => {
+    $("#plot-framelen-fixed").classList.toggle("hidden", plotFrameLenDd.value !== "fixed");
+  },
+});
+$("#plot-framelen-dd").replaceWith(plotFrameLenDd.el);
 
-// 格式联动：二进制显示 类型/端序，ASCII 显示 分隔符（通道数由引擎按首行自动探测）
+// 格式联动：二进制/自定义帧显示 通道/类型/端序，自定义帧另有帧头/帧长/校验，ASCII 显示分隔符
 function applyPlotFmtControls() {
-  const binary = plotFmtDd.value === "simple_binary";
-  $("#plot-binary-ctl").classList.toggle("hidden", !binary);
-  $("#plot-ascii-ctl").classList.toggle("hidden", binary);
+  const fmt = plotFmtDd.value;
+  const binLike = fmt === "simple_binary" || fmt === "custom_frame";
+  $("#plot-ch-ctl").classList.toggle("hidden", !binLike);
+  $("#plot-ascii-ctl").classList.toggle("hidden", fmt !== "ascii_delimited");
+  $("#plot-custom-ctl").classList.toggle("hidden", fmt !== "custom_frame");
 }
 applyPlotFmtControls();
 
@@ -652,23 +698,40 @@ $("#plot-buffer").addEventListener("change", (e) => {
   void api.setPlotBuffer(cap);
 });
 
-$("#plot-apply").addEventListener("click", () => {
+/** 从绘图控件读取当前格式配置（应用按钮 / 连接时自动下发共用） */
+function buildPlotFormat(): DataFormat {
+  const channels = Math.max(1, Number(($("#plot-channels") as HTMLInputElement).value) || 1);
   if (plotFmtDd.value === "simple_binary") {
-    const channels = Math.max(1, Number(($("#plot-channels") as HTMLInputElement).value) || 1);
-    void api.setPlotFormat({
-      type: "simple_binary" as const,
+    return {
+      type: "simple_binary",
       channel_count: channels,
-      dtype: plotDtypeDd.value as never,
+      dtype: plotDtypeDd.value as DType,
       byte_order: plotEndianDd.value as "little" | "big",
-    });
-  } else {
-    // ASCII：channel_count 传 0 → 引擎按首行数据自动探测列数
-    void api.setPlotFormat({
-      type: "ascii_delimited" as const,
-      delimiter: ($("#plot-delimiter") as HTMLInputElement).value || ",",
-      channel_count: 0,
-    });
+    };
   }
+  if (plotFmtDd.value === "custom_frame") {
+    return {
+      type: "custom_frame",
+      frame_header: ($("#plot-frame-header") as HTMLInputElement).value.trim(),
+      frame_length:
+        plotFrameLenDd.value === "fixed"
+          ? Math.max(1, Number(($("#plot-frame-size") as HTMLInputElement).value) || 1)
+          : null,
+      dtype: plotDtypeDd.value as DType,
+      byte_order: plotEndianDd.value as "little" | "big",
+      checksum: ($("#plot-checksum") as HTMLInputElement).checked ? "checksum" : "none",
+      channel_count: channels,
+    };
+  }
+  // ASCII：channel_count 传 0 → 引擎按首行数据自动探测列数
+  return {
+    type: "ascii_delimited",
+    delimiter: ($("#plot-delimiter") as HTMLInputElement).value || ",",
+    channel_count: 0,
+  };
+}
+$("#plot-apply").addEventListener("click", () => {
+  void api.setPlotFormat(buildPlotFormat());
 });
 
 // ── 事件与轮询 ──
@@ -724,10 +787,44 @@ setInterval(() => void pollPlot(), 50);
   }
 }
 
-// 屏蔽 WebView 右键菜单与刷新快捷键：误触刷新会丢连接状态与全部缓冲。
-// 仅生产构建拦截，vite dev 下保留以便调试；F12 开发者工具不受影响。
+// 自定义右键菜单替代原生（刷新入口被移除）；Shift+右键保留原生菜单用于调试。
+// F5/Ctrl+R 仍拦截：误触整页重载会丢连接状态与全部缓冲（生产构建）。
+window.addEventListener("contextmenu", (e) => {
+  const me = e as MouseEvent;
+  if (me.shiftKey) return;
+  me.preventDefault();
+  const t = me.target as HTMLElement;
+  if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) t.focus();
+  const items: CtxItem[] = [];
+  // 绘图页扩展项：图表 PNG / CSV
+  if (currentPage === "plot") {
+    const cell = t.closest?.(".plot-cell") as HTMLElement | null;
+    if (cell) {
+      const chAttr = cell.dataset.ch;
+      items.push({
+        label: "📋 复制图表为 PNG",
+        hint: "写入剪贴板；失败时转为下载",
+        action: () => plotPage.copyChartPng(chAttr === undefined ? null : Number(chAttr)),
+      });
+      items.push({
+        label: "📄 导出 CSV",
+        hint: chAttr === undefined ? "全部通道缓冲数据" : `CH${Number(chAttr) + 1} 缓冲数据`,
+        action: () => plotPage.exportCsv(chAttr === undefined ? null : Number(chAttr)),
+      });
+      items.push({ sep: true });
+    } else if (t.closest?.("#plot-bars") || t.closest?.("#plot-holder")) {
+      items.push({
+        label: "📄 导出 CSV",
+        hint: "全部通道缓冲数据",
+        action: () => plotPage.exportCsv(null),
+      });
+      items.push({ sep: true });
+    }
+  }
+  items.push(...commonEditItems());
+  openContextMenu(items, me.clientX, me.clientY);
+});
 if (!import.meta.env.DEV) {
-  window.addEventListener("contextmenu", (e) => e.preventDefault());
   window.addEventListener("keydown", (e) => {
     if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r")) {
       e.preventDefault();

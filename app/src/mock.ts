@@ -282,6 +282,7 @@ function metricsOf(data: number[]): ChannelMetrics {
   const max = Math.max(...data);
   return {
     count: n,
+    last: data[n - 1],
     mean,
     std: Math.sqrt(variance),
     variance,

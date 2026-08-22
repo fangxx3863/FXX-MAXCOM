@@ -59,10 +59,21 @@ export type DType = "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" |
 export type DataFormat =
   | { type: "simple_binary"; channel_count: number; dtype: DType; byte_order: "little" | "big" }
   | { type: "ascii_delimited"; delimiter: string; filter_prefix?: string; channel_count: number }
-  | { type: "custom_frame"; frame_header: string; dtype: DType; byte_order: "little" | "big"; channel_count: number };
+  | {
+      type: "custom_frame";
+      frame_header: string;
+      /** 定长载荷字节数；null/省略 = 载荷首字节为长度 */
+      frame_length?: number | null;
+      dtype: DType;
+      byte_order: "little" | "big";
+      checksum?: "none" | "checksum" | "crc16";
+      channel_count: number;
+    };
 
 export interface ChannelMetrics {
   count: number;
+  /** 当前值（缓冲内最新样本） */
+  last: number;
   mean: number;
   std: number;
   variance: number;
