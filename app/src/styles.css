@@ -42,8 +42,53 @@
   --err: #dc322f;
   --border: #19505e;
 }
+[data-theme="oled"] {
+  --bg: #000000;
+  --bg2: #0b0b0d;
+  --bg3: #17181c;
+  --fg: #e8e8ea;
+  --fg-dim: #8a8d95;
+  --accent: #4da3ff;
+  --ok: #33cc70;
+  --err: #ff5544;
+  --border: #26282e;
+}
+[data-theme="nord"] {
+  --bg: #2e3440;
+  --bg2: #3b4252;
+  --bg3: #434c5e;
+  --fg: #eceff4;
+  --fg-dim: #a3adc2;
+  --accent: #88c0d0;
+  --ok: #a3be8c;
+  --err: #bf616a;
+  --border: #4c566a;
+}
+[data-theme="dracula"] {
+  --bg: #282a36;
+  --bg2: #343746;
+  --bg3: #3d4053;
+  --fg: #f8f8f2;
+  --fg-dim: #a9a9c0;
+  --accent: #bd93f9;
+  --ok: #50fa7b;
+  --err: #ff5555;
+  --border: #4b4e6a;
+}
+[data-theme="solar-light"] {
+  --bg: #fdf6e3;
+  --bg2: #eee8d5;
+  --bg3: #e6dfc7;
+  --fg: #586e75;
+  --fg-dim: #93a1a1;
+  --accent: #268bd2;
+  --ok: #859900;
+  --err: #dc322f;
+  --border: #d3c9a8;
+}
 html { color-scheme: dark; }
 [data-theme="light"] { color-scheme: light; }
+[data-theme="solar-light"] { color-scheme: light; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
@@ -73,6 +118,7 @@ button {
 }
 button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); color: #10131a; font-weight: 600; border-color: transparent; }
+#connect-btn.danger { background: var(--err); color: #fff; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.off { background: #666; }
 .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
@@ -82,20 +128,22 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
 input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
-  width: 30px; height: 17px; margin: 0;
+  width: 34px; height: 20px; margin: 0;
   border-radius: 999px; border: 1px solid var(--border);
   background: var(--bg3); position: relative; cursor: pointer;
   vertical-align: middle; flex: none;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .12);
   transition: background .15s, border-color .15s;
 }
 input[type="checkbox"]::before {
   content: ""; position: absolute; top: 2px; left: 2px;
-  width: 11px; height: 11px; border-radius: 50%;
+  width: 14px; height: 14px; border-radius: 50%;
   background: var(--fg-dim);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .25);
   transition: transform .15s, background .15s;
 }
 input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
-input[type="checkbox"]:checked::before { transform: translateX(13px); background: #fff; }
+input[type="checkbox"]:checked::before { transform: translateX(14px); background: #fff; }
 input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ── 布局 ── */
@@ -447,7 +495,7 @@ input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 
 /* 设置页：卡片式布局 */
 #page-settings { padding: 18px 22px; overflow-y: auto; }
-.settings-body { max-width: 780px; width: 100%; }
+.settings-body { max-width: 960px; width: 100%; margin: 0 auto; }
 .settings-header {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 4px;

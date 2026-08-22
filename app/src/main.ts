@@ -41,6 +41,10 @@ const THEME_PRESETS: Record<string, string> = {
   light: "light",
   midnight: "midnight",
   solar: "solar",
+  oled: "oled",
+  nord: "nord",
+  dracula: "dracula",
+  "solar-light": "solar-light",
 };
 
 const TERMINAL_THEMES: Record<string, { background: string; foreground: string; cursor: string }> = {
@@ -48,6 +52,10 @@ const TERMINAL_THEMES: Record<string, { background: string; foreground: string; 
   light: { background: "#f4f6f9", foreground: "#1b1f27", cursor: "#1f6feb" },
   midnight: { background: "#0b1020", foreground: "#d5e2ff", cursor: "#6aa9ff" },
   solar: { background: "#002b36", foreground: "#eee8d5", cursor: "#268bd2" },
+  oled: { background: "#000000", foreground: "#e8e8ea", cursor: "#4da3ff" },
+  nord: { background: "#2e3440", foreground: "#eceff4", cursor: "#88c0d0" },
+  dracula: { background: "#282a36", foreground: "#f8f8f2", cursor: "#bd93f9" },
+  "solar-light": { background: "#fdf6e3", foreground: "#586e75", cursor: "#268bd2" },
 };
 
 function loadSettings(): AppSettings {
@@ -470,6 +478,7 @@ class SessionApp {
         ? `已连接 ${this.stateLabel ?? ""}`
         : "未连接";
     this.q("#connect-btn").textContent = s.connected ? "断开" : "连接";
+    this.q("#connect-btn").classList.toggle("danger", s.connected);
     renderTabs();
   }
 
