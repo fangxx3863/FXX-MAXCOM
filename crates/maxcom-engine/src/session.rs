@@ -215,9 +215,9 @@ impl SessionManager {
 
     /// 设置绘图数据格式（切换时清空缓冲；绘图线程经版本号感知并热重建 parser）
     pub fn set_plot_format(&self, fmt: maxcom_core::plot::format::DataFormat) {
+        let ch = fmt.channel_count() as usize; // 先读再 move（DataFormat 非 Copy）
         *self.plot_format.lock().unwrap() = Some(fmt);
         self.plot_fmt_ver.fetch_add(1, Ordering::Relaxed);
-        let ch = fmt.channel_count() as usize;
         // ASCII 自动（channel_count == 0）先按 1 通道占位，首帧到达后按实际列数重建
         *self.plot.lock().unwrap() = ChannelStore::new(ch.max(1), 10000);
     }
