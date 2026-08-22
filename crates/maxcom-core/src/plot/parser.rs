@@ -49,7 +49,8 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
             filter_prefix,
             channel_count,
         } => {
-            // channel_count == 0 表示自动：以首条含有效数值的行锁定列数（前端 ASCII 模式固定传 0）
+            // channel_count == 0 表示自动：首条有效行锁定列数；
+            // 其后列数变更经去抖换锁（连续 ASCII_RELOCK_STREAK 条同宽行），固定列数模式则始终按坏行跳过
             if delimiter.is_empty() {
                 return Err(ParseError::Unsupported("ascii_delimited: empty delimiter"));
             }
@@ -57,6 +58,9 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
                 delimiter: delimiter.clone(),
                 prefix: filter_prefix.clone(),
                 channel_count: *channel_count as usize,
+                auto: *channel_count == 0,
+                relock_width: 0,
+                relock_streak: 0,
                 pending: String::new(),
                 errors: 0,
             }))
@@ -152,10 +156,20 @@ fn read_scalar(bytes: &[u8], dtype: DType, big_endian: bool) -> f64 {
 pub struct AsciiDelimitedParser {
     delimiter: String,
     prefix: Option<String>,
+    /// 当前锁定列数（自动模式下随数据变更经去抖换锁更新）
     channel_count: usize,
+    /// 是否自动列数模式（构造时 channel_count == 0）
+    auto: bool,
+    /// 自动模式换锁去抖：候选列宽与已连续命中条数
+    relock_width: usize,
+    relock_streak: u32,
     pending: String,
     errors: u64,
 }
+
+/// 自动模式列数变更去抖阈值：连续 N 条同宽有效行才换锁
+/// （单条/偶发噪声不清空缓冲；设备中途改输出协议几条内跟上）
+const ASCII_RELOCK_STREAK: u32 = 5;
 
 impl AsciiDelimitedParser {
     fn parse_line(&mut self, line: &str, out: &mut dyn FnMut(Frame)) {
@@ -179,20 +193,47 @@ impl AsciiDelimitedParser {
             .split(self.delimiter.as_str())
             .filter_map(|s| s.trim().parse::<f64>().ok())
             .collect();
-        if self.channel_count == 0 {
-            // 自动通道：首条有效行锁定列数，其后列数不齐按坏行跳过
-            if vals.is_empty() {
-                self.errors += 1;
+        if !self.auto {
+            if vals.len() != self.channel_count {
+                self.errors += 1; // 坏行：列数不齐（含混入文本），跳过
                 return;
             }
-            self.channel_count = vals.len();
             out(vals);
             return;
         }
-        if vals.len() != self.channel_count {
-            self.errors += 1; // 坏行：列数不齐（含混入文本），跳过
+        // 自动模式
+        if vals.is_empty() {
+            self.errors += 1;
             return;
         }
+        let w = vals.len();
+        if self.channel_count == 0 {
+            // 首条有效行：立即锁定列数（避免上电初期的行被当噪声）
+            self.channel_count = w;
+            self.relock_width = 0;
+            self.relock_streak = 0;
+            out(vals);
+            return;
+        }
+        if w == self.channel_count {
+            self.relock_streak = 0; // 回到当前列数，去抖计数清零
+            out(vals);
+            return;
+        }
+        // 列数变化：连续 ASCII_RELOCK_STREAK 条同宽有效行才换锁，期间按坏行跳过
+        if w == self.relock_width {
+            self.relock_streak += 1;
+        } else {
+            self.relock_width = w;
+            self.relock_streak = 1;
+        }
+        if self.relock_streak < ASCII_RELOCK_STREAK {
+            self.errors += 1;
+            return;
+        }
+        self.channel_count = w; // 换锁；本条即以新列宽出帧
+        self.relock_width = 0;
+        self.relock_streak = 0;
         out(vals);
     }
 }
@@ -215,6 +256,12 @@ impl FrameParser for AsciiDelimitedParser {
 
     fn reset(&mut self) {
         self.pending.clear();
+        // 自动模式连锁定状态一起复位：reset 语义 = 回到首帧重新探测
+        if self.auto {
+            self.channel_count = 0;
+            self.relock_width = 0;
+            self.relock_streak = 0;
+        }
     }
 
     fn error_count(&self) -> u64 {
@@ -305,6 +352,60 @@ mod tests {
         assert!(collect(p.as_mut(), b"1 2 ").is_empty());
         let frames = collect(p.as_mut(), b"3\r");
         assert_eq!(frames, vec![vec![1.0, 2.0, 3.0]]);
+    }
+
+    #[test]
+    fn ascii_auto_relocks_after_consecutive_new_width() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            channel_count: 0,
+        })
+        .unwrap();
+        // 首行锁定 2 列
+        assert_eq!(
+            collect(p.as_mut(), b"123,456\r\n"),
+            vec![vec![123.0, 456.0]]
+        );
+        // 换 3 列：前 ASCII_RELOCK_STREAK-1 条按坏行丢弃
+        let n = collect(p.as_mut(), b"1,2,3\n1,2,3\n1,2,3\n1,2,3\n").len();
+        assert_eq!((n, p.error_count()), (0, 4));
+        // 第 5 条同宽 → 换锁并以新列宽出帧；会话层据此重建 store（自动扩图）
+        assert_eq!(collect(p.as_mut(), b"7,8,9\n"), vec![vec![7.0, 8.0, 9.0]]);
+        // 换锁后旧宽度又成坏行
+        assert!(collect(p.as_mut(), b"9,9\n").is_empty());
+        assert_eq!(p.error_count(), 5);
+    }
+
+    #[test]
+    fn ascii_auto_alternating_widths_never_relock() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            channel_count: 0,
+        })
+        .unwrap();
+        assert_eq!(collect(p.as_mut(), b"1,2\n"), vec![vec![1.0, 2.0]]);
+        // 3/4 列交替抖动：宽度不连续命中，永不换锁，全部按坏行丢弃
+        let frames = collect(p.as_mut(), b"1,2,3\n1,2,3,4\n1,2,3\n1,2,3,4\n1,2,3\n");
+        assert!(frames.is_empty());
+        assert_eq!(p.error_count(), 5);
+        // 正常行继续出帧
+        assert_eq!(collect(p.as_mut(), b"5,6\n"), vec![vec![5.0, 6.0]]);
+    }
+
+    #[test]
+    fn ascii_auto_reset_restores_detection() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            channel_count: 0,
+        })
+        .unwrap();
+        assert_eq!(collect(p.as_mut(), b"1,2\n"), vec![vec![1.0, 2.0]]);
+        p.reset();
+        // reset 后回到未锁定状态，首行重新探测列数
+        assert_eq!(collect(p.as_mut(), b"7,8,9\n"), vec![vec![7.0, 8.0, 9.0]]);
     }
 
     #[test]
