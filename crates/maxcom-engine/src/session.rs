@@ -70,7 +70,7 @@ pub struct LogOptions {
 impl Default for LogOptions {
     fn default() -> Self {
         Self {
-            idle_timeout_ms: 100,
+            idle_timeout_ms: 10,
             timestamp_mode: TimestampMode::Absolute,
             encoding: "auto".into(),
         }
@@ -220,6 +220,17 @@ impl SessionManager {
         self.plot_fmt_ver.fetch_add(1, Ordering::Relaxed);
         // ASCII 自动（channel_count == 0）先按 1 通道占位，首帧到达后按实际列数重建
         *self.plot.lock().unwrap() = ChannelStore::new(ch.max(1), 10000);
+    }
+
+    /// 设置绘图缓冲区容量（X 轴时间窗；改动会清空已缓冲数据）
+    pub fn set_plot_buffer(&self, capacity: usize) {
+        let cap = capacity.clamp(100, 1_000_000);
+        let fmt = self.plot_format.lock().unwrap().clone();
+        let ch = fmt
+            .as_ref()
+            .map(|f| f.channel_count() as usize)
+            .unwrap_or(1);
+        *self.plot.lock().unwrap() = ChannelStore::new(ch.max(1), cap);
     }
 
     /// 绘图快照（前端轮询）
@@ -486,7 +497,8 @@ impl SessionManager {
                                     let mut store = plot_store.lock().unwrap();
                                     for f in frames {
                                         if auto && store.channel_count() != f.len() {
-                                            *store = ChannelStore::new(f.len(), 10000);
+                                            let cap = store.capacity();
+                                            *store = ChannelStore::new(f.len(), cap);
                                         }
                                         store.push_frame(&f);
                                     }

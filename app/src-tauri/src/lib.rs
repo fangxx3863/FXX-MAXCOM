@@ -26,6 +26,7 @@ pub fn run() {
             commands::clear_log,
             commands::get_stats,
             commands::set_plot_format,
+            commands::set_plot_buffer,
             commands::plot_snapshot,
             commands::set_dtr,
             commands::set_rts,

@@ -164,8 +164,9 @@ export class PlotPage {
     this.ensureChStates(n);
     this.buildChBar();
     this.syncVisibility();
-    if (this.viewMode !== "bars") this.buildWave(n);
+    // 先建柱状（有固定高度），强制布局后再量可用高度建波形 —— 否则量到的是柱状区未占位的高度，波形必溢出
     if (this.viewMode !== "waveform") this.buildBars(n);
+    if (this.viewMode !== "bars") this.buildWave(n);
     this.update(snap); // 立即灌一次数据
   }
 
@@ -175,6 +176,7 @@ export class PlotPage {
   }
 
   private buildWave(n: number) {
+    void this.holder.offsetHeight; // 强制同步布局：确保柱状区已参与排版
     if (this.layout === "overlay") {
       // 单图叠加：全部通道进一个 uPlot，多色曲线 + 图例
       const cell = document.createElement("div");
@@ -205,38 +207,55 @@ export class PlotPage {
         cell,
       );
     } else {
-      // 分开子图：每行最多两个，行高按可视高度均分（留 4px 冗余防 1px 溢出滚动条）
+      // 分开子图：每行最多两个，行高按可视高度均分（留冗余防滚动条/缩放取整）
       const rows = n <= 1 ? 1 : Math.ceil(n / 2);
-      const h = Math.max(140, Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 14);
-      for (let ch = 0; ch < n; ch++) {
-        const cell = document.createElement("div");
-        cell.className = "plot-cell sub";
-        cell.classList.toggle("hidden", !(this.chState[ch]?.visible ?? true));
-        this.holder.appendChild(cell);
-        this.cells.push(cell);
-        const w = Math.max(220, cell.clientWidth - 10);
-        const plot = new uPlot(
-          {
-            width: w,
-            height: h,
-            title: `CH${ch + 1}`,
-            scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
-            padding: [18, 14, 8, 10],
-            series: [{}, {
-              label: `CH${ch + 1}`,
-              stroke: this.chState[ch]?.color ?? CH_COLORS[ch % CH_COLORS.length],
-              width: 1.4,
-              points: { show: false },
-            }],
-            axes: AXES,
-            legend: { show: false },
-          },
-          undefined,
-          cell,
-        );
-        this.plots.push(plot);
+      let h = Math.max(140, Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 18);
+      for (let attempt = 0; ; attempt++) {
+        for (let ch = 0; ch < n; ch++) {
+          const cell = document.createElement("div");
+          cell.className = "plot-cell sub";
+          cell.classList.toggle("hidden", !(this.chState[ch]?.visible ?? true));
+          this.holder.appendChild(cell);
+          this.cells.push(cell);
+          const w = Math.max(220, cell.clientWidth - 10);
+          const plot = new uPlot(
+            {
+              width: w,
+              height: h,
+              title: `CH${ch + 1}`,
+              scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
+              padding: [18, 14, 8, 10],
+              series: [{}, {
+                label: `CH${ch + 1}`,
+                stroke: this.chState[ch]?.color ?? CH_COLORS[ch % CH_COLORS.length],
+                width: 1.4,
+                points: { show: false },
+              }],
+              axes: AXES,
+              legend: { show: false },
+            },
+            undefined,
+            cell,
+          );
+          this.plots.push(plot);
+        }
+        // 实测溢出 → 收缩行高重建（最多一轮；杜绝“波形要滚动才能看全”）
+        const over = this.holder.scrollHeight - this.holder.clientHeight;
+        if (over <= 0 || attempt >= 1) break;
+        h = Math.max(120, h - Math.ceil(over / rows) - 4);
+        for (const p of this.plots) p.destroy();
+        this.plots = [];
+        this.cells = [];
+        this.holder.replaceChildren();
       }
     }
+  }
+
+  /** 自定义 Y 轴范围 */
+  setYRangeCustom(lo: number, hi: number) {
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return;
+    this.yRange = [lo, hi];
+    this.rebuildAll(this.lastSnap);
   }
 
   private buildBars(n: number) {

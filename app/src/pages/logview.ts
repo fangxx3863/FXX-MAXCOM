@@ -4,6 +4,21 @@ import type { EntriesBatch, LogEntryDto } from "../types";
 
 const MAX_LINES = 100_000; // ADR-0010：接收区上限，超出丢旧行
 
+interface QuickFilter {
+  regex?: RegExp;
+  text?: string;
+}
+
+function compileQuickFilter(pattern: string): QuickFilter | null {
+  const p = pattern.trim();
+  if (!p) return null;
+  try {
+    return { regex: new RegExp(p) };
+  } catch {
+    return { text: p }; // 非法正则 → 按子串匹配
+  }
+}
+
 export class LogViewPage {
   private view: HTMLElement;
   private autoscroll: HTMLInputElement;
@@ -12,6 +27,7 @@ export class LogViewPage {
   private epochAnchor = Date.now();
   private lastTs: number | null = null;
   private lines = 0;
+  private quickFilter: QuickFilter | null = null;
 
   constructor(view: HTMLElement, opts: { autoscroll: HTMLInputElement; getTsMode: () => string }) {
     this.view = view;
@@ -21,6 +37,20 @@ export class LogViewPage {
 
   setHexDisplay(on: boolean) {
     this.hexDisplay = on;
+  }
+
+  /** 快捷过滤：命中才显示（空 = 全显）。对已渲染与后续新行都即时生效 */
+  setQuickFilter(pattern: string) {
+    this.quickFilter = compileQuickFilter(pattern);
+    const f = this.quickFilter;
+    for (const el of Array.from(this.view.children) as HTMLElement[]) {
+      if (!f) {
+        el.classList.remove("hidden");
+        continue;
+      }
+      const raw = el.dataset.raw ?? "";
+      el.classList.toggle("hidden", f.regex ? !f.regex.test(raw) : !raw.includes(f.text!));
+    }
   }
 
   /** 时间戳模式切换后重置差值基准 */
@@ -33,7 +63,14 @@ export class LogViewPage {
     this.epochAnchor = batch.epoch_anchor_ms;
     const frag = document.createDocumentFragment();
     for (const item of batch.items) {
-      frag.appendChild(this.renderLine(item));
+      const line = this.renderLine(item);
+      line.dataset.raw = item.text;
+      // 新行同样受快捷过滤约束
+      const f = this.quickFilter;
+      if (f && (f.regex ? !f.regex.test(item.text) : !item.text.includes(f.text!))) {
+        line.classList.add("hidden");
+      }
+      frag.appendChild(line);
       this.lines++;
     }
     this.view.appendChild(frag);

@@ -46,9 +46,10 @@
               <div id="log-controls">
                 <span class="ctl">时间戳 <div id="ts-mode-dd" class="inline-dd"></div></span>
                 <span class="ctl">编码 <div id="encoding-dd" class="inline-dd"></div></span>
-                <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="100" /></label>
+                <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="10" /></label>
                 <label><input id="hex-display" type="checkbox" />HEX显示</label>
                 <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
+                <input id="quick-filter" placeholder="过滤：仅显示匹配行" title="支持正则（非法时按子串匹配），对新旧数据即时生效" size="16" />
                 <button id="clear-log">清空</button>
                 <button id="toggle-multistr" title="多字符串/HEX 发送面板">☰ 多字符串</button>
                 <button id="toggle-rules" title="过滤与染色规则">🎨 规则</button>
@@ -118,6 +119,12 @@
             <span class="ctl">显示 <div id="plot-view-dd" class="inline-dd"></div></span>
             <span class="ctl">布局 <div id="plot-layout-dd" class="inline-dd"></div></span>
             <span class="ctl">Y轴范围 <div id="plot-yrange-dd" class="inline-dd"></div></span>
+            <span id="plot-ycustom-ctl" class="hidden">
+              <input id="plot-ymin" type="number" value="-100" title="Y 最小值" />
+              <span class="ctl">~</span>
+              <input id="plot-ymax" type="number" value="100" title="Y 最大值" />
+            </span>
+            <label title="X 轴缓冲点数，改动即生效（会清空当前波形）">X轴点数 <input id="plot-buffer" type="number" min="100" max="1000000" step="100" value="10000" /></label>
             <button id="plot-apply">应用</button>
             <span id="plot-info"></span>
           </div>

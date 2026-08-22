@@ -134,7 +134,8 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
 .ch-gain:focus, .ch-off:focus { border-color: var(--accent); }
 
 /* 垂直柱状表（Bar Process） */
-#plot-bars { display: flex; gap: 8px; padding: 8px 8px 0; flex: none; overflow-x: auto; }
+#plot-bars { display: flex; gap: 8px; padding: 8px 8px 0; flex: none; overflow-x: auto;
+  justify-content: safe center; }
 .bar-meter {
   width: 84px; height: 190px; flex: none;
   display: flex; flex-direction: column; gap: 6px;
@@ -339,6 +340,9 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+
+/* 收发页快捷过滤框 */
+#quick-filter { width: 170px; }
 
 /* HEX 显示行：低饱和绿 */
 .log-hex { color: #6a9955; letter-spacing: 0.5px; }

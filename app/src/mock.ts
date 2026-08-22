@@ -21,6 +21,7 @@ interface ApiShape {
   clearLog(): Promise<void>;
   getStats(): Promise<StatsSnapshot>;
   setPlotFormat(fmt: DataFormat): Promise<void>;
+  setPlotBuffer(capacity: number): Promise<void>;
   plotSnapshot(maxPoints: number): Promise<PlotSnapshotDto>;
   setDtr(on: boolean): Promise<void>;
   setRts(on: boolean): Promise<void>;
@@ -178,6 +179,10 @@ class MockBackend implements ApiShape {
   }
 
   async setColorRules(_master: boolean, _ansiYield: boolean, _rules: unknown[]) {}
+
+  async setPlotBuffer(_capacity: number) {
+    // mock 数据生成与缓冲容量无关，忽略
+  }
 
   async setPlotFormat(fmt: DataFormat) {
     this.channels = Math.max(1, fmt.channel_count);

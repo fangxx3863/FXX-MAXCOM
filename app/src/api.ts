@@ -28,6 +28,7 @@ const realApi = {
   clearLog: () => invoke<void>("clear_log"),
   getStats: () => invoke<StatsSnapshot>("get_stats"),
   setPlotFormat: (fmt: DataFormat) => invoke<void>("set_plot_format", { fmt }),
+  setPlotBuffer: (capacity: number) => invoke<void>("set_plot_buffer", { capacity }),
   plotSnapshot: (maxPoints: number) => invoke<PlotSnapshotDto>("plot_snapshot", { maxPoints }),
   setDtr: (on: boolean) => invoke<void>("set_dtr", { on }),
   setRts: (on: boolean) => invoke<void>("set_rts", { on }),

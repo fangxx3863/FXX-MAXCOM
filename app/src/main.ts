@@ -259,7 +259,7 @@ function switchPage(id: PageId) {
 function applyLogOptions() {
   void api
     .setLogOptions({
-      idle_timeout_ms: Number(($("#idle-timeout") as HTMLInputElement).value) || 100,
+      idle_timeout_ms: Number(($("#idle-timeout") as HTMLInputElement).value) || 10,
       timestamp_mode: tsModeDd.value,
       encoding: encodingDd.value,
     })
@@ -273,6 +273,14 @@ $<HTMLInputElement>("#hex-display").addEventListener("change", (e) => {
 $("#clear-log").addEventListener("click", () => {
   logViewPage.clear();
   void api.clearLog();
+});
+
+// 快捷过滤：仅显示匹配行（正则优先，非法回退子串；150ms 防抖，对新旧数据即时生效）
+let quickFilterTimer: number | null = null;
+$("#quick-filter").addEventListener("input", (e) => {
+  const v = (e.target as HTMLInputElement).value;
+  if (quickFilterTimer !== null) window.clearTimeout(quickFilterTimer);
+  quickFilterTimer = window.setTimeout(() => logViewPage.setQuickFilter(v), 150);
 });
 
 // 多字符串面板开合（☰ 按钮与面板内 ✕ 均可）
@@ -610,11 +618,35 @@ const plotYRangeDd = createDropdown({
     { value: "pm1", label: "-1 ~ 1" },
     { value: "pm100", label: "-100 ~ 100" },
     { value: "pm1000", label: "-1000 ~ 1000" },
+    { value: "custom", label: "自定义…" },
   ],
   value: "auto",
-  onChange: (v) => plotPage.setYRange(Y_PRESETS[v] !== undefined ? v : "auto"),
+  onChange: (v) => applyYRangeSelection(v),
 });
 $("#plot-yrange-dd").replaceWith(plotYRangeDd.el);
+
+function applyYRangeSelection(v: string) {
+  const customCtl = $("#plot-ycustom-ctl");
+  if (v === "custom") {
+    customCtl.classList.remove("hidden");
+    applyCustomYRange();
+  } else {
+    customCtl.classList.add("hidden");
+    if (Y_PRESETS[v] !== undefined) plotPage.setYRange(v);
+  }
+}
+function applyCustomYRange() {
+  const lo = Number(($("#plot-ymin") as HTMLInputElement).value);
+  const hi = Number(($("#plot-ymax") as HTMLInputElement).value);
+  if (Number.isFinite(lo) && Number.isFinite(hi)) plotPage.setYRangeCustom(lo, hi);
+}
+$("#plot-ymin").addEventListener("change", applyCustomYRange);
+$("#plot-ymax").addEventListener("change", applyCustomYRange);
+
+$("#plot-buffer").addEventListener("change", (e) => {
+  const cap = Number((e.target as HTMLInputElement).value) || 10000;
+  void api.setPlotBuffer(cap);
+});
 
 $("#plot-apply").addEventListener("click", () => {
   if (plotFmtDd.value === "simple_binary") {

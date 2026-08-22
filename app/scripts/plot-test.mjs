@@ -67,8 +67,10 @@ module.exports = FakeUPlot;
 writeFileSync(join(dir, "css-stub.js"), `module.exports = {};`);
 writeFileSync(join(dir, "entry.ts"), `
 import { PlotPage, Y_PRESETS } from "${join(process.cwd(), "src/pages/plot.ts").replace(/\\/g, "/")}";
+import { LogViewPage } from "${join(process.cwd(), "src/pages/logview.ts").replace(/\\/g, "/")}";
 globalThis.PlotPage = PlotPage;
 globalThis.Y_PRESETS = Y_PRESETS;
+globalThis.LogViewPage = LogViewPage;
 `);
 execFileSync(join(process.cwd(), "node_modules/.bin/esbuild"), [
   join(dir, "entry.ts"),
@@ -98,7 +100,14 @@ Object.defineProperty(HTMLElement.prototype, "clientWidth", {
   configurable: true,
 });
 Object.defineProperty(HTMLElement.prototype, "clientHeight", {
-  get() { return this.classList?.contains("plot-cell") ? 300 : 600; },
+  get() {
+    if (this.id === "plot-holder") {
+      const bars = document.querySelector("#plot-bars");
+      // 模拟真实布局：柱状区有内容时，波形可用高度被压缩（300），否则全高（600）
+      return bars && !bars.classList.contains("hidden") && bars.children.length ? 300 : 600;
+    }
+    return 600;
+  },
   configurable: true,
 });
 Object.defineProperty(HTMLElement.prototype, "childElementCount", {
@@ -172,6 +181,32 @@ colorInput.value = "#ff0000";
 colorInput.dispatchEvent(new w.Event("input", { bubbles: true }));
 const ovNow = globalThis.__plots.at(-1);
 check("换色写入 series.stroke", ovNow.series[2].stroke === "#ff0000");
+
+// 9) 同屏+分开子图：柱状先建、波形后量（回归：曾量到未占位高度导致波形溢出）
+//    单通道：柱状占位后 holder 高 300 → h = floor((300-16)/1)-18 = 266；旧顺序量到 600 → 566
+page.setLayout("subplots"); // 回到子图布局（此前场景停在 overlay）
+page.update({ channel_count: 1, total_points: 4, series: [[1, 2, 3, 4]], metrics: [null] });
+page.setViewMode("waveform");
+page.setViewMode("both");
+const wavePlot = globalThis.__plots.at(-1);
+check("柱状占位后再量波形高度 (h=266，旧实现得 566)", wavePlot.height === 266);
+
+// 10) 收发页快捷过滤：命中才显示，新旧数据即时生效
+const lvView = document.createElement("div");
+const lv = new globalThis.LogViewPage(lvView, { autoscroll: { checked: false }, getTsMode: () => "none" });
+const mkItem = (text) => ({ ts_ms: 1, text, segments: [], raw_hex: "" });
+lv.append({ epoch_anchor_ms: 0, items: [mkItem("ERROR: boom"), mkItem("INFO: ok")] });
+check("无过滤两行可见", lvView.children.length === 2 && !lvView.children[0].classList.contains("hidden"));
+lv.setQuickFilter("ERROR");
+check("正则过滤仅匹配行可见", !lvView.children[0].classList.contains("hidden") && lvView.children[1].classList.contains("hidden"));
+lv.append({ epoch_anchor_ms: 0, items: [mkItem("ERROR: again"), mkItem("WARN: x")] });
+check("新行同样受过滤约束", lvView.children[2].classList.contains("hidden") === false && lvView.children[3].classList.contains("hidden"));
+lv.setQuickFilter("");
+check("清空过滤全部恢复", [...lvView.children].every((c) => !c.classList.contains("hidden")));
+lv.setQuickFilter("["); // 非法正则 → 子串匹配
+check("非法正则回退子串", [...lvView.children].every((c) => c.classList.contains("hidden")));
+lv.setQuickFilter("boom");
+check("子串匹配生效", !lvView.children[0].classList.contains("hidden"));
 
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);
 process.exit(fail ? 1 : 0);

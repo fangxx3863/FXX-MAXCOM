@@ -98,6 +98,11 @@ pub fn set_plot_format(fmt: DataFormat, state: State<'_, AppState>) {
 }
 
 #[tauri::command]
+pub fn set_plot_buffer(capacity: u32, state: State<'_, AppState>) {
+    state.mgr.set_plot_buffer(capacity as usize);
+}
+
+#[tauri::command]
 pub fn plot_snapshot(max_points: u32, state: State<'_, AppState>) -> PlotSnapshotDto {
     state.mgr.plot_snapshot(max_points as usize)
 }
