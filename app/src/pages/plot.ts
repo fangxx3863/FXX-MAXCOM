@@ -52,6 +52,8 @@ const AXES: uPlot.Axis[] = [
 const PLOT_MIN_COL = 340;
 /** uPlot 标题(.u-title)实测高度：title 渲染在 canvas 之外，不占 opts.height */
 const U_TITLE_H = 28;
+/** uPlot 图例(.legend)估算高度：同样在画布之外（叠加布局用，实际以溢出实测闭环为准） */
+const U_LEGEND_H = 34;
 
 function fmtNum(v: number): string {
   const a = Math.abs(v);
@@ -185,35 +187,44 @@ export class PlotPage {
   private buildWave(n: number) {
     void this.holder.offsetHeight; // 强制同步布局：确保柱状区已参与排版
     if (this.layout === "overlay") {
-      // 单图叠加：全部通道进一个 uPlot，多色曲线 + 图例（无标题，不扣标题高）
+      // 单图叠加：全部通道进一个 uPlot，多色曲线 + 图例（无标题；图例在画布外，需扣 U_LEGEND_H）
       this.holder.style.gridTemplateColumns = "1fr";
-      const cell = document.createElement("div");
-      cell.className = "plot-cell";
-      this.holder.appendChild(cell);
-      const w = Math.max(220, cell.clientWidth - 10);
-      const h = Math.max(140, Math.floor(this.holder.clientHeight - 16) - 14);
-      const series: uPlot.Series[] = [{}, ...this.chState.map((st, i) => (
-        {
-          label: `CH${i + 1}`,
-          stroke: st.color,
-          width: 1.4,
-          show: st.visible,
-          points: { show: false },
-        }
-      ))];
-      this.overlay = new uPlot(
-        {
-          width: w,
-          height: h,
-          scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
-          padding: [18, 14, 8, 10],
-          series,
-          axes: AXES,
-          legend: { show: true },
-        },
-        undefined,
-        cell,
-      );
+      let h = Math.max(120, Math.floor(this.holder.clientHeight - 16) - 10 - U_LEGEND_H);
+      for (let attempt = 0; ; attempt++) {
+        const cell = document.createElement("div");
+        cell.className = "plot-cell";
+        this.holder.appendChild(cell);
+        const w = Math.max(220, cell.clientWidth - 10);
+        const series: uPlot.Series[] = [{}, ...this.chState.map((st, i) => (
+          {
+            label: `CH${i + 1}`,
+            stroke: st.color,
+            width: 1.4,
+            show: st.visible,
+            points: { show: false },
+          }
+        ))];
+        this.overlay = new uPlot(
+          {
+            width: w,
+            height: h,
+            scales: { x: { time: false }, ...(this.yRange ? { y: { range: this.yRange } } : {}) },
+            padding: [18, 14, 8, 10],
+            series,
+            axes: AXES,
+            legend: { show: true },
+          },
+          undefined,
+          cell,
+        );
+        // 实测溢出收缩闭环（与子图一致）：图例实际高度随字体/缩放浮动，以实测为准
+        const over = this.holder.scrollHeight - this.holder.clientHeight;
+        if (over <= 0 || attempt >= 1) break;
+        h = Math.max(120, h - over - 4);
+        this.overlay.destroy();
+        this.overlay = null;
+        this.holder.replaceChildren();
+      }
     } else {
       // 分开子图：列数由容器宽显式计算（与 grid 列定义严格一致，避免 3+1 这类错排），
       // 行高均分并扣除 cell 内边距边框(10) 与 uPlot 标题高度(U_TITLE_H≈28，title 不占 opts.height!)
