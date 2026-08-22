@@ -41,7 +41,17 @@
       <div id="serial-port-dd" class="grow"></div>
       <button id="refresh-ports" title="刷新串口列表">⟳</button>
       <div id="baud-dd"></div>
-      <button id="more-serial" class="serial-only" title="数据位/停止位/校验/流控">更多串口设置 ⚙</button>
+      <div class="serial-setup-wrap serial-only">
+        <button id="more-serial" title="数据位/停止位/校验/流控">更多串口设置 ⚙</button>
+        <div id="serial-setup" class="setup-pop hidden">
+          <div class="setup-title">串口设置</div>
+          <span class="ctl">数据位 <div id="databits-dd"></div></span>
+          <span class="ctl">停止位 <div id="stopbits-dd"></div></span>
+          <span class="ctl">校验 <div id="parity-dd"></div></span>
+          <span class="ctl">流控 <div id="flowctl-dd"></div></span>
+          <button id="setup-ok" class="primary">确定</button>
+        </div>
+      </div>
       <label class="chk serial-only"><input id="dtr-chk" type="checkbox" />DTR</label>
       <label class="chk serial-only"><input id="rts-chk" type="checkbox" />RTS</label>
       <div id="tcp-host-dd" class="hidden"></div>
@@ -50,14 +60,6 @@
       <button id="connect-btn" class="primary">连接</button>
       <span id="conn-state" class="dot off" title="未连接"></span>
       <span id="conn-label"></span>
-      <div id="serial-setup" class="setup-pop hidden">
-        <div class="setup-title">串口设置</div>
-        <span class="ctl">数据位 <div id="databits-dd"></div></span>
-        <span class="ctl">停止位 <div id="stopbits-dd"></div></span>
-        <span class="ctl">校验 <div id="parity-dd"></div></span>
-        <span class="ctl">流控 <div id="flowctl-dd"></div></span>
-        <button id="setup-ok" class="primary">确定</button>
-      </div>
     </header>
     <div id="layout">
       <nav id="sidebar">
