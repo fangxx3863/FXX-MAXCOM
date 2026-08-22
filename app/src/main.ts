@@ -724,6 +724,17 @@ setInterval(() => void pollPlot(), 50);
   }
 }
 
+// 屏蔽 WebView 右键菜单与刷新快捷键：误触刷新会丢连接状态与全部缓冲。
+// 仅生产构建拦截，vite dev 下保留以便调试；F12 开发者工具不受影响。
+if (!import.meta.env.DEV) {
+  window.addEventListener("contextmenu", (e) => e.preventDefault());
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r")) {
+      e.preventDefault();
+    }
+  });
+}
+
 // ── 设置页：字体/字号，即时生效 + localStorage 持久化 ──
 interface AppSettings {
   logSize: number;
