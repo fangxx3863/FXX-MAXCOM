@@ -15,9 +15,16 @@
       <button id="tab-new" title="新建标签页 (Ctrl+T)">＋</button>
       <div class="tb-drag" data-tauri-drag-region></div>
       <div id="win-controls">
-        <button id="win-min" title="最小化">&#x2500;</button>
-        <button id="win-max" title="最大化 / 还原">&#x25a1;</button>
-        <button id="win-close" title="关闭">&#x2715;</button>
+        <button id="win-min" title="最小化">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 5 H9.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="win-max" title="最大化 / 还原">
+          <svg class="icon-max" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.55" y="0.55" width="8.9" height="8.9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+          <svg class="icon-restore" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.6 2.6 V0.55 H9.45 V7.4 H7.4" fill="none" stroke="currentColor" stroke-width="1"/><rect x="0.55" y="2.6" width="6.85" height="6.85" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="win-close" title="关闭">
+          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
       </div>
     </header>
     <!-- 启动页：纯内联样式零依赖，WebView 首帧即显示；前端初始化完成后由 main.ts 淡出移除 -->

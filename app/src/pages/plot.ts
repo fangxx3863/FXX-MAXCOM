@@ -86,7 +86,9 @@ export class PlotPage {
 
   constructor(holder: HTMLElement, controls: HTMLElement, chbar: HTMLElement) {
     this.holder = holder;
-    this.barsEl = document.querySelector<HTMLElement>("#plot-bars")!;
+    // 多标签页下 #plot-bars 每个会话一份，必须从当前 holder 的父节作用域内取，
+    // 不能全局 querySelector（否则第一张/未挂载时会拿到 null 或别人的 bars）。
+    this.barsEl = holder.parentElement!.querySelector<HTMLElement>("#plot-bars")!;
     this.chbar = chbar;
     this.info = controls.querySelector<HTMLElement>("#plot-info")!;
 

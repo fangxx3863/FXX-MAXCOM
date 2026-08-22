@@ -131,7 +131,7 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
 pub fn discover_serial_ports() -> Vec<PortInfo> {
     #[cfg(feature = "serial")]
     {
-        return serial::discover();
+        serial::discover()
     }
     #[cfg(not(feature = "serial"))]
     {

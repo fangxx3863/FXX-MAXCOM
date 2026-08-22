@@ -525,11 +525,9 @@ impl SessionManager {
                                     let mut store = plot_store.lock().unwrap();
                                     if package_mode {
                                         // 分包：整行 = 单通道样本序列，多通道按行轮转，新包整通道覆盖
-                                        let mut rr = 0usize;
-                                        for f in frames {
+                                        for (rr, f) in frames.into_iter().enumerate() {
                                             let chn = store.channel_count().max(1);
                                             store.replace_channel(rr % chn, &f);
-                                            rr += 1;
                                         }
                                     } else {
                                         for f in frames {

@@ -7,23 +7,21 @@ use std::time::Duration;
 const READ_TIMEOUT: Duration = Duration::from_millis(50);
 
 pub fn discover() -> Vec<PortInfo> {
-    match serialport::available_ports() {
-        Ok(ports) => ports,
-        Err(_) => Vec::new(),
-    }
-    .into_iter()
-    .map(|p| PortInfo {
-        description: match &p.port_type {
-            serialport::SerialPortType::UsbPort(info) => info
-                .product
-                .clone()
-                .or_else(|| info.manufacturer.clone())
-                .unwrap_or_default(),
-            _ => String::new(),
-        },
-        device: p.port_name,
-    })
-    .collect()
+    serialport::available_ports()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| PortInfo {
+            description: match &p.port_type {
+                serialport::SerialPortType::UsbPort(info) => info
+                    .product
+                    .clone()
+                    .or_else(|| info.manufacturer.clone())
+                    .unwrap_or_default(),
+                _ => String::new(),
+            },
+            device: p.port_name,
+        })
+        .collect()
 }
 
 pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {

@@ -108,7 +108,9 @@ pub fn set_color_rules(
     rules: Vec<ColorRule>,
     state: State<'_, AppState>,
 ) {
-    state.with(&session, |mgr| mgr.set_color_rules(master, ansi_yield, rules));
+    state.with(&session, |mgr| {
+        mgr.set_color_rules(master, ansi_yield, rules)
+    });
 }
 
 #[tauri::command]

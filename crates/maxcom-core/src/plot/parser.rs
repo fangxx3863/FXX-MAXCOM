@@ -87,7 +87,7 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
             if *channel_count == 0 {
                 return Err(ParseError::BadChannelCount);
             }
-            let header = parse_hex(frame_header).map_err(|e| ParseError::Unsupported(e))?;
+            let header = parse_hex(frame_header).map_err(ParseError::Unsupported)?;
             if header.is_empty() {
                 return Err(ParseError::Unsupported(
                     "custom_frame: empty frame_header".into(),
@@ -120,7 +120,7 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
 /// 解析十六进制帧头字符串（容忍空格，如 "AA BB" / "AABB"）
 fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
     let hex: String = s.chars().filter(|c| !c.is_whitespace()).collect();
-    if hex.len() % 2 != 0 {
+    if !hex.len().is_multiple_of(2) {
         return Err(format!("custom_frame: odd-length hex header: {s:?}"));
     }
     (0..hex.len())
@@ -436,7 +436,7 @@ impl CustomFrameParser {
                     return Ok(Vec::new()); // 长度字节未到
                 }
                 let n = self.buf[body_start] as usize;
-                if n == 0 || n % unit != 0 {
+                if n == 0 || !n.is_multiple_of(unit) {
                     self.errors += 1;
                     self.buf.drain(..body_start); // 连同帧头丢弃，重新同步
                     return Err(());
@@ -873,18 +873,16 @@ mod tests {
             }),
             Err(ParseError::BadChannelCount)
         ));
-        assert!(matches!(
-            make_parser(&DataFormat::CustomFrame {
-                frame_header: "AA55".into(),
-                frame_tail: None,
-                frame_length: None,
-                dtype: DType::U16,
-                byte_order: ByteOrder::Big,
-                checksum: Default::default(),
-                channel_count: 1,
-            }),
-            Ok(_)
-        ));
+        assert!(make_parser(&DataFormat::CustomFrame {
+            frame_header: "AA55".into(),
+            frame_tail: None,
+            frame_length: None,
+            dtype: DType::U16,
+            byte_order: ByteOrder::Big,
+            checksum: Default::default(),
+            channel_count: 1,
+        })
+        .is_ok());
         // 空白帧头 → 非法
         assert!(matches!(
             make_parser(&DataFormat::CustomFrame {
