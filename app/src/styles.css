@@ -89,6 +89,11 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
 #page-terminal { padding: 0; overflow: hidden; }
 #page-terminal .term-host { flex: 1; min-height: 0; }
 #page-terminal .xterm { height: 100%; }
+/* FitAddon 只铺整行，不足一行的零头由 .xterm-viewport 露出；
+   xterm.css 给它的默认底色是纯黑 → 显成黑边。刷成终端主题底色
+   （需与 pages/terminal.ts 的 theme.background 保持一致） */
+#page-terminal .term-host,
+#page-terminal .xterm-viewport { background-color: var(--bg); }
 
 /* ── 绘图页 ── */
 #plot-holder {
