@@ -230,6 +230,7 @@ input[type="number"] { padding: 3px 6px; }
 
 /* ═══ 自绘下拉（dropdown.ts）═══ */
 .dd { position: relative; display: inline-flex; vertical-align: middle; }
+.dd > .dd-face { width: 100%; }
 .dd-face {
   display: inline-flex; align-items: center; gap: 8px;
   background: var(--bg3); color: var(--fg);
@@ -237,6 +238,7 @@ input[type="number"] { padding: 3px 6px; }
   padding: 4px 10px; font: inherit; cursor: pointer; outline: none;
   min-height: 28px;
 }
+.dd > .dd-face.dd-input { width: 100%; }
 button.dd-face { justify-content: space-between; }
 .dd-face:hover, .dd-face:focus { border-color: var(--accent); }
 .dd-input { width: 110px; }
