@@ -55,7 +55,7 @@ export class StatsPage {
       const swatch = document.createElement("span");
       swatch.className = "ch-swatch";
       swatch.style.background = CH_COLORS[i % CH_COLORS.length];
-      nameTd.append(swatch, document.createTextNode(`CH${i + 1}`));
+      nameTd.append(swatch, document.createTextNode(snap.channel_names?.[i] || `CH${i + 1}`));
       tr.appendChild(nameTd);
       const vals = m
         ? [m.last.toPrecision(6), String(m.count), m.mean.toPrecision(6), m.std.toPrecision(6),

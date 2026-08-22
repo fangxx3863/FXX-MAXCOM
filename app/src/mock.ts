@@ -28,6 +28,8 @@ interface ApiShape {
   setAutoReconnect(on: boolean): Promise<void>;
   startCapture(): Promise<void>;
   saveCapture(path: string): Promise<number>;
+  /** 浏览器演示模式无文件系统：仅满足接口（CSV 导出走下载降级） */
+  saveTextFile(path: string, contents: string): Promise<number>;
   captureState(): Promise<[boolean, number, number]>;
 }
 
@@ -168,6 +170,10 @@ class MockBackend implements ApiShape {
     a.click();
     URL.revokeObjectURL(url);
     return data.length;
+  }
+
+  async saveTextFile(_path: string, contents: string): Promise<number> {
+    return contents.length;
   }
 
   async captureState(): Promise<[boolean, number, number]> {

@@ -96,7 +96,34 @@ struct SerialWrite {
 
 impl TransportWrite for SerialWrite {
     fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
-        self.port.write_all(data)
+        // 部分写入重试：部分 USB 虚拟串口驱动（WCH/CH34x 等）在内部 FIFO 满时
+        // 返回短写甚至 Ok(0)/超时，std write_all 会报错或静默丢数据（大文件场景）。
+        let mut rest = data;
+        let mut stalled_ms = 0u32;
+        while !rest.is_empty() {
+            let progress = match self.port.write(rest) {
+                Ok(0) => None,
+                Ok(n) => Some(n),
+                Err(e) if e.kind() == ErrorKind::TimedOut || e.kind() == ErrorKind::WouldBlock => {
+                    None
+                }
+                Err(e) => return Err(e),
+            };
+            match progress {
+                Some(n) => {
+                    rest = &rest[n..];
+                    stalled_ms = 0;
+                }
+                None => {
+                    std::thread::sleep(Duration::from_millis(1));
+                    stalled_ms += 1;
+                    if stalled_ms > 5000 {
+                        return Err(io::Error::new(io::ErrorKind::WriteZero, "串口写持续无进展"));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn set_dtr(&mut self, on: bool) -> io::Result<()> {

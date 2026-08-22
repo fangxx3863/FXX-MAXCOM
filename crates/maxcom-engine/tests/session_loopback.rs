@@ -204,6 +204,42 @@ fn plot_snapshot_shape_follows_format() {
     assert_eq!(snap.series.len(), 3);
 }
 
+/// ASCII 分包模式：整行 = 单通道样本序列，新行整通道覆盖（如 FFT 数组打印）
+#[test]
+fn plot_ascii_package_mode_overwrites_channel() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec);
+
+    mgr.connect(tcp_cfg(port)).expect("connect");
+    mgr.set_plot_format(maxcom_core::plot::format::DataFormat::AsciiDelimited {
+        delimiter: ",".into(),
+        filter_prefix: None,
+        split: maxcom_core::plot::format::AsciiSplit::Package,
+        channel_count: 0,
+    });
+
+    mgr.send(&SendPayload {
+        text: Some("1,2,3\n4,5,6\n".into()),
+        hex: None,
+        newline: "none".into(),
+    })
+    .expect("send");
+
+    assert!(
+        wait_until(
+            || {
+                let snap = mgr.plot_snapshot(1000);
+                snap.channel_count == 1
+                    && snap.series.first().map(|s| s.as_slice()) == Some(&[4.0, 5.0, 6.0][..])
+            },
+            Duration::from_secs(3)
+        ),
+        "分包模式应单通道且被新包覆盖 snap={:?}",
+        mgr.plot_snapshot(1000)
+    );
+}
+
 /// 回归：连接后再设绘图格式必须生效（此前热切换写入原字段、
 /// 绘图线程读连接时的格式快照 → parser 永远是旧值，总点数恒 0）。
 #[test]
@@ -218,6 +254,7 @@ fn plot_format_set_after_connect_parses_frames() {
     mgr.set_plot_format(maxcom_core::plot::format::DataFormat::AsciiDelimited {
         delimiter: ",".into(),
         filter_prefix: None,
+        split: Default::default(),
         channel_count: 0,
     });
 

@@ -36,6 +36,7 @@ const realApi = {
   startCapture: () => invoke<void>("start_capture"),
   saveCapture: (path: string) => invoke<number>("save_capture", { path }),
   captureState: () => invoke<[boolean, number, number]>("capture_state"),
+  saveTextFile: (path: string, contents: string) => invoke<number>("save_text_file", { path, contents }),
 };
 
 /** 取保存路径：Tauri 走 dialog 插件；浏览器返回 null（由调用方降级为下载） */

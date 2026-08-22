@@ -432,21 +432,40 @@ $("#timer-send").addEventListener("change", (e) => {
 // 文件发送：读原始字节 → HEX 分块
 $("#file-btn").addEventListener("click", () => $("#file-input").click());
 $("#file-input").addEventListener("change", async (e) => {
-  const file = (e.target as HTMLInputElement).files?.[0];
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
   if (!file) return;
+  const fileBtn = $<HTMLButtonElement>("#file-btn");
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const CHUNK = 2048;
-  const total = Math.ceil(bytes.length / CHUNK);
-  for (let i = 0; i < total; i++) {
-    const chunk = bytes.subarray(i * CHUNK, (i + 1) * CHUNK);
-    const hex = [...chunk].map((b) => b.toString(16).padStart(2, "0")).join("");
-    await api.send({ hex, newline: "none" });
-    sendBtn.textContent = `发送中 ${i + 1}/${total}`;
+  const CHUNK = 512;
+  // 令牌桶按线速放行（每字节约 10bit @8N1）：超过波特率吞吐会撑爆
+  // 驱动 FIFO —— 部分 USB 虚拟串口满载时直接丢数据
+  const baud = Math.max(1, Number(baudDd.value) || 115200);
+  const t0 = performance.now();
+  let sentBytes = 0;
+  const totalChunks = Math.ceil(bytes.length / CHUNK);
+  fileBtn.disabled = true;
+  try {
+    for (let i = 0; i < totalChunks; i++) {
+      const chunk = bytes.subarray(i * CHUNK, (i + 1) * CHUNK);
+      const hex = [...chunk].map((b) => b.toString(16).padStart(2, "0")).join("");
+      await api.send({ hex, newline: "none" });
+      sentBytes += chunk.length;
+      fileBtn.textContent = `发文件 ${Math.min(99, Math.round((sentBytes / bytes.length) * 100))}%`;
+      // 追平计划节拍：领先于线速进度才等待
+      const dueMs = ((sentBytes * 10) / baud) * 1000;
+      const wait = dueMs - (performance.now() - t0);
+      if (wait > 0) await new Promise((r) => setTimeout(r, Math.ceil(wait)));
+    }
+    sendHint.textContent = `文件已发送: ${file.name} (${bytes.length} B)`;
+    setTimeout(() => (sendHint.textContent = ""), 3000);
+  } catch (err) {
+    setHint(`发文件失败: ${err}`);
+  } finally {
+    fileBtn.textContent = "发文件";
+    fileBtn.disabled = false;
+    input.value = "";
   }
-  sendBtn.textContent = "发送 Ctrl+↵";
-  sendHint.textContent = `文件已发送: ${file.name} (${bytes.length} B)`;
-  setTimeout(() => (sendHint.textContent = ""), 3000);
-  (e.target as HTMLInputElement).value = "";
 });
 
 // 接收捕获
@@ -610,6 +629,14 @@ const plotEndianDd = createDropdown({
   value: "little",
 });
 $("#plot-endian-dd").replaceWith(plotEndianDd.el);
+const plotASplitDd = createDropdown({
+  items: [
+    { value: "channel", label: "分通道" },
+    { value: "package", label: "分包·整行覆盖" },
+  ],
+  value: "channel",
+});
+$("#plot-asplit-dd").replaceWith(plotASplitDd.el);
 const plotFrameLenDd = createDropdown({
   items: [
     { value: "fixed", label: "定长字节" },
@@ -727,6 +754,7 @@ function buildPlotFormat(): DataFormat {
   return {
     type: "ascii_delimited",
     delimiter: ($("#plot-delimiter") as HTMLInputElement).value || ",",
+    split: plotASplitDd.value as "channel" | "package",
     channel_count: 0,
   };
 }

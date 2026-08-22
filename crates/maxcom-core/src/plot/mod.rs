@@ -39,6 +39,14 @@ impl ChannelStore {
         }
     }
 
+    /// 整通道替换（ASCII 分包模式：一行 = 单通道完整样本序列，新包覆盖旧数据）
+    pub fn replace_channel(&mut self, ch: usize, data: &[f64]) {
+        if let Some(buf) = self.channels.get_mut(ch) {
+            buf.clear();
+            data.iter().for_each(|v| buf.push(*v));
+        }
+    }
+
     /// 通道内最近样本数（各通道同步增长）
     pub fn len(&self) -> usize {
         self.channels

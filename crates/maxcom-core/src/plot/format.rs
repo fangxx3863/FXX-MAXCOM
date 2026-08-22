@@ -62,6 +62,18 @@ pub enum Checksum {
     Crc16,
 }
 
+/// ASCII 行内拆分用途
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum AsciiSplit {
+    /// 分通道（默认）：一行内第 i 列 = 第 i 通道一个点
+    #[default]
+    #[serde(rename = "channel")]
+    Channel,
+    /// 分包：整行 = 单通道的完整样本序列（如 FFT for 循环打印数组），新行覆盖旧缓冲
+    #[serde(rename = "package")]
+    Package,
+}
+
 /// 数据格式（契约 oneOf 三形态，内部 tag = "type"）
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -72,11 +84,13 @@ pub enum DataFormat {
         dtype: DType,
         byte_order: ByteOrder,
     },
-    /// ASCII 分隔：delimiter + filter_prefix（可选）+ channel_count
+    /// ASCII 分隔：delimiter + filter_prefix（可选）+ 拆分模式 + channel_count
     AsciiDelimited {
         delimiter: String,
         #[serde(default)]
         filter_prefix: Option<String>,
+        #[serde(default)]
+        split: AsciiSplit,
         channel_count: u32,
     },
     /// 自定义帧：帧头/帧尾/帧长 + dtype + 端序 + 校验（M3 接入解析）

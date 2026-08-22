@@ -58,7 +58,14 @@ export type DType = "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32" |
 
 export type DataFormat =
   | { type: "simple_binary"; channel_count: number; dtype: DType; byte_order: "little" | "big" }
-  | { type: "ascii_delimited"; delimiter: string; filter_prefix?: string; channel_count: number }
+  | {
+      type: "ascii_delimited";
+      delimiter: string;
+      filter_prefix?: string;
+      /** 行内拆分：channel=第i列→第i通道（默认）；package=整行→单通道样本序列，新行覆盖 */
+      split?: "channel" | "package";
+      channel_count: number;
+    }
   | {
       type: "custom_frame";
       frame_header: string;
@@ -88,4 +95,6 @@ export interface PlotSnapshotDto {
   total_points: number;
   series: number[][];
   metrics: (ChannelMetrics | null)[];
+  /** ASCII 表头智能识别的通道名（无表头为空，回退 CHn） */
+  channel_names?: string[];
 }

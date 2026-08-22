@@ -42,6 +42,9 @@ pub struct PlotSnapshotDto {
     pub total_points: usize,
     pub series: Vec<Vec<f64>>,
     pub metrics: Vec<Option<ChannelMetrics>>,
+    /// ASCII 表头智能识别的通道名（无表头为空，前端回退 CHn）
+    #[serde(default)]
+    pub channel_names: Vec<String>,
 }
 
 /// 连接状态事件
@@ -123,6 +126,8 @@ pub struct SessionManager {
     plot_format: Arc<Mutex<Option<maxcom_core::plot::format::DataFormat>>>,
     /// 格式版本号：变更 +1，绘图线程据此热重建 parser（修复连接中改格式不生效）
     plot_fmt_ver: Arc<AtomicU64>,
+    /// ASCII 表头识别的通道名（绘图线程写入，快照读取）
+    plot_names: Arc<Mutex<Vec<String>>>,
     /// 掉线自动重连开关
     auto_reconnect: Arc<AtomicBool>,
     /// 重连间隔（ms，测试可调小）
@@ -140,6 +145,7 @@ impl SessionManager {
             plot: Arc::new(Mutex::new(ChannelStore::new(1, 10000))),
             plot_format: Arc::new(Mutex::new(None)),
             plot_fmt_ver: Arc::new(AtomicU64::new(0)),
+            plot_names: Arc::new(Mutex::new(Vec::new())),
             auto_reconnect: Arc::new(AtomicBool::new(true)),
             reconnect_delay_ms: AtomicU64::new(2000),
             capture: Arc::new(Mutex::new(None)),
@@ -220,6 +226,7 @@ impl SessionManager {
         let ch = fmt.channel_count() as usize; // 先读再 move（DataFormat 非 Copy）
         *self.plot_format.lock().unwrap() = Some(fmt);
         self.plot_fmt_ver.fetch_add(1, Ordering::Relaxed);
+        self.plot_names.lock().unwrap().clear();
         // ASCII 自动（channel_count == 0）先按 1 通道占位，首帧到达后按实际列数重建
         *self.plot.lock().unwrap() = ChannelStore::new(ch.max(1), 10000);
     }
@@ -241,6 +248,7 @@ impl SessionManager {
         let mut dto = PlotSnapshotDto {
             channel_count: store.channel_count(),
             total_points: store.len(),
+            channel_names: self.plot_names.lock().unwrap().clone(),
             ..Default::default()
         };
         for ch in 0..store.channel_count() {
@@ -457,6 +465,7 @@ impl SessionManager {
         let stop_p = stop.clone();
         let plot_store = self.plot.clone();
         let fmt_shared = Arc::clone(&self.plot_format); // 活引用：热切换写入对线程可见
+        let plot_names = Arc::clone(&self.plot_names);
         let fmt_ver = self.plot_fmt_ver.clone();
         threads.push(
             std::thread::Builder::new()
@@ -495,14 +504,41 @@ impl SessionManager {
                                     drop(plot_store.lock().unwrap()); // 解析在锁外；push 时短暂加锁
                                     let mut frames = Vec::new();
                                     p.feed(&data, &mut |f| frames.push(f));
-                                    let auto = is_auto_ascii(&fmt_shared.lock().unwrap());
-                                    let mut store = plot_store.lock().unwrap();
-                                    for f in frames {
-                                        if auto && store.channel_count() != f.len() {
-                                            let cap = store.capacity();
-                                            *store = ChannelStore::new(f.len(), cap);
+                                    let fmt = fmt_shared.lock().unwrap();
+                                    let auto = is_auto_ascii(&fmt);
+                                    let package_mode =
+                                        matches!(
+                                        fmt.as_ref(),
+                                        Some(maxcom_core::plot::format::DataFormat::AsciiDelimited {
+                                            split: maxcom_core::plot::format::AsciiSplit::Package,
+                                            ..
+                                        })
+                                    );
+                                    drop(fmt);
+                                    let names = p.channel_names();
+                                    if !names.is_empty() {
+                                        let mut pn = plot_names.lock().unwrap();
+                                        if *pn != names {
+                                            *pn = names;
                                         }
-                                        store.push_frame(&f);
+                                    }
+                                    let mut store = plot_store.lock().unwrap();
+                                    if package_mode {
+                                        // 分包：整行 = 单通道样本序列，多通道按行轮转，新包整通道覆盖
+                                        let mut rr = 0usize;
+                                        for f in frames {
+                                            let chn = store.channel_count().max(1);
+                                            store.replace_channel(rr % chn, &f);
+                                            rr += 1;
+                                        }
+                                    } else {
+                                        for f in frames {
+                                            if auto && store.channel_count() != f.len() {
+                                                let cap = store.capacity();
+                                                *store = ChannelStore::new(f.len(), cap);
+                                            }
+                                            store.push_frame(&f);
+                                        }
                                     }
                                 }
                             }

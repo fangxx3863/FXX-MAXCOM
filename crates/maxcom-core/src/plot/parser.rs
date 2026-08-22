@@ -23,6 +23,10 @@ pub trait FrameParser: Send {
     fn reset(&mut self);
     /// 累计解析错误（坏行/无法解析），供统计页展示
     fn error_count(&self) -> u64;
+    /// ASCII 表头智能识别出的通道名（无则空）
+    fn channel_names(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// 按配置构造解析器。CustomFrame 校验解析在 M3 接入（契约字段已建模）。
@@ -47,6 +51,7 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
         DataFormat::AsciiDelimited {
             delimiter,
             filter_prefix,
+            split,
             channel_count,
         } => {
             // channel_count == 0 表示自动：首条有效行锁定列数；
@@ -65,6 +70,9 @@ pub fn make_parser(fmt: &DataFormat) -> Result<Box<dyn FrameParser>, ParseError>
                 relock_streak: 0,
                 pending: String::new(),
                 errors: 0,
+                split: *split,
+                names: Vec::new(),
+                names_locked: false,
             }))
         }
         DataFormat::CustomFrame {
@@ -206,6 +214,11 @@ pub struct AsciiDelimitedParser {
     relock_streak: u32,
     pending: String,
     errors: u64,
+    /// 行内拆分用途（分通道 / 分包）
+    split: crate::plot::format::AsciiSplit,
+    /// 表头智能识别的通道名（首条含字母的非数字行，剔除数字/标点）
+    names: Vec<String>,
+    names_locked: bool,
 }
 
 /// 自动模式列数变更去抖阈值：连续 N 条同宽有效行才换锁
@@ -230,6 +243,23 @@ impl AsciiDelimitedParser {
     }
 
     fn emit(&mut self, body: &str, out: &mut dyn FnMut(Frame)) {
+        // 表头智能识别：数据开始前，任一列非数字且含字母 → 整行为表头
+        // （"Voltage 123V, Amp 2.4A" → ["Voltage V","Amp A"]；"baseline: 1234, raw: 4567" → ["baseline","raw"]）
+        if self.auto && self.channel_count == 0 && !self.names_locked {
+            let segs: Vec<&str> = body.split(self.delimiter.as_str()).collect();
+            let all_numeric = segs.iter().all(|sg| sg.trim().parse::<f64>().is_ok());
+            // 分包模式仅整行单列标签视为表头（多列是数据数组）
+            let header_ok =
+                matches!(self.split, crate::plot::format::AsciiSplit::Channel) || segs.len() == 1;
+            if header_ok
+                && !all_numeric
+                && segs.iter().any(|sg| sg.chars().any(|c| c.is_alphabetic()))
+            {
+                self.names = segs.iter().map(|sg| clean_name(sg)).collect();
+                self.names_locked = true;
+                return; // 表头行不出帧、不计错误
+            }
+        }
         let vals: Vec<f64> = body
             .split(self.delimiter.as_str())
             .filter_map(|s| s.trim().parse::<f64>().ok())
@@ -280,6 +310,10 @@ impl AsciiDelimitedParser {
 }
 
 impl FrameParser for AsciiDelimitedParser {
+    fn channel_names(&self) -> Vec<String> {
+        self.names.clone()
+    }
+
     fn feed(&mut self, data: &[u8], out: &mut dyn FnMut(Frame)) {
         // 逐字节安全追加（串口可能切断多字节边界；ASCII 场景按 lossy 处理）
         self.pending.push_str(&String::from_utf8_lossy(data));
@@ -415,6 +449,15 @@ impl CustomFrameParser {
     }
 }
 
+/// 表头名清洗：只保留字母/空格/下划线，压缩空白（剔除数字与标点）
+fn clean_name(s: &str) -> String {
+    let filtered: String = s
+        .chars()
+        .filter(|c| c.is_alphabetic() || c.is_whitespace() || *c == '_')
+        .collect();
+    filtered.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// 在 hay 中查找 needle 首次出现位置
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || hay.len() < needle.len() {
@@ -453,6 +496,8 @@ impl FrameParser for CustomFrameParser {
         self.errors
     }
 }
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -512,6 +557,7 @@ mod tests {
         let mut p = make_parser(&DataFormat::AsciiDelimited {
             delimiter: ",".into(),
             filter_prefix: Some("DATA:".into()),
+            split: Default::default(),
             channel_count: 2,
         })
         .unwrap();
@@ -529,6 +575,7 @@ mod tests {
         let mut p = make_parser(&DataFormat::AsciiDelimited {
             delimiter: " ".into(),
             filter_prefix: None,
+            split: Default::default(),
             channel_count: 3,
         })
         .unwrap();
@@ -542,6 +589,7 @@ mod tests {
         let mut p = make_parser(&DataFormat::AsciiDelimited {
             delimiter: ",".into(),
             filter_prefix: None,
+            split: Default::default(),
             channel_count: 0,
         })
         .unwrap();
@@ -565,6 +613,7 @@ mod tests {
         let mut p = make_parser(&DataFormat::AsciiDelimited {
             delimiter: ",".into(),
             filter_prefix: None,
+            split: Default::default(),
             channel_count: 0,
         })
         .unwrap();
@@ -578,10 +627,48 @@ mod tests {
     }
 
     #[test]
+    fn ascii_header_line_extracts_names() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            split: Default::default(),
+            channel_count: 0,
+        })
+        .unwrap();
+        // 首行含字母 → 表头；剔除数字与标点，保留字母与空格
+        assert!(collect(p.as_mut(), b"Voltage 123V, Amp 2.4A\n").is_empty());
+        assert_eq!(p.error_count(), 0);
+        assert_eq!(
+            p.channel_names(),
+            vec!["Voltage V".to_string(), "Amp A".to_string()]
+        );
+        // 后续纯数字行正常出帧（列数按表头列数锁定）
+        let frames = collect(p.as_mut(), b"12.5, 3.3\n");
+        assert_eq!(frames, vec![vec![12.5, 3.3]]);
+    }
+
+    #[test]
+    fn ascii_header_baseline_raw() {
+        let mut p = make_parser(&DataFormat::AsciiDelimited {
+            delimiter: ",".into(),
+            filter_prefix: None,
+            split: Default::default(),
+            channel_count: 0,
+        })
+        .unwrap();
+        assert!(collect(p.as_mut(), b"baseline: 1234, raw: 4567\n").is_empty());
+        assert_eq!(
+            p.channel_names(),
+            vec!["baseline".to_string(), "raw".to_string()]
+        );
+    }
+
+    #[test]
     fn ascii_auto_reset_restores_detection() {
         let mut p = make_parser(&DataFormat::AsciiDelimited {
             delimiter: ",".into(),
             filter_prefix: None,
+            split: Default::default(),
             channel_count: 0,
         })
         .unwrap();
@@ -596,6 +683,7 @@ mod tests {
         let mut p = make_parser(&DataFormat::AsciiDelimited {
             delimiter: ",".into(),
             filter_prefix: None,
+            split: Default::default(),
             channel_count: 0, // 自动
         })
         .unwrap();
@@ -612,6 +700,7 @@ mod tests {
         let mut p = make_parser(&DataFormat::AsciiDelimited {
             delimiter: " ".into(),
             filter_prefix: Some("DATA:".into()),
+            split: Default::default(),
             channel_count: 0,
         })
         .unwrap();

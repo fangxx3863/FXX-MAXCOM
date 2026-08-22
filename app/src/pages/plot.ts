@@ -4,6 +4,7 @@
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import type { PlotSnapshotDto } from "../types";
+import { api, pickSavePath } from "../api";
 
 export const CH_COLORS = ["#4da3ff", "#33cc70", "#ffb340", "#ff5544", "#c792ea", "#33d1d1", "#f7a8b8", "#a3e635"];
 
@@ -73,6 +74,8 @@ export class PlotPage {
   private overlay: uPlot | null = null;
   private meters: Meter[] = [];
   private chState: ChState[] = [];
+  /** ASCII 表头智能识别的通道名（空 → 回退 CHn） */
+  private names: string[] = [];
 
   private yRange: [number, number] | null = null;
   private viewMode: ViewMode = "waveform";
@@ -129,10 +132,18 @@ export class PlotPage {
 
   // ── 快照轮询（main.ts 每 ~50ms 调用）──
 
+  private labelFor(ch: number): string {
+    return this.names[ch] || `CH${ch + 1}`;
+  }
+
   update(snap: PlotSnapshotDto) {
     this.lastSnap = snap;
     const n = Math.max(1, snap.channel_count);
     this.ensureChStates(n);
+    // 表头名变化（首条表头行被识别）→ 重建图与通道条
+    const namesChanged =
+      (snap.channel_names ?? []).join("\u{1}") !== this.names.join("\u{1}");
+    this.names = snap.channel_names ?? [];
     const needWave = this.viewMode !== "bars";
     const needBars = this.viewMode !== "waveform";
     const waveOk =
@@ -141,7 +152,7 @@ export class PlotPage {
         ? !!this.overlay && this.overlay.series.length - 1 === n
         : this.plots.length === n && this.plots.length > 0);
     const barsOk = !needBars || this.meters.length === n;
-    if (!waveOk || !barsOk || snap.total_points < this.lastTotal) {
+    if (!waveOk || !barsOk || namesChanged || snap.total_points < this.lastTotal) {
       this.lastTotal = snap.total_points;
       this.rebuildAll(snap);
       return;
@@ -167,6 +178,7 @@ export class PlotPage {
     this.meters = [];
     this.holder.replaceChildren();
     this.barsEl.replaceChildren();
+    this.chbar.replaceChildren();
     const n = Math.max(1, snap.channel_count);
     this.ensureChStates(n);
     this.buildChBar();
@@ -200,7 +212,7 @@ export class PlotPage {
     this.holder.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
 
     const mk = (ch: number): uPlot.Series => ({
-      label: `CH${ch + 1}`,
+      label: this.labelFor(ch),
       stroke: this.chState[ch]?.color ?? CH_COLORS[ch % CH_COLORS.length],
       width: 1.4,
       show: this.chState[ch]?.visible ?? true,
@@ -250,7 +262,7 @@ export class PlotPage {
             {
               width: w,
               height: estH,
-              title: `CH${ch + 1}`,
+              title: this.labelFor(ch),
               scales,
               padding: [18, 14, 8, 10],
               series: [{}, mk(ch)],
@@ -299,8 +311,8 @@ export class PlotPage {
     if (!cell || !cell.clientWidth) return;
     const shown =
       ch === null
-        ? this.chState.filter((s) => s.visible).map((s, i) => ({ label: `CH${i + 1}`, color: s.color }))
-        : [{ label: `CH${ch + 1}`, color: this.chState[ch]?.color ?? CH_COLORS[0] }];
+        ? this.chState.filter((s) => s.visible).map((s, i) => ({ label: this.labelFor(i), color: s.color }))
+        : [{ label: this.labelFor(ch), color: this.chState[ch]?.color ?? CH_COLORS[0] }];
     void composePng(cell, shown).then(async (blob) => {
       if (!blob) return;
       try {
@@ -312,17 +324,25 @@ export class PlotPage {
   }
 
   /** 右键菜单：导出 CSV。ch=null/undefined → 全部通道；数字 → 单通道 */
-  exportCsv(ch?: number | null) {
+  async exportCsv(ch?: number | null) {
     const snap = this.lastSnap;
     if (!snap || !snap.series.length) return;
     const idx = ch === null || ch === undefined ? snap.series.map((_, i) => i) : [ch];
     const cols = idx
       .filter((i) => i < snap.series.length)
-      .map((i) => ({ name: `CH${i + 1}`, data: snap.series[i] }));
-    downloadBlob(
-      new Blob([makeCsv(cols)], { type: "text/csv;charset=utf-8" }),
-      `maxcom_plot_${Date.now()}.csv`,
-    );
+      .map((i) => ({ name: this.labelFor(i), data: snap.series[i] }));
+    const csv = makeCsv(cols);
+    const name = `maxcom_plot_${Date.now()}.csv`;
+    try {
+      const path = await pickSavePath(name);
+      if (path) {
+        await api.saveTextFile(path, csv);
+        return;
+      }
+    } catch {
+      /* 对话框失败 → 转下载 */
+    }
+    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), name);
   }
 
   private buildBars(n: number) {
@@ -332,7 +352,7 @@ export class PlotPage {
       root.className = "bar-meter";
       root.classList.toggle("hidden", !(st?.visible ?? true));
       root.innerHTML =
-        `<div class="bar-head"><i class="bar-swatch" style="background:${st.color}"></i>CH${ch + 1}</div>` +
+        `<div class="bar-head"><i class="bar-swatch" style="background:${st.color}"></i>${this.labelFor(ch)}</div>` +
         `<div class="bar-track"><div class="bar-fill" style="background:${st.color}"></div><span class="bar-val">--</span></div>` +
         `<div class="bar-range"><span class="lo">--</span><span class="hi">--</span></div>`;
       this.barsEl.appendChild(root);
@@ -444,7 +464,7 @@ export class PlotPage {
       chip.dataset.ch = String(i);
       chip.innerHTML =
         `<input type="color" class="ch-color" value="${st.color}" title="通道颜色" />` +
-        `<span class="ch-name">CH${i + 1}</span>` +
+        `<span class="ch-name">${this.labelFor(i)}</span>` +
         `<label class="chk" title="显示通道"><input type="checkbox" class="ch-vis" ${st.visible ? "checked" : ""} />显</label>` +
         `<span class="ch-io" title="增益">×<input type="number" class="ch-gain" value="${st.gain}" step="0.1" /></span>` +
         `<span class="ch-io" title="偏移">+<input type="number" class="ch-off" value="${st.offset}" step="1" /></span>`;

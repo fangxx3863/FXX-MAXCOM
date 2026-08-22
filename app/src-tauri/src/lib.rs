@@ -34,6 +34,7 @@ pub fn run() {
             commands::start_capture,
             commands::save_capture,
             commands::capture_state,
+            commands::save_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running MAXCOM");

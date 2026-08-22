@@ -138,3 +138,10 @@ pub fn save_capture(path: String, state: State<'_, AppState>) -> Result<u64, Str
 pub fn capture_state(state: State<'_, AppState>) -> (bool, u64, u64) {
     state.mgr.capture_state()
 }
+
+/// 保存任意文本文件（CSV 导出等；path 由前端 dialog 插件取得），返回写入字节数
+#[tauri::command]
+pub fn save_text_file(path: String, contents: String) -> Result<usize, String> {
+    std::fs::write(&path, contents.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(contents.len())
+}
