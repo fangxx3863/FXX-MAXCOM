@@ -31,7 +31,11 @@ $("#conn-type-dd").replaceWith(connTypeDd.el);
 const portDd = createDropdown({ items: [], placeholder: "选择串口…", width: 260 });
 $("#serial-port-dd").replaceWith(portDd.el);
 
-const baudPresets = ["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600", "1000000", "2000000"];
+const baudPresets = [
+  "1200", "2400", "4800", "9600", "14400", "19200", "28800", "38400", "57600",
+  "76800", "115200", "230400", "250000", "460800", "500000", "921600",
+  "1000000", "1152000", "1500000", "2000000",
+];
 const baudDd = createDropdown({
   items: baudPresets.map((b) => ({ value: b, label: b })),
   value: "115200",
@@ -709,6 +713,16 @@ setInterval(() => void pollPlot(), 50);
 
 // 初始化完成标记（smoke 测试断言用）
 (window as unknown as { __MAXCOM_READY__?: boolean }).__MAXCOM_READY__ = true;
+
+// 启动页淡出移除（HTML 内联元素，零依赖首帧即显）
+{
+  const splash = document.querySelector<HTMLElement>("#splash");
+  if (splash) {
+    splash.style.transition = "opacity .25s ease";
+    splash.style.opacity = "0";
+    window.setTimeout(() => splash.remove(), 280);
+  }
+}
 
 // ── 设置页：字体/字号，即时生效 + localStorage 持久化 ──
 interface AppSettings {
