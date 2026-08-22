@@ -1,4 +1,5 @@
 //! 事件出口：SessionEvents trait 的 Tauri 实现（emit 到前端）。
+//! 多会话：所有负载携带 session 标签，前端按标签路由到对应标签页。
 
 use base64::Engine;
 use maxcom_engine::session::{ConnState, LogEntryDto, SessionEvents};
@@ -11,13 +12,23 @@ pub const EV_STATE: &str = "conn://state";
 
 #[derive(Serialize, Clone)]
 struct RawPayload {
+    session: String,
     b64: String,
 }
 
 #[derive(Serialize, Clone)]
 struct EntriesPayload<'a> {
+    session: String,
     epoch_anchor_ms: u64,
     items: &'a [LogEntryDto],
+}
+
+/// ConnState 平铺 + session 标签（前端拿到的对象形状不变，多一个 session 字段）
+#[derive(Serialize, Clone)]
+struct StatePayload<'a> {
+    session: String,
+    #[serde(flatten)]
+    state: &'a ConnState,
 }
 
 /// absolute 时间戳锚点：wall = anchor + ts_ms(monotonic)。进程内取一次，漂移可忽略。
@@ -37,13 +48,15 @@ fn unix_anchor_ms() -> u64 {
 pub struct TauriEvents {
     app: AppHandle,
     anchor: u64,
+    session: String,
 }
 
 impl TauriEvents {
-    pub fn new(app: AppHandle) -> Self {
+    pub fn new(app: AppHandle, session: String) -> Self {
         Self {
             app,
             anchor: unix_anchor_ms(),
+            session,
         }
     }
 }
@@ -51,13 +64,20 @@ impl TauriEvents {
 impl SessionEvents for TauriEvents {
     fn raw(&self, data: &[u8]) {
         let b64 = base64::engine::general_purpose::STANDARD.encode(data);
-        let _ = self.app.emit(EV_RAW, RawPayload { b64 });
+        let _ = self.app.emit(
+            EV_RAW,
+            RawPayload {
+                session: self.session.clone(),
+                b64,
+            },
+        );
     }
 
     fn entries(&self, entries: &[LogEntryDto]) {
         let _ = self.app.emit(
             EV_ENTRIES,
             EntriesPayload {
+                session: self.session.clone(),
                 epoch_anchor_ms: self.anchor,
                 items: entries,
             },
@@ -65,6 +85,12 @@ impl SessionEvents for TauriEvents {
     }
 
     fn state(&self, state: &ConnState) {
-        let _ = self.app.emit(EV_STATE, state);
+        let _ = self.app.emit(
+            EV_STATE,
+            StatePayload {
+                session: self.session.clone(),
+                state,
+            },
+        );
     }
 }

@@ -8,6 +8,18 @@
     <style>html{background:#14161a}</style>
   </head>
   <body>
+    <!-- 自绘标题栏（decorations:false）：品牌名 + 标签条 + 窗口控制；空白区可拖拽移动窗口 -->
+    <header id="titlebar">
+      <div id="brand" data-tauri-drag-region>MAXCOM</div>
+      <div id="tabstrip"></div>
+      <button id="tab-new" title="新建标签页 (Ctrl+T)">＋</button>
+      <div class="tb-drag" data-tauri-drag-region></div>
+      <div id="win-controls">
+        <button id="win-min" title="最小化">&#x2500;</button>
+        <button id="win-max" title="最大化 / 还原">&#x25a1;</button>
+        <button id="win-close" title="关闭">&#x2715;</button>
+      </div>
+    </header>
     <!-- 启动页：纯内联样式零依赖，WebView 首帧即显示；前端初始化完成后由 main.ts 淡出移除 -->
     <div id="splash" style="position:fixed;inset:0;z-index:9999;background:#14161a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;">
       <div style="font:700 30px/1 'Segoe UI','Microsoft YaHei',system-ui,sans-serif;letter-spacing:3px;color:#4da3ff;">MAXCOM</div>
@@ -16,8 +28,8 @@
       </div>
       <style>@keyframes splash-slide{0%{transform:translateX(-110%)}100%{transform:translateX(460%)}}</style>
     </div>
+    <div id="session-root">
     <header id="topbar">
-      <span class="brand">MAXCOM</span>
       <div id="conn-type-dd"></div>
       <div id="serial-port-dd" class="grow"></div>
       <button id="refresh-ports" title="刷新串口列表">⟳</button>
@@ -201,6 +213,7 @@
       <span id="sb-tx">TX 0 B</span>
       <span id="sb-rate">↓ 0.00 KB/s ↑ 0.00 KB/s</span>
     </footer>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

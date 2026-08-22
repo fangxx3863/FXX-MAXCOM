@@ -12,11 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "MAXCOM — 一站式串口/网络调试平台",
+        "title": "MAXCOM",
         "width": 1280,
         "height": 820,
         "minWidth": 960,
         "minHeight": 600,
+        "decorations": false,
         "backgroundColor": "#14161a"
       }
     ],

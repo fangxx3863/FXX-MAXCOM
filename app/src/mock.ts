@@ -1,6 +1,8 @@
 // 演示模式：非 Tauri 环境（纯浏览器 npm run dev）下的模拟后端。
 // 目的：前端样式/交互调试不需要真实设备与桌面外壳——F12 即完整 DevTools。
 // 数据形态与真实链路一致（同一套 DTO），切回 Tauri 零改动。
+// 多会话：每个标签页一个独立 MockBackend 实例（按 session id 惰性创建），
+// 事件经全局 hub 分发并携带 session 标签，与真实后端的事件路由形态一致。
 
 import type {
   ChannelMetrics, ConnConfig, ConnState, DataFormat, EntriesBatch,
@@ -10,7 +12,8 @@ import type { ColoredSegment } from "./types";
 
 type Listener<T> = (payload: T) => void;
 
-interface ApiShape {
+/** 会话级 API（浏览器演示版）：与真实 SessionApi 同形 */
+export interface MockApi {
   listPorts(): Promise<PortInfo[]>;
   connect(config: ConnConfig): Promise<void>;
   disconnect(): Promise<void>;
@@ -28,8 +31,6 @@ interface ApiShape {
   setAutoReconnect(on: boolean): Promise<void>;
   startCapture(): Promise<void>;
   saveCapture(path: string): Promise<number>;
-  /** 浏览器演示模式无文件系统：仅满足接口（CSV 导出走下载降级） */
-  saveTextFile(path: string, contents: string): Promise<number>;
   captureState(): Promise<[boolean, number, number]>;
 }
 
@@ -64,14 +65,10 @@ const LINES: Array<{ segs: ColoredSegment[] }> = [
   },
 ];
 
-class MockBackend implements ApiShape {
+class MockBackend implements MockApi {
   private connected = false;
   private label = "";
   private timers: number[] = [];
-  private rawListeners = new Set<Listener<Uint8Array>>();
-  private entryListeners = new Set<Listener<EntriesBatch>>();
-  private stateListeners = new Set<Listener<ConnState>>();
-
   private ts = 0;
   private startWall = Date.now(); // 固定墙钟锚点：wall = startWall + ts_ms（随时间前进）
   private rxTotal = 0;
@@ -85,29 +82,14 @@ class MockBackend implements ApiShape {
   private captureBuf: number[] = [];
   private filters: Array<{ pattern: string; action: string; enabled: boolean }> = [];
 
-  private next<T>(set: Set<Listener<T>>, payload: T) {
-    set.forEach((fn) => fn(payload));
-  }
-
-  onRaw(fn: Listener<Uint8Array>) {
-    this.rawListeners.add(fn);
-    return () => this.rawListeners.delete(fn);
-  }
-  onEntries(fn: Listener<EntriesBatch>) {
-    this.entryListeners.add(fn);
-    return () => this.entryListeners.delete(fn);
-  }
-  onState(fn: Listener<ConnState>) {
-    this.stateListeners.add(fn);
-    return () => this.stateListeners.delete(fn);
-  }
+  constructor(private session: string) {}
 
   async listPorts() {
     return DEMO_PORTS;
   }
 
   async connect(config: ConnConfig) {
-    if (this.connected) throw "已有活动连接（单连接设计，先断开再连）";
+    if (this.connected) throw "已有活动连接（先断开再连）";
     this.connected = true;
     this.label =
       config.type === "serial"
@@ -140,7 +122,7 @@ class MockBackend implements ApiShape {
     this.txTotal += bytes.length;
     this.txWindow.push([performance.now(), bytes.length]);
     // 回显到终端原始流
-    this.next(this.rawListeners, bytes);
+    emitRaw(this.session, bytes);
     return bytes.length;
   }
 
@@ -170,10 +152,6 @@ class MockBackend implements ApiShape {
     a.click();
     URL.revokeObjectURL(url);
     return data.length;
-  }
-
-  async saveTextFile(_path: string, contents: string): Promise<number> {
-    return contents.length;
   }
 
   async captureState(): Promise<[boolean, number, number]> {
@@ -236,8 +214,7 @@ class MockBackend implements ApiShape {
   private pump() {
     // 终端原始流：一段带 ANSI 的伪 shell 输出
     const rawText = "\x1b[36m[maxcom-demo]\x1b[0m heartbeat ok \r\n";
-    const rawBytes = new TextEncoder().encode(rawText);
-    this.next(this.rawListeners, rawBytes);
+    emitRaw(this.session, new TextEncoder().encode(rawText));
 
     // 日志行（应用过滤规则，语义与 FilterEngine 一致：首个生效规则决定）
     const pick = LINES[Math.floor(Math.random() * LINES.length)];
@@ -258,12 +235,12 @@ class MockBackend implements ApiShape {
         epoch_anchor_ms: this.startWall,
         items: [{ ts_ms: this.ts, text, segments: pick.segs, raw_hex: rawHex }],
       };
-      this.next(this.entryListeners, batch);
+      emitEntries(this.session, batch);
     }
 
     // RX 统计随数据增长
-    const n = rawBytes.length + text.length;
-    if (this.capturing) this.captureBuf.push(...rawBytes, ...new TextEncoder().encode(text + "\n"));
+    const n = rawText.length + text.length;
+    if (this.capturing) this.captureBuf.push(...new TextEncoder().encode(rawText + text + "\n"));
     this.rxTotal += n;
     this.rxWindow.push([performance.now(), n]);
     if (Math.random() < 0.02) this.errors++; // 偶发 CRC 错误演示
@@ -272,7 +249,7 @@ class MockBackend implements ApiShape {
   }
 
   private emitState() {
-    this.next(this.stateListeners, {
+    emitState(this.session, {
       connected: this.connected,
       label: this.label,
       error: undefined,
@@ -281,21 +258,25 @@ class MockBackend implements ApiShape {
 }
 
 function metricsOf(data: number[]): ChannelMetrics {
-  const n = data.length;
-  const mean = data.reduce((a, b) => a + b, 0) / n;
-  const variance = data.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+  const n = data.length || 1;
   const min = Math.min(...data);
   const max = Math.max(...data);
+  const mean = data.reduce((a, b) => a + b, 0) / n;
+  const rms = Math.sqrt(data.reduce((a, b) => a + b * b, 0) / n);
+  const variance = rms * rms - mean * mean;
+  let std = 0;
+  for (const v of data) std += (v - mean) ** 2;
+  std = Math.sqrt(std / n);
   return {
-    count: n,
-    last: data[n - 1],
+    count: data.length,
+    last: data.length ? data[data.length - 1] : 0,
     mean,
-    std: Math.sqrt(variance),
-    variance,
+    std,
+    variance: Math.max(0, variance),
     min,
     max,
     peak_to_peak: max - min,
-    rms: Math.sqrt(data.reduce((a, b) => a + b * b, 0) / n),
+    rms,
   };
 }
 
@@ -306,4 +287,46 @@ function concat(a: Uint8Array, ...rest: number[]): Uint8Array {
   return out;
 }
 
-export const mock = new MockBackend();
+// ── 多实例注册表 + 全局事件 hub（负载带 session 标签，形态与真实后端一致）──
+
+const instances = new Map<string, MockBackend>();
+
+export function getMock(session: string): MockBackend {
+  let m = instances.get(session);
+  if (!m) {
+    m = new MockBackend(session);
+    instances.set(session, m);
+  }
+  return m;
+}
+
+type RawEvt = { session: string; bytes: Uint8Array };
+type EntriesEvt = { session: string; batch: EntriesBatch };
+type StateEvt = { session: string; state: ConnState };
+
+const rawHub = new Set<Listener<RawEvt>>();
+const entriesHub = new Set<Listener<EntriesEvt>>();
+const stateHub = new Set<Listener<StateEvt>>();
+
+function emitRaw(session: string, bytes: Uint8Array) {
+  rawHub.forEach((f) => f({ session, bytes }));
+}
+function emitEntries(session: string, batch: EntriesBatch) {
+  entriesHub.forEach((f) => f({ session, batch }));
+}
+function emitState(session: string, state: ConnState) {
+  stateHub.forEach((f) => f({ session, state }));
+}
+
+export function mockOnRaw(fn: Listener<RawEvt>) {
+  rawHub.add(fn);
+}
+export function mockOnEntries(fn: Listener<EntriesEvt>) {
+  entriesHub.add(fn);
+}
+export function mockOnState(fn: Listener<StateEvt>) {
+  stateHub.add(fn);
+}
+
+// 旧的全局单例出口（部分工具脚本引用）；指向 "*" 会话
+export const mock = getMock("*");

@@ -2,7 +2,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { api, on } from "../api";
+import type { SessionApi } from "../api";
 
 export class TerminalPage {
   private term = new Terminal({
@@ -20,7 +20,7 @@ export class TerminalPage {
   });
   private fit = new FitAddon();
 
-  constructor(el: HTMLElement, private onSendError?: (msg: string) => void) {
+  constructor(el: HTMLElement, private api: SessionApi, private onSendError?: (msg: string) => void) {
     // 宿主容器占工具条以下剩余空间；FitAddon 按 parentElement 测量，
     // 若直接以页面为父级会把工具条高度也算进行数 → 内容溢出引发整页滚动
     const host = document.createElement("div");
@@ -35,7 +35,7 @@ export class TerminalPage {
     // 击键直传：xterm 给出完整转义序列（方向键等），原样发往端口
     let localEcho = false;
     this.term.onData((data) => {
-      api
+      this.api
         .send({ text: data, newline: "none" })
         .then(() => {
           if (localEcho) this.term.write(data); // 回显只在写入成功后做
@@ -60,9 +60,14 @@ export class TerminalPage {
     bar.append(echoLabel, clearBtn);
     el.prepend(bar);
 
-    // 原始流 → xterm 渲染
-    void on.raw((bytes) => this.term.write(bytes));
+    // 原始流由 main 按会话路由进来（feed）；窗口尺寸变化时自适应。
+    // 注意：resize 监听挂在 window 上，多标签共享无妨——fit 只作用于本实例。
     window.addEventListener("resize", () => this.fit.fit());
+  }
+
+  /** 原始字节流入终端渲染（main 的事件路由按 session 分发） */
+  feed(bytes: Uint8Array) {
+    this.term.write(bytes);
   }
 
   writeln(s: string) {

@@ -4,7 +4,7 @@
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import type { PlotSnapshotDto } from "../types";
-import { api, pickSavePath } from "../api";
+import { pickSavePath, saveTextFile } from "../api";
 
 export const CH_COLORS = ["#4da3ff", "#33cc70", "#ffb340", "#ff5544", "#c792ea", "#33d1d1", "#f7a8b8", "#a3e635"];
 
@@ -336,7 +336,7 @@ export class PlotPage {
     try {
       const path = await pickSavePath(name);
       if (path) {
-        await api.saveTextFile(path, csv);
+        await saveTextFile(path, csv);
         return;
       }
     } catch {
