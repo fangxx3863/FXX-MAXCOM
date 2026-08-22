@@ -19,3 +19,7 @@ Thumbs.db
 
 # ==== 运行时产物 ====
 *.log
+
+# 杂项
+*.deb
+app/*.deb

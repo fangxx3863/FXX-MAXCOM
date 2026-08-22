@@ -142,6 +142,9 @@ button.primary { background: var(--accent); color: #10131a; font-weight: 600; bo
   background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
   padding: 8px 10px;
 }
+/* 纯柱状（无波形）模式：撑满剩余高度，表体加宽 */
+#plot-bars.full { flex: 1 1 0; min-height: 0; padding: 8px; }
+#plot-bars.full .bar-meter { height: auto; align-self: stretch; width: clamp(104px, 16vw, 190px); }
 .bar-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-dim); white-space: nowrap; }
 .bar-swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .bar-track {

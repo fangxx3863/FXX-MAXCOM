@@ -178,6 +178,8 @@ export class PlotPage {
   private syncVisibility() {
     this.barsEl.classList.toggle("hidden", this.viewMode === "waveform");
     this.holder.classList.toggle("hidden", this.viewMode === "bars");
+    // 纯柱状模式：柱状区撑满剩余空间（同屏模式下保持固定行高）
+    this.barsEl.classList.toggle("full", this.viewMode === "bars");
   }
 
   private buildWave(n: number) {
