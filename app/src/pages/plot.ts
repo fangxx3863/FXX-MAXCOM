@@ -48,6 +48,11 @@ const AXES: uPlot.Axis[] = [
   { stroke: "#8b919c", grid: { stroke: "#23272f" }, space: 24 },
 ];
 
+/** 子图最小列宽（与 styles.css 中 grid 回退值保持一致） */
+const PLOT_MIN_COL = 340;
+/** uPlot 标题(.u-title)实测高度：title 渲染在 canvas 之外，不占 opts.height */
+const U_TITLE_H = 28;
+
 function fmtNum(v: number): string {
   const a = Math.abs(v);
   if (a >= 1000) return v.toFixed(0);
@@ -178,7 +183,8 @@ export class PlotPage {
   private buildWave(n: number) {
     void this.holder.offsetHeight; // 强制同步布局：确保柱状区已参与排版
     if (this.layout === "overlay") {
-      // 单图叠加：全部通道进一个 uPlot，多色曲线 + 图例
+      // 单图叠加：全部通道进一个 uPlot，多色曲线 + 图例（无标题，不扣标题高）
+      this.holder.style.gridTemplateColumns = "1fr";
       const cell = document.createElement("div");
       cell.className = "plot-cell";
       this.holder.appendChild(cell);
@@ -207,9 +213,18 @@ export class PlotPage {
         cell,
       );
     } else {
-      // 分开子图：每行最多两个，行高按可视高度均分（留冗余防滚动条/缩放取整）
-      const rows = n <= 1 ? 1 : Math.ceil(n / 2);
-      let h = Math.max(140, Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 18);
+      // 分开子图：列数由容器宽显式计算（与 grid 列定义严格一致，避免 3+1 这类错排），
+      // 行高均分并扣除 cell 内边距边框(10) 与 uPlot 标题高度(U_TITLE_H≈28，title 不占 opts.height!)
+      const availW = this.holder.clientWidth - 16;
+      let cols = Math.max(1, Math.min(n, Math.floor((availW + 8) / (PLOT_MIN_COL + 8))));
+      // 平衡网格：减少列数不增加行数时就减少（4 通道 → 2×2 而非 3+1）
+      while (cols > 1 && Math.ceil(n / (cols - 1)) <= Math.ceil(n / cols)) cols--;
+      this.holder.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      const rows = Math.ceil(n / cols);
+      let h = Math.max(
+        120,
+        Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 10 - U_TITLE_H,
+      );
       for (let attempt = 0; ; attempt++) {
         for (let ch = 0; ch < n; ch++) {
           const cell = document.createElement("div");
@@ -239,7 +254,7 @@ export class PlotPage {
           );
           this.plots.push(plot);
         }
-        // 实测溢出 → 收缩行高重建（最多一轮；杜绝“波形要滚动才能看全”）
+        // 实测溢出 → 收缩行高重建（滚动条/DPI 取整兜底；杜绝“波形要滚动才能看全”）
         const over = this.holder.scrollHeight - this.holder.clientHeight;
         if (over <= 0 || attempt >= 1) break;
         h = Math.max(120, h - Math.ceil(over / rows) - 4);

@@ -189,7 +189,7 @@ page.update({ channel_count: 1, total_points: 4, series: [[1, 2, 3, 4]], metrics
 page.setViewMode("waveform");
 page.setViewMode("both");
 const wavePlot = globalThis.__plots.at(-1);
-check("柱状占位后再量波形高度 (h=266，旧实现得 566)", wavePlot.height === 266);
+check("柱状占位后再量波形高度 (h=246，含标题扣除；旧实现得 566)", wavePlot.height === 246);
 
 // 10) 收发页快捷过滤：命中才显示，新旧数据即时生效
 const lvView = document.createElement("div");
