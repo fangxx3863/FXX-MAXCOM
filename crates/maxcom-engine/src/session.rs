@@ -118,7 +118,9 @@ pub struct SessionManager {
     active: Mutex<Option<Active>>,
     events: Arc<dyn SessionEvents>,
     plot: Arc<Mutex<ChannelStore>>,
-    plot_format: Mutex<Option<maxcom_core::plot::format::DataFormat>>,
+    /// 共享句柄而非连接时快照：连接后 set_plot_format 的修改对绘图线程立即可见
+    /// （此前 connect 克隆快照、热切换写原字段，线程永远读旧值 → 连接中改格式不生效）
+    plot_format: Arc<Mutex<Option<maxcom_core::plot::format::DataFormat>>>,
     /// 格式版本号：变更 +1，绘图线程据此热重建 parser（修复连接中改格式不生效）
     plot_fmt_ver: Arc<AtomicU64>,
     /// 掉线自动重连开关
@@ -136,7 +138,7 @@ impl SessionManager {
             active: Mutex::new(None),
             events,
             plot: Arc::new(Mutex::new(ChannelStore::new(1, 10000))),
-            plot_format: Mutex::new(None),
+            plot_format: Arc::new(Mutex::new(None)),
             plot_fmt_ver: Arc::new(AtomicU64::new(0)),
             auto_reconnect: Arc::new(AtomicBool::new(true)),
             reconnect_delay_ms: AtomicU64::new(2000),
@@ -454,7 +456,7 @@ impl SessionManager {
         let plot_q = bus.subscribe("plot");
         let stop_p = stop.clone();
         let plot_store = self.plot.clone();
-        let fmt_shared = Arc::new(Mutex::new(self.plot_format.lock().unwrap().clone()));
+        let fmt_shared = Arc::clone(&self.plot_format); // 活引用：热切换写入对线程可见
         let fmt_ver = self.plot_fmt_ver.clone();
         threads.push(
             std::thread::Builder::new()

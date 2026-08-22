@@ -204,6 +204,43 @@ fn plot_snapshot_shape_follows_format() {
     assert_eq!(snap.series.len(), 3);
 }
 
+/// 回归：连接后再设绘图格式必须生效（此前热切换写入原字段、
+/// 绘图线程读连接时的格式快照 → parser 永远是旧值，总点数恒 0）。
+#[test]
+fn plot_format_set_after_connect_parses_frames() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec);
+
+    mgr.connect(tcp_cfg(port)).expect("connect");
+
+    // 关键时序：先连接、后设格式（ASCII 自动列数）
+    mgr.set_plot_format(maxcom_core::plot::format::DataFormat::AsciiDelimited {
+        delimiter: ",".into(),
+        filter_prefix: None,
+        channel_count: 0,
+    });
+
+    // 发送两行两列数据，回环返回后应被解析入库（自动探测 → 2 通道）
+    mgr.send(&SendPayload {
+        text: Some("123456,123456\n123456,123456\n".into()),
+        hex: None,
+        newline: "none".into(),
+    })
+    .expect("send");
+
+    assert!(
+        wait_until(
+            || mgr.plot_snapshot(1000).total_points >= 2,
+            Duration::from_secs(3)
+        ),
+        "热切换后绘图仍无数据 total_points={}",
+        mgr.plot_snapshot(1000).total_points
+    );
+    let snap = mgr.plot_snapshot(1000);
+    assert_eq!(snap.channel_count, 2, "ASCII 自动通道应锁定为 2 列");
+}
+
 // ── 自动重连 / 捕获 ──
 
 /// 每个连接只回显一条消息就断开（触发客户端 EOF），但持续接受新连接
