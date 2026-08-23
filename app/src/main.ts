@@ -15,9 +15,10 @@ import { StatsPage } from "./pages/stats";
 import { FlashPage, type FlashRunConfig } from "./pages/flash";
 import { RulesPanel, type RulesSnapshot } from "./pages/rules";
 import { ProtocolPage } from "./pages/protocol";
+import { ToolsPage } from "./pages/tools";
 
-type PageId = "terminal" | "logview" | "plot" | "stats" | "flash" | "protocol" | "settings";
-const PAGES: readonly PageId[] = ["terminal", "logview", "plot", "stats", "flash", "protocol", "settings"];
+type PageId = "terminal" | "logview" | "plot" | "stats" | "flash" | "protocol" | "tools" | "settings";
+const PAGES: readonly PageId[] = ["terminal", "logview", "plot", "stats", "flash", "protocol", "tools", "settings"];
 
 interface MsRow {
   enabled: boolean;
@@ -224,6 +225,7 @@ class SessionApp {
   flashPage!: FlashPage;
   rulesPanel!: RulesPanel;
   protocolPage!: ProtocolPage;
+  toolsPage!: ToolsPage;
 
   connTypeDd!: DropdownHandle;
   portDd!: DropdownHandle;
@@ -653,6 +655,8 @@ class SessionApp {
     this.rulesPanel = new RulesPanel(this.el, this.api, rules0, () => {});
     // 协议页：传输复用本会话顶部栏连接（发送走 api.send，响应走 onRaw 原始流）
     this.protocolPage = new ProtocolPage(this.q("#page-protocol"), this.api, () => this.connected);
+    // 工具页：纯前端计算器目录，不依赖连接
+    this.toolsPage = new ToolsPage(this.q("#page-tools"));
 
     this.el.querySelectorAll<HTMLButtonElement>("#sidebar button").forEach((btn) => {
       btn.addEventListener("click", () => this.switchPage(btn.dataset.page as PageId));
@@ -1228,6 +1232,7 @@ class SessionApp {
     r["rulesjson"] = JSON.stringify(this.rulesPanel.snapshot());
     r["msjson"] = JSON.stringify(this.msRows);
     r["protjson"] = JSON.stringify(this.protocolPage.snapshot());
+    r["tooljson"] = JSON.stringify(this.toolsPage.snapshot());
     return r;
   }
 
@@ -1320,6 +1325,13 @@ class SessionApp {
     if (g("protjson")) {
       try {
         this.protocolPage.applySnapshot(JSON.parse(g("protjson")) as Record<string, string>);
+      } catch {
+        /* 忽略坏数据 */
+      }
+    }
+    if (g("tooljson")) {
+      try {
+        this.toolsPage.applySnapshot(JSON.parse(g("tooljson")) as Record<string, string>);
       } catch {
         /* 忽略坏数据 */
       }

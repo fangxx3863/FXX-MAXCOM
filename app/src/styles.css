@@ -802,3 +802,75 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 }
 .proto-buf-foot { display: flex; justify-content: flex-end; }
 .proto-buf-foot .ghost { padding: 3px 10px; }
+
+/* ── 工具页（常用计算器）── */
+#page-tools { padding: 16px 20px; overflow-y: auto; }
+.tools-page {
+  max-width: 1180px; width: 100%; margin: 0 auto;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.tools-header h3 { margin: 0; font-size: 20px; }
+.tools-header p { margin: 6px 0 0; color: var(--fg-dim); font-size: 13px; }
+.tools-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.tool-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  text-align: left; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px 14px 12px; cursor: pointer;
+  color: var(--fg); font-size: 13px; line-height: 1.4;
+  transition: border-color .15s, transform .1s;
+}
+.tool-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+.tool-icon { font-size: 28px; line-height: 1; }
+.tool-title { font-weight: 600; color: var(--fg); }
+.tool-desc { color: var(--fg-dim); font-size: 12px; overflow-wrap: anywhere; }
+.tools-detail-head { display: flex; flex-direction: column; gap: 6px; }
+.tools-detail-head .ghost { align-self: flex-start; }
+.tools-title-line { display: flex; align-items: center; gap: 10px; }
+.tools-title-line h3 { margin: 0; font-size: 20px; }
+.tools-detail-head > p { margin: 0; color: var(--fg-dim); font-size: 13px; }
+.tools-detail-body { min-height: 200px; }
+.tool-panel {
+  display: flex; flex-direction: column; gap: 14px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px;
+}
+.tool-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 14px; align-items: end;
+}
+.tool-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.tool-field label { color: var(--fg-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-inline { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.tool-inline .proto-in { flex: 1; }
+.tool-sel { flex: none !important; width: auto !important; max-width: 90px; }
+.tool-suffix { flex: none; color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
+.tool-output { color: var(--accent) !important; }
+.tool-resultline {
+  min-height: 18px; color: var(--fg-dim); font-size: 13px;
+  word-break: break-all; font-variant-numeric: tabular-nums;
+}
+.tool-formula {
+  padding: 10px 12px; background: var(--bg3); border-radius: 8px;
+  color: var(--fg-dim); font-family: var(--log-family, monospace);
+  font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.tool-actions { display: flex; gap: 8px; }
+.tool-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+.tool-tab {
+  padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg3); color: var(--fg-dim); font-size: 12.5px; cursor: pointer;
+}
+.tool-tab:hover { color: var(--fg); border-color: var(--accent); }
+.tool-tab.active { background: var(--accent); color: #10131a; border-color: transparent; font-weight: 600; }
+.tools-fit-table {
+  width: 100%; border-collapse: collapse; margin-top: 6px;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.tools-fit-table th, .tools-fit-table td {
+  border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+}
+.tools-fit-table th { background: var(--bg2); color: var(--fg-dim); font-weight: 600; }
