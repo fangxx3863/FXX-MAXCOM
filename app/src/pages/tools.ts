@@ -3,7 +3,13 @@
 import { t } from "../i18n";
 import katex from "katex";
 import "katex/dist/katex.min.css";
-import { toolDiagram } from "../tools-diagrams";
+import { toolDiagram, toolDiagramVariant } from "../tools-diagrams";
+import {
+  mono555, astable555, attenuator as attn,
+  capCode3, batteryLifeHours, ohmLaw, reactance as rx,
+  rcTau, ledResistor, filterFc, dbmToMwt, capDischarge,
+  seriesRes, parallelRes, seriesCap, parallelCap,
+} from "../tools-math";
 
 function math(src: string): string {
   return katex.renderToString(src, { throwOnError: false, displayMode: false });
@@ -196,32 +202,92 @@ function buildUnitConverter(
   return {};
 }
 
-// ── 555 定时器 ──
+// ── 555 定时器（单稳态 / 非稳态）──
 function build555(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-grid">
-        <div class="tool-field"><label>R₁ 电阻值</label><div class="tool-inline"><input id="t555-r" class="proto-in" type="number" min="0" value="100" /><select id="t555-rs" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3">kΩ</option><option value="1e6">MΩ</option></select></div></div>
-        <div class="tool-field"><label>C₁ 电容值</label><div class="tool-inline"><input id="t555-c" class="proto-in" type="number" min="0" value="10" /><select id="t555-cs" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1e-3">mF</option><option value="1">F</option></select></div></div>
-        <div class="tool-field"><label>输出脉冲持续时间</label><div class="tool-inline"><input id="t555-out" class="tool-output proto-in" readonly placeholder="—" /><select id="t555-os" class="tool-sel proto-in"><option value="1e-3" selected>ms</option><option value="1">s</option><option value="60">min</option></select></div></div>
+      <div class="tool-tabs">
+        <button class="tool-tab active" data-mode="mono">单稳态 (单触发)</button>
+        <button class="tool-tab" data-mode="astable">非稳态 (自由运行)</button>
       </div>
-      <div class="tool-formula">${math("T = 1.1 \\times R_1 \\times C_1")}</div>
+      <div class="tools-diagram" id="t555-diagram"><img class="tool-diagram" alt="555 电路原理图" /></div>
+      <div class="tool-grid" id="t555-grid">
+        <div class="tool-field"><label>R₁ 电阻值</label><div class="tool-inline"><input id="t555-r1" class="proto-in" type="number" min="0" value="100" /><select id="t555-r1s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3">kΩ</option><option value="1e6">MΩ</option></select></div></div>
+        <div class="tool-field"><label>C₁ 电容值</label><div class="tool-inline"><input id="t555-c" class="proto-in" type="number" min="0" value="10" /><select id="t555-cs" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1e-3">mF</option><option value="1">F</option></select></div></div>
+        <div class="tool-field" id="t555-out-box"><label>输出脉冲持续时间</label><div class="tool-inline"><input id="t555-out" class="tool-output proto-in" readonly placeholder="—" /><select id="t555-os" class="tool-sel proto-in"><option value="1e-3" selected>ms</option><option value="1">s</option><option value="60">min</option></select></div></div>
+      </div>
+      <div class="tool-formula" id="t555-formula"></div>
     </div>`;
+  const diagramBox = host.querySelector<HTMLElement>("#t555-diagram")!;
+  const img = diagramBox.querySelector<HTMLImageElement>("img")!;
+  const r1 = host.querySelector<HTMLInputElement>("#t555-r1")!;
+  const r1s = host.querySelector<HTMLSelectElement>("#t555-r1s")!;
+  const c = host.querySelector<HTMLInputElement>("#t555-c")!;
+  const cs = host.querySelector<HTMLSelectElement>("#t555-cs")!;
+  const out = host.querySelector<HTMLInputElement>("#t555-out")!;
+  const os = host.querySelector<HTMLSelectElement>("#t555-os")!;
+  const formula = host.querySelector<HTMLElement>("#t555-formula")!;
+  const grid = host.querySelector<HTMLElement>("#t555-grid")!;
+  const outBox = host.querySelector<HTMLElement>("#t555-out-box")!;
+
+  let mode = "mono";
+  img.src = toolDiagramVariant("555", mode);
+  // 非稳态额外需要 R2：动态插入一个字段
+  const r2Field = document.createElement("div");
+  r2Field.className = "tool-field";
+  r2Field.innerHTML = `<label>R₂ 电阻值</label><div class="tool-inline"><input id="t555-r2" class="proto-in" type="number" min="0" value="47" /><select id="t555-r2s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>`;
+
   const update = () => {
-    const r = num((host.querySelector("#t555-r") as HTMLInputElement).value);
-    const c = num((host.querySelector("#t555-c") as HTMLInputElement).value);
-    const rm = Number((host.querySelector("#t555-rs") as HTMLSelectElement).value);
-    const cm = Number((host.querySelector("#t555-cs") as HTMLSelectElement).value);
-    const om = Number((host.querySelector("#t555-os") as HTMLSelectElement).value);
-    if (r === null || c === null) {
-      (host.querySelector("#t555-out") as HTMLInputElement).value = "";
+    const r1v = num(r1.value);
+    const cv = num(c.value);
+    const r1m = Number(r1s.value);
+    const cm = Number(cs.value);
+    const om = Number(os.value);
+    const R1 = r1v === null ? null : r1v * r1m;
+    const C = cv === null ? null : cv * cm;
+    if (mode === "mono") {
+      formula.innerHTML = math("T = 1.1 \\times R_1 \\times C_1");
+      if (R1 === null || C === null) { out.value = ""; return; }
+      const t = mono555(R1, C);
+      out.value = `${fmt(t / om)} ${os.selectedOptions[0].textContent}`;
       return;
     }
-    const t = 1.1 * r * rm * c * cm;
-    (host.querySelector("#t555-out") as HTMLInputElement).value = `${fmt(t / om)} ${(host.querySelector("#t555-os") as HTMLSelectElement).selectedOptions[0].textContent}`;
+    // 非稳态
+    const r2v = num((host.querySelector("#t555-r2") as HTMLInputElement).value);
+    const r2m = Number((host.querySelector("#t555-r2s") as HTMLSelectElement).value);
+    const R2 = r2v === null ? null : r2v * r2m;
+    if (R1 === null || R2 === null || C === null || R1 <= 0 || R2 <= 0 || C <= 0) {
+      out.value = ""; return;
+    }
+    const a = astable555(R1, R2, C);
+    formula.innerHTML = math(
+      `t_H = 0.693(R_1{+}R_2)C_1,\\quad t_L = 0.693\\,R_2 C_1,\\quad f=\\dfrac{1.44}{(R_1{+}2R_2)C_1}`,
+    );
+    out.value = `f=${fmt(a.freq)} Hz  t_H=${fmt(a.tHigh / om)} ms  t_L=${fmt(a.tLow / om)} ms  占空比=${fmt(a.duty * 100, 4)}%`;
   };
-  host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
-  host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+
+  const setMode = (m: string) => {
+    mode = m;
+    img.src = toolDiagramVariant("555", m);
+    if (m === "astable") {
+      if (!host.querySelector("#t555-r2")) {
+        grid.insertBefore(r2Field, outBox);
+      }
+      outBox.querySelector("label")!.textContent = "输出特性";
+    } else {
+      host.querySelector("#t555-r2")?.remove();
+      outBox.querySelector("label")!.textContent = "输出脉冲持续时间";
+    }
+    update();
+  };
+  host.querySelectorAll<HTMLButtonElement>(".tool-tab").forEach((b) =>
+    b.addEventListener("click", () => {
+      host.querySelectorAll(".tool-tab").forEach((x) => x.classList.toggle("active", x === b));
+      setMode(b.dataset.mode!);
+    }),
+  );
+  [r1, c].forEach((el) => el.addEventListener("input", update));
+  [r1s, cs, os].forEach((el) => el.addEventListener("change", update));
   update();
   return {};
 }
@@ -247,7 +313,7 @@ function buildBatteryLife(host: HTMLElement): ToolController {
     const capu = Number((host.querySelector("#bt-capu") as HTMLSelectElement).value);
     const curu = Number((host.querySelector("#bt-curu") as HTMLSelectElement).value);
     const outu = Number((host.querySelector("#bt-outu") as HTMLSelectElement).value);
-    const hr = (cap * capu) / (cur * curu);
+    const hr = batteryLifeHours(cap * capu, cur * curu);
     (host.querySelector("#bt-out") as HTMLInputElement).value = `${fmt(hr * outu)} ${(host.querySelector("#bt-outu") as HTMLSelectElement).selectedOptions[0].textContent}`;
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
@@ -305,9 +371,7 @@ function buildCapacitanceConversion(host: HTMLElement): ToolController {
       result.textContent = "—";
       return;
     }
-    const digits = Number(m[1].slice(0, 2));
-    const mult = Number(m[1][2]);
-    const vpf = digits * 10 ** mult;
+    const vpf = capCode3(m[1])!;
     setAll(vpf);
     code.value = m[1];
   };
@@ -352,12 +416,11 @@ function buildCapacitorDischarge(host: HTMLElement): ToolController {
     }
     const rr = r * ru;
     const cc = c * cu;
-    const tau = rr * cc;
-    const time = tau * Math.log(v0 / vs);
-    (host.querySelector("#capd-t") as HTMLInputElement).value = fmt(time);
-    (host.querySelector("#capd-p") as HTMLInputElement).value = fmt((v0 * v0) / rr);
-    (host.querySelector("#capd-tau") as HTMLInputElement).value = fmt(tau);
-    (host.querySelector("#capd-e") as HTMLInputElement).value = fmt(0.5 * cc * v0 * v0);
+    const d = capDischarge(cc, v0, vs, rr);
+    (host.querySelector("#capd-t") as HTMLInputElement).value = fmt(d.time);
+    (host.querySelector("#capd-p") as HTMLInputElement).value = fmt(d.power);
+    (host.querySelector("#capd-tau") as HTMLInputElement).value = fmt(d.tau);
+    (host.querySelector("#capd-e") as HTMLInputElement).value = fmt(d.energy);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -558,7 +621,7 @@ function buildDbmWatt(host: HTMLElement): ToolController {
   const updateFromDbm = () => {
     const d = num(dbm.value);
     if (d === null) return;
-    const mw = 10 ** (d / 10);
+    const mw = dbmToMwt(d);
     watt.value = fmt(mw / 1000, 10);
     mwOut.value = fmt(mw, 10);
   };
@@ -596,7 +659,7 @@ function buildLedResistor(host: HTMLElement): ToolController {
       (host.querySelector("#led-r") as HTMLInputElement).value = "";
       return;
     }
-    (host.querySelector("#led-r") as HTMLInputElement).value = fmt((vs - vf) / (ifv * ifu));
+    (host.querySelector("#led-r") as HTMLInputElement).value = fmt(ledResistor(vs, vf, ifv * ifu));
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -623,9 +686,9 @@ function buildOhm(host: HTMLElement): ToolController {
       (host.querySelector("#ohm-r") as HTMLInputElement).value = "";
       return;
     }
-    const r = v / (i * iu);
+    const o = ohmLaw(v, i * iu);
     const iOut = host.querySelector<HTMLInputElement>("#ohm-r")!;
-    iOut.value = `${fmt(r)} Ω (P = ${fmt(v * (i * iu))} W)`;
+    iOut.value = `${fmt(o.r)} Ω (P = ${fmt(o.p)} W)`;
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -656,17 +719,10 @@ function buildFilter(host: HTMLElement): ToolController {
     const ru = Number((host.querySelector("#flt-ru") as HTMLSelectElement).value);
     const cu = Number((host.querySelector("#flt-cu") as HTMLSelectElement).value);
     const lu = Number((host.querySelector("#flt-lu") as HTMLSelectElement).value);
-    let f: number | null = null;
-    if (t === "rc") {
-      if (r !== null && c !== null && r * ru * c * cu > 0) f = 1 / (2 * Math.PI * r * ru * c * cu);
-      formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi RC}");
-    } else if (t === "rl") {
-      if (r !== null && l !== null && r * ru > 0 && l * lu > 0) f = (r * ru) / (2 * Math.PI * l * lu);
-      formula.innerHTML = math("f_c = \\dfrac{R}{2\\pi L}");
-    } else {
-      if (l !== null && c !== null && l * lu > 0 && c * cu > 0) f = 1 / (2 * Math.PI * Math.sqrt(l * lu * c * cu));
-      formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}");
-    }
+    const f = filterFc(t as "rc" | "rl" | "lc", r === null ? null : r * ru, c === null ? null : c * cu, l === null ? null : l * lu);
+    if (t === "rc") formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi RC}");
+    else if (t === "rl") formula.innerHTML = math("f_c = \\dfrac{R}{2\\pi L}");
+    else formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}");
     (host.querySelector("#flt-f") as HTMLInputElement).value = f === null ? "" : fmt(f) + " Hz";
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
@@ -675,7 +731,13 @@ function buildFilter(host: HTMLElement): ToolController {
   return {};
 }
 
-// ── 数制转换 ──
+// ── 数制转换（含 Win11 程序员模式风格的二进制码盘）──
+const WORD_SIZES = [
+  { id: 8, label: "BYTE" },
+  { id: 16, label: "WORD" },
+  { id: 32, label: "DWORD" },
+  { id: 64, label: "QWORD" },
+];
 function buildNumberBase(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
@@ -685,6 +747,11 @@ function buildNumberBase(host: HTMLElement): ToolController {
         <div class="tool-field"><label>八进制</label><div class="tool-inline"><input id="nb-o" class="proto-in" type="text" value="52" /></div></div>
         <div class="tool-field"><label>二进制</label><div class="tool-inline"><input id="nb-b" class="proto-in" type="text" value="101010" /></div></div>
       </div>
+      <div class="nb-bithead">
+        <label>位宽</label>
+        <select id="nb-wordsize" class="tool-sel proto-in">${WORD_SIZES.map((w) => `<option value="${w.id}"${w.id === 16 ? " selected" : ""}>${w.label}</option>`).join("")}</select>
+      </div>
+      <div class="nb-bitgrid" id="nb-bitgrid"></div>
       <div class="tool-resultline" id="nb-result"></div>
     </div>`;
   const d = host.querySelector<HTMLInputElement>("#nb-d")!;
@@ -692,25 +759,67 @@ function buildNumberBase(host: HTMLElement): ToolController {
   const o = host.querySelector<HTMLInputElement>("#nb-o")!;
   const b = host.querySelector<HTMLInputElement>("#nb-b")!;
   const res = host.querySelector<HTMLElement>("#nb-result")!;
-  const setAll = (v: number) => {
-    d.value = String(v);
+  const wordSel = host.querySelector<HTMLSelectElement>("#nb-wordsize")!;
+  const grid = host.querySelector<HTMLElement>("#nb-bitgrid")!;
+  let cur = 42n;
+
+  const wordsize = () => Number(wordSel.value);
+  const renderBits = (v: bigint) => {
+    const W = wordsize();
+    const nibbles = W / 4;
+    let html = "";
+    // 从高位组到低位组，组内 MSB→LSB 排列
+    for (let nib = nibbles - 1; nib >= 0; nib--) {
+      let cells = "";
+      for (let bit = 4 * nib + 3; bit >= 4 * nib; bit--) {
+        const on = (v >> BigInt(bit)) & 1n;
+        cells += `<button type="button" class="nb-bit${on ? " on" : ""}" data-bit="${bit}">${on}</button>`;
+      }
+      html += `<div class="nb-nibble">${cells}<span class="nb-niblbl">${4 * nib}</span></div>`;
+    }
+    grid.innerHTML = html;
+  };
+  const setAll = (v: bigint) => {
+    cur = v;
+    d.value = v.toString();
     h.value = v.toString(16).toUpperCase();
     o.value = v.toString(8);
     b.value = v.toString(2);
     res.textContent = `dec=${v} hex=0x${h.value} oct=0o${o.value} bin=0b${b.value}`;
+    renderBits(v);
+  };
+  const parseBig = (s: string, radix: number): bigint | null => {
+    const m = s.trim().replace(/^0x/i, "0x").replace(/^0o/i, "0o").replace(/^0b/i, "0b");
+    if (!m) return null;
+    try {
+      if (radix === 10) return BigInt(m);
+      if (radix === 16) return BigInt("0x" + m.replace(/^0x/i, "").replace(/[^0-9a-f]/gi, "") || "0");
+      if (radix === 8) return BigInt("0o" + m.replace(/^0o/i, "").replace(/[^0-7]/g, "") || "0");
+      return BigInt("0b" + m.replace(/^0b/i, "").replace(/[^01]/g, "") || "0");
+    } catch {
+      return null;
+    }
   };
   const parseAndSet = (src: HTMLInputElement, radix: number) => () => {
-    const s = src.value.trim().replace(/^0x/i, "").replace(/^0o/i, "").replace(/^0b/i, "");
-    if (!s) return;
-    const v = Number.parseInt(s, radix);
-    if (!Number.isFinite(v)) return;
+    const v = parseBig(src.value, radix);
+    if (v === null) return;
     setAll(v);
   };
   d.addEventListener("input", parseAndSet(d, 10));
   h.addEventListener("input", parseAndSet(h, 16));
   o.addEventListener("input", parseAndSet(o, 8));
   b.addEventListener("input", parseAndSet(b, 2));
-  parseAndSet(d, 10)();
+  wordSel.addEventListener("change", () => renderBits(cur));
+  // 点击位即切换
+  grid.addEventListener("click", (e) => {
+    const bitEl = (e.target as HTMLElement).closest<HTMLElement>(".nb-bit");
+    if (!bitEl) return;
+    const bit = Number(bitEl.dataset.bit);
+    const mask = 1n << BigInt(bit);
+    // 保留位宽内其它位，位宽外的高位一并保留
+    setAll(cur ^ mask);
+  });
+  setAll(42n);
   return {};
 }
 
@@ -741,8 +850,8 @@ function buildParallelSeriesCapacitor(host: HTMLElement): ToolController {
       const u = Number((el.parentElement!.querySelector<HTMLSelectElement>(".cap-u") ?? el.closest(".tool-panel")!.querySelector<HTMLSelectElement>("#cap-u"))!.value);
       return v === null ? null : v * u;
     });
-    const par = values.reduce((a, b) => (a !== null && b !== null ? a + b : null), 0);
-    const ser = values.every((v) => v !== null && v > 0) ? 1 / values.reduce<number>((a, v) => a + 1 / v!, 0) : null;
+    const par = parallelCap(values);
+    const ser = seriesCap(values);
     (host.querySelector("#cap-par") as HTMLInputElement).value = par === null ? "" : fmt(par) + " F";
     (host.querySelector("#cap-ser") as HTMLInputElement).value = ser === null ? "" : fmt(ser) + " F";
   };
@@ -941,7 +1050,7 @@ function buildTimeConstant(host: HTMLElement): ToolController {
       (host.querySelector("#tc-e") as HTMLInputElement).value = "";
       return;
     }
-    (host.querySelector("#tc-out") as HTMLInputElement).value = fmt(r * ru * c * cu) + " s";
+    (host.querySelector("#tc-out") as HTMLInputElement).value = fmt(rcTau(r * ru, c * cu)) + " s";
     (host.querySelector("#tc-e") as HTMLInputElement).value = v === null ? "" : fmt(0.5 * c * cu * v * v) + " J";
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
@@ -1114,6 +1223,7 @@ function buildAttenuator(host: HTMLElement): ToolController {
         <button class="tool-tab" data-type="reflective">反射式</button>
         <button class="tool-tab" data-type="T">T 型</button>
       </div>
+      <div class="tools-diagram" id="att-diagram"><img class="tool-diagram" alt="衰减器电路图" /></div>
       <div class="tool-grid">
         <div class="tool-field"><label>${t("tools.attenuator.atten")}</label><div class="tool-inline"><input id="att-db" class="proto-in" type="number" value="20" /></div></div>
         <div class="tool-field"><label>${t("tools.attenuator.impedance")}</label><div class="tool-inline"><input id="att-z" class="proto-in" type="number" value="50" /><span class="tool-suffix">Ω</span></div></div>
@@ -1123,52 +1233,46 @@ function buildAttenuator(host: HTMLElement): ToolController {
       <div class="tool-formula" id="att-formula"></div>
     </div>`;
   const tabs = host.querySelectorAll<HTMLButtonElement>(".tool-tab");
+  const img = host.querySelector<HTMLImageElement>("#att-diagram img")!;
+  const db = host.querySelector<HTMLInputElement>("#att-db")!;
+  const z = host.querySelector<HTMLInputElement>("#att-z")!;
+  const r1 = host.querySelector<HTMLInputElement>("#att-r1")!;
+  const r2 = host.querySelector<HTMLInputElement>("#att-r2")!;
+  const formula = host.querySelector<HTMLElement>("#att-formula")!;
+  const type = () => host.querySelector<HTMLButtonElement>(".tool-tab.active")!.dataset.type!;
+  const setDiagram = () => { img.src = toolDiagramVariant("attenuator", type()); };
   const updated = () => {
-    const db = num((host.querySelector("#att-db") as HTMLInputElement).value);
-    const z = num((host.querySelector("#att-z") as HTMLInputElement).value);
-    const type = host.querySelector<HTMLButtonElement>(".tool-tab.active")!.dataset.type!;
-    const r1 = host.querySelector<HTMLInputElement>("#att-r1")!;
-    const r2 = host.querySelector<HTMLInputElement>("#att-r2")!;
-    const formula = host.querySelector<HTMLElement>("#att-formula")!;
-    if (db === null || z === null || db < 0) {
+    setDiagram();
+    const dbv = num(db.value);
+    const zv = num(z.value);
+    if (dbv === null || zv === null || dbv < 0) {
       r1.value = "";
       r2.value = "";
       formula.textContent = "";
       return;
     }
-    const k = 10 ** (db / 20);
-    if (type === "pi") {
-      const r1V = z * (k + 1) / (k - 1);
-      const r2V = z / 2 * (k ** 2 - 1) / k;
-      r1.value = fmt(r1V);
-      r2.value = fmt(r2V);
-      formula.innerHTML = math("R_1 = Z_0 \\dfrac{K+1}{K-1},\\quad R_2 = \\dfrac{Z_0}{2}\\dfrac{K^2-1}{K},\\quad K=10^{A_{dB}/20}");
-    } else if (type === "bridgeT") {
-      const r1V = z * (k - 1);
-      const r2V = z / (k - 1) * 1;
-      r1.value = fmt(r1V);
-      r2.value = fmt(r2V);
-      formula.innerHTML = math("R_1 = Z_0(K-1),\\quad R_2 = \\dfrac{Z_0}{K-1}");
-    } else if (type === "reflective") {
-      const high = z * (k + 1) / (k - 1);
-      const low = z * (k - 1) / (k + 1);
-      r1.value = `${fmt(high)} / ${fmt(low)}`;
+    const res = attn(type() as "pi" | "bridgeT" | "reflective" | "T", dbv, zv);
+    if (type() === "reflective") {
+      r1.value = `${fmt(res.rHi!)} / ${fmt(res.rLo!)}`;
       r2.value = "";
-      formula.innerHTML = math("R_{hi}=Z_0\\dfrac{K+1}{K-1},\\quad R_{lo}=Z_0\\dfrac{K-1}{K+1}");
+      formula.innerHTML = math("R_{hi}=Z_0\\dfrac{K+1}{K-1},\\quad R_{lo}=Z_0\\dfrac{K-1}{K+1},\\quad K=10^{A_{dB}/20}");
     } else {
-      const r1V = z * (k - 1) / (k + 1);
-      const r2V = 2 * z * k / (k ** 2 - 1);
-      r1.value = fmt(r1V);
-      r2.value = fmt(r2V);
-      formula.innerHTML = math("R_1=Z_0\\dfrac{K-1}{K+1},\\quad R_2=2Z_0\\dfrac{K}{K^2-1}");
+      r1.value = fmt(res.r1);
+      r2.value = res.r2 === null ? "" : fmt(res.r2);
+      const f = type() === "pi"
+        ? math("R_1 = Z_0 \\dfrac{K+1}{K-1},\\quad R_2 = \\dfrac{Z_0}{2}\\dfrac{K^2-1}{K},\\quad K=10^{A_{dB}/20}")
+        : type() === "bridgeT"
+          ? math("R_1 = Z_0(K-1),\\quad R_2 = \\dfrac{Z_0}{K-1}")
+          : math("R_1=Z_0\\dfrac{K-1}{K+1},\\quad R_2=2Z_0\\dfrac{K}{K^2-1}");
+      formula.innerHTML = f;
     }
   };
   tabs.forEach((b) => b.addEventListener("click", () => {
     tabs.forEach((x) => x.classList.toggle("active", x === b));
     updated();
   }));
-  host.querySelector("#att-db")!.addEventListener("input", updated);
-  host.querySelector("#att-z")!.addEventListener("input", updated);
+  db.addEventListener("input", updated);
+  z.addEventListener("input", updated);
   updated();
   return {};
 }
@@ -1233,8 +1337,8 @@ function buildParallelSeriesResistor(host: HTMLElement): ToolController {
       const u = Number((el.parentElement!.querySelector<HTMLSelectElement>(".res-u") ?? el.closest(".tool-panel")!.querySelector<HTMLSelectElement>("#res-u"))!.value);
       return v === null ? null : v * u;
     });
-    const ser = values.reduce<number | null>((a, b) => (a !== null && b !== null ? a + b : null), 0);
-    const par = values.every((v) => v !== null && v > 0) ? 1 / values.reduce<number>((a, v) => a + 1 / v!, 0) : null;
+    const ser = seriesRes(values);
+    const par = parallelRes(values);
     (host.querySelector("#res-ser") as HTMLInputElement).value = ser === null ? "" : fmt(ser) + " Ω";
     (host.querySelector("#res-par") as HTMLInputElement).value = par === null ? "" : fmt(par) + " Ω";
   };
@@ -1277,8 +1381,9 @@ function buildReactance(host: HTMLElement): ToolController {
       (host.querySelector("#rx-xc") as HTMLInputElement).value = "";
       return;
     }
-    (host.querySelector("#rx-xl") as HTMLInputElement).value = fmt(2 * Math.PI * f * fu * l * lu);
-    (host.querySelector("#rx-xc") as HTMLInputElement).value = fmt(1 / (2 * Math.PI * f * fu * c * cu));
+    const r = rx(f * fu, l * lu, c * cu);
+    (host.querySelector("#rx-xl") as HTMLInputElement).value = fmt(r.xl);
+    (host.querySelector("#rx-xc") as HTMLInputElement).value = fmt(r.xc);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
