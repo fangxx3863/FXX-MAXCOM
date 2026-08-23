@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   ConnConfig, ConnState, DataFormat, EntriesBatch, PlotSnapshotDto,
-  PortInfo, SendPayload, StatsSnapshot,
+  PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import { getMock, mockOnRaw, mockOnEntries, mockOnState } from "./mock";
 
@@ -91,6 +91,12 @@ export async function pickSavePath(defaultName: string): Promise<string | null> 
 export async function saveTextFile(path: string, contents: string): Promise<number> {
   if (!IS_TAURI) return contents.length;
   return await invoke<number>("save_text_file", { path, contents });
+}
+
+/** 枚举当前可用的调试探针（RTT）。无探针/浏览器模式 → 空数组 */
+export async function listProbes(): Promise<ProbeInfo[]> {
+  if (!IS_TAURI) return [];
+  return await invoke<ProbeInfo[]>("list_probes");
 }
 
 // ── 全局事件（负载带 session 标签；每类事件只订阅一次，main.ts 按标签路由）──

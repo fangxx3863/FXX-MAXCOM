@@ -2,7 +2,7 @@
 // 标签持久化（Notepad++ 式恢复）。单会话逻辑整体封装在 SessionApp；
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
-import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath } from "./api";
+import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes } from "./api";
 import type { ConnConfig, ConnState, DataFormat, DType, PortInfo, StatsSnapshot } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
@@ -223,6 +223,7 @@ class SessionApp {
   tsModeDd!: DropdownHandle;
   encodingDd!: DropdownHandle;
   tcpHostDd!: DropdownHandle;
+  probeDd!: DropdownHandle;
   newlineDd!: DropdownHandle;
   sendModeDd!: DropdownHandle;
   plotFmtDd!: DropdownHandle;
@@ -237,6 +238,7 @@ class SessionApp {
   historyIdx = -1;
   msRows: MsRow[];
   private pendingPort: string | null = null;
+  private pendingProbe: string | null = null;
 
   constructor(id: string, name: string | null, snap?: Record<string, string>) {
     this.id = id;
@@ -296,6 +298,7 @@ class SessionApp {
         { value: "udp_client", label: "UDP" },
         { value: "ssh", label: "SSH" },
         { value: "telnet", label: "Telnet" },
+        { value: "rtt", label: "RTT" },
       ],
       onChange: (v) => {
         this.connKind = v;
@@ -303,6 +306,7 @@ class SessionApp {
         if ((v === "ssh" || v === "telnet") && (portEl.value === "" || portEl.value === "8888")) {
           portEl.value = v === "ssh" ? "22" : "23";
         }
+        if (v === "rtt") void this.refreshProbes();
         this.syncConnTypeUI();
       },
     });
@@ -386,9 +390,31 @@ class SessionApp {
     });
     this.q("#tcp-host-dd").replaceWith(this.tcpHostDd.el);
 
+    this.probeDd = createDropdown({ items: [], placeholder: "选择探针…", width: 150 });
+    this.q("#probe-dd").replaceWith(this.probeDd.el);
+    this.q("#refresh-probes").addEventListener("click", () => void this.refreshProbes());
+
     this.syncConnTypeUI();
 
     this.q("#connect-btn").addEventListener("click", () => this.toggleConnect());
+  }
+
+  async refreshProbes() {
+    try {
+      const probes = await listProbes();
+      this.probeDd.setItems(
+        probes.map((p) => ({
+          value: p.selector,
+          label: `${p.identifier} [${p.selector}]`,
+        })),
+      );
+      if (this.pendingProbe) {
+        this.probeDd.setValue(this.pendingProbe);
+        this.pendingProbe = "";
+      }
+    } catch (e) {
+      this.setHint(`探针枚举失败: ${e}`);
+    }
   }
 
   refreshTcpHostItems() {
@@ -415,9 +441,13 @@ class SessionApp {
 
   private syncConnTypeUI() {
     const isSerial = this.connKind === "serial";
-    const isNetwork = !isSerial;
+    const isRtt = this.connKind === "rtt";
+    const isNetwork =
+      this.connKind === "tcp_client" || this.connKind === "udp_client" ||
+      this.connKind === "ssh" || this.connKind === "telnet";
     const isSsh = this.connKind === "ssh";
     this.el.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
+    this.el.querySelectorAll<HTMLElement>(".rtt-only").forEach((el) => el.classList.toggle("hidden", !isRtt));
     this.portDd.el.classList.toggle("hidden", !isSerial);
     this.q("#refresh-ports").classList.toggle("hidden", !isSerial);
     this.baudDd.el.classList.toggle("hidden", !isSerial);
@@ -451,6 +481,18 @@ class SessionApp {
         alert("请先选择串口");
         return;
       }
+    } else if (this.connKind === "rtt") {
+      const probe = this.probeDd.value;
+      const chip = this.q<HTMLInputElement>("#rtt-chip").value.trim();
+      const up = Math.max(0, Number(this.q<HTMLInputElement>("#rtt-up").value) || 0);
+      const down = Math.max(0, Number(this.q<HTMLInputElement>("#rtt-down").value) || 0);
+      const addrRaw = this.q<HTMLInputElement>("#rtt-addr").value.trim();
+      const rtt_address = addrRaw ? Number(addrRaw) || 0 : null;
+      if (!chip) {
+        alert("请填写目标芯片名");
+        return;
+      }
+      cfg = { type: "rtt", probe_selector: probe, chip, up_channel: up, down_channel: down, rtt_address };
     } else {
       const host = this.tcpHostDd.value;
       const port = Number(this.q<HTMLInputElement>("#tcp-port").value) || 8888;
@@ -1076,6 +1118,11 @@ class SessionApp {
     r["conn.tcpport"] = (this.q("#tcp-port") as HTMLInputElement).value;
     r["conn.sshuser"] = (this.q("#ssh-user") as HTMLInputElement).value;
     r["conn.sshpass"] = (this.q("#ssh-pass") as HTMLInputElement).value;
+    r["conn.probe"] = this.probeDd.value;
+    r["conn.chip"] = (this.q("#rtt-chip") as HTMLInputElement).value;
+    r["conn.rttup"] = (this.q("#rtt-up") as HTMLInputElement).value;
+    r["conn.rttdown"] = (this.q("#rtt-down") as HTMLInputElement).value;
+    r["conn.rttaddr"] = (this.q("#rtt-addr") as HTMLInputElement).value;
     r["conn.autoreconn"] = this.q<HTMLInputElement>("#auto-reconnect").checked ? "1" : "";
     r["conn.dtr"] = this.dtrOn ? "1" : "";
     r["conn.rts"] = this.rtsOn ? "1" : "";
@@ -1131,6 +1178,14 @@ class SessionApp {
     if (g("conn.tcpport")) (this.q("#tcp-port") as HTMLInputElement).value = g("conn.tcpport");
     if (g("conn.sshuser")) (this.q("#ssh-user") as HTMLInputElement).value = g("conn.sshuser");
     if (g("conn.sshpass")) (this.q("#ssh-pass") as HTMLInputElement).value = g("conn.sshpass");
+    if (g("conn.probe")) {
+      this.pendingProbe = g("conn.probe");
+      this.probeDd.setValue(g("conn.probe"));
+    }
+    if (g("conn.chip")) (this.q("#rtt-chip") as HTMLInputElement).value = g("conn.chip");
+    if (g("conn.rttup")) (this.q("#rtt-up") as HTMLInputElement).value = g("conn.rttup");
+    if (g("conn.rttdown")) (this.q("#rtt-down") as HTMLInputElement).value = g("conn.rttdown");
+    if (g("conn.rttaddr")) (this.q("#rtt-addr") as HTMLInputElement).value = g("conn.rttaddr");
     if (g("conn.autoreconn")) this.q<HTMLInputElement>("#auto-reconnect").checked = true;
     if (g("conn.dtr")) {
       this.dtrOn = true;

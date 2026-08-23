@@ -8,7 +8,7 @@ use maxcom_core::filter::FilterRule;
 use maxcom_core::plot::format::DataFormat;
 use maxcom_core::stats::StatsSnapshot;
 use maxcom_engine::session::{LogOptions, PlotSnapshotDto, SendPayload, SessionManager};
-use maxcom_engine::transport::{ConnConfig, PortInfo};
+use maxcom_engine::transport::{ConnConfig, PortInfo, ProbeInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -65,6 +65,11 @@ impl From<LogOptionsDto> for LogOptions {
 #[tauri::command]
 pub fn list_ports() -> Vec<PortInfo> {
     maxcom_engine::transport::discover_serial_ports()
+}
+
+#[tauri::command]
+pub fn list_probes() -> Vec<ProbeInfo> {
+    maxcom_engine::transport::discover_probes()
 }
 
 #[tauri::command]

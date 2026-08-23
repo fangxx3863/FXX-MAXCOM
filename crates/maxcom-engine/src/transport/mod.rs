@@ -4,6 +4,8 @@
 //! 串口走 `serialport` crate（feature `serial`，Windows 目标默认启用）；
 //! TCP/UDP 用 std，全平台可测。
 
+#[cfg(feature = "rtt")]
+pub mod rtt;
 #[cfg(feature = "serial")]
 pub mod serial;
 pub mod ssh;
@@ -50,6 +52,23 @@ pub enum ConnConfig {
         host: String,
         port: u16,
     },
+    /// probe-rs RTT（仅 `rtt` feature 编译时可用传输；枚举始终存在以便序列化）
+    Rtt {
+        /// 探针选择器（"VID:PID" 或 "VID:PID:serial"，空 = 第一个探针）
+        #[serde(default)]
+        probe_selector: String,
+        /// 目标芯片名，如 "nrf52840"、"rp2040"、"stm32f103ct6"
+        chip: String,
+        /// up 通道（目标→主机，打印输出）
+        #[serde(default = "default_channel")]
+        up_channel: u32,
+        /// down 通道（主机→目标，发送）；默认与 up 相同
+        #[serde(default = "default_channel")]
+        down_channel: u32,
+        /// RTT 控制块起始地址（可选；提供后跳过扫描）
+        #[serde(default)]
+        rtt_address: Option<u64>,
+    },
 }
 
 fn default_baud() -> u32 {
@@ -63,6 +82,9 @@ fn default_parity() -> Parity {
 }
 fn default_stop_bits() -> StopBits {
     StopBits::One
+}
+fn default_channel() -> u32 {
+    0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -98,6 +120,9 @@ pub struct PortInfo {
     pub device: String,
     pub description: String,
 }
+
+#[cfg(feature = "rtt")]
+pub use rtt::ProbeInfo;
 
 /// 读取端：阻塞读，Ok(0) 表示本次超时无数据（作为空闲判定节拍）。
 pub trait TransportRead: Send {
@@ -138,6 +163,24 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
             password,
         } => ssh::open(host, *port, username, password),
         ConnConfig::Telnet { host, port } => telnet::open(host, *port),
+        #[cfg(feature = "rtt")]
+        ConnConfig::Rtt {
+            probe_selector,
+            chip,
+            up_channel,
+            down_channel,
+            rtt_address,
+        } => rtt::open(
+            probe_selector,
+            chip,
+            *up_channel as usize,
+            *down_channel as usize,
+            *rtt_address,
+        ),
+        #[cfg(not(feature = "rtt"))]
+        ConnConfig::Rtt { .. } => Err(io::Error::other(
+            "rtt support not compiled (feature \"rtt\")",
+        )),
         #[cfg(feature = "serial")]
         ConnConfig::Serial { .. } => serial::open(config),
         #[cfg(not(feature = "serial"))]
@@ -157,6 +200,12 @@ pub fn discover_serial_ports() -> Vec<PortInfo> {
     {
         Vec::new()
     }
+}
+
+/// 枚举调试探针。非 rtt feature / 无探针 → 空列表，绝不抛异常。
+#[cfg(feature = "rtt")]
+pub fn discover_probes() -> Vec<ProbeInfo> {
+    rtt::discover_probes()
 }
 
 impl ConnConfig {
@@ -181,6 +230,12 @@ impl ConnConfig {
                 }
                 if *port == 0 {
                     return Err(format!("非法端口: {port}"));
+                }
+                Ok(())
+            }
+            ConnConfig::Rtt { chip, .. } => {
+                if chip.trim().is_empty() {
+                    return Err("RTT 目标芯片为空".into());
                 }
                 Ok(())
             }

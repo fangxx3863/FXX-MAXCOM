@@ -17,7 +17,7 @@ serde_json = "1"
 base64 = "0.22"
 log = "0.4"
 maxcom-core = { path = "../../crates/maxcom-core" }
-maxcom-engine = { path = "../../crates/maxcom-engine" }
+maxcom-engine = { path = "../../crates/maxcom-engine", features = ["serial", "rtt"] }
 
 [features]
 # LDK: 本地开发可关掉串口以加速编译：cargo build --no-default-features

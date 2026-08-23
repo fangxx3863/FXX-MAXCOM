@@ -94,7 +94,9 @@ class MockBackend implements MockApi {
     this.label =
       config.type === "serial"
         ? `串口 ${config.port} @ ${config.baud}`
-        : `${config.type === "tcp_client" ? "TCP" : "UDP"} ${config.host}:${config.port}`;
+        : config.type === "rtt"
+          ? `RTT ${config.chip}#${config.up_channel}`
+          : `${config.type === "tcp_client" ? "TCP" : "UDP"} ${config.host}:${config.port}`;
     this.emitState();
     const tick = window.setInterval(() => this.pump(), 160);
     this.timers.push(tick);

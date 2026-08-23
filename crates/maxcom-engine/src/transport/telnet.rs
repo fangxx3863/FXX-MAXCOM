@@ -43,7 +43,7 @@ impl TransportRead for TelnetRead {
         let mut telnet = self
             .telnet
             .lock()
-            .map_err(|_| io::Error::new(ErrorKind::Other, "telnet mutex poisoned"))?;
+            .map_err(|_| io::Error::other("telnet mutex poisoned"))?;
 
         loop {
             match telnet.read_timeout(READ_TIMEOUT) {
@@ -83,7 +83,7 @@ impl TransportWrite for TelnetWrite {
         let mut telnet = self
             .telnet
             .lock()
-            .map_err(|_| io::Error::new(ErrorKind::Other, "telnet mutex poisoned"))?;
+            .map_err(|_| io::Error::other("telnet mutex poisoned"))?;
 
         let mut written = 0;
         while written < data.len() {

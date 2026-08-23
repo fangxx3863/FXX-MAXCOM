@@ -6,7 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "type": { "enum": ["serial", "tcp_client", "tcp_server", "udp_client", "udp_server", "ssh", "telnet", "winusb", "hid"] },
+    "type": { "enum": ["serial", "tcp_client", "tcp_server", "udp_client", "udp_server", "ssh", "telnet", "rtt", "winusb", "hid"] },
     "port": { "type": "string", "description": "串口号，如 COM3" },
     "alias": { "type": "string", "description": "自定义别名" },
     "baudrate": { "type": "integer", "minimum": 300 },
@@ -18,6 +18,11 @@
     "port_no": { "type": "integer", "description": "TCP/UDP 端口" },
     "username": { "type": "string", "description": "SSH 用户名" },
     "password": { "type": "string", "description": "SSH 密码（可选，为空时尝试 SSH Agent/常用私钥）" },
+    "probe_selector": { "type": "string", "description": "RTT 探针选择器（\"VID:PID\" 或 \"VID:PID:serial\"，空=第一个探针）" },
+    "chip": { "type": "string", "description": "RTT 目标芯片，如 nrf52840 / rp2040 / stm32f103ct6" },
+    "up_channel": { "type": "integer", "minimum": 0, "default": 0, "description": "RTT up 通道（目标→主机，打印输出）" },
+    "down_channel": { "type": "integer", "minimum": 0, "default": 0, "description": "RTT down 通道（主机→目标，发送）" },
+    "rtt_address": { "type": "integer", "description": "RTT 控制块起始地址（可选；提供后跳过扫描）" },
     "auto_reconnect": {
       "type": "object",
       "additionalProperties": false,

@@ -9,7 +9,16 @@ export type ConnConfig =
   | { type: "tcp_client"; host: string; port: number }
   | { type: "udp_client"; host: string; port: number }
   | { type: "ssh"; host: string; port: number; username: string; password?: string }
-  | { type: "telnet"; host: string; port: number };
+  | { type: "telnet"; host: string; port: number }
+  | { type: "rtt"; probe_selector: string; chip: string; up_channel: number; down_channel: number; rtt_address?: number | null };
+
+export interface ProbeInfo {
+  selector: string;
+  identifier: string;
+  vendor_id: string;
+  product_id: string;
+  serial: string;
+}
 
 export interface PortInfo {
   device: string;
