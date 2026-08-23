@@ -42,7 +42,7 @@ check("ohm P=6W", has(val(h, "#ohm-line"), "P = 6 W"));
 // ── LED 串联电阻（Vs=5, Vf=2, If=20mA → R=150, W=0.06）──
 h = set("led-resistor", [["#led-vs", "5"], ["#led-vf", "2"], ["#led-if", "20"], ["#led-ifu", "0.001"]]);
 check("led R=150", val(h, "#led-r") === "150");
-check("led W=0.06W", val(h, "#led-w") === "0.06 W");
+check("led W=0.06W", val(h, "#led-w") === "0.06");
 
 // ── PCB 线宽（I=1A, ΔT=10°C, 1oz → 外层 11.82624098mil, 内层 30.76525445mil）─
 h = set("pcb-trace-width", [["#pcb-i", "1"], ["#pcb-dt", "10"], ["#pcb-layer", "0.048"], ["#pcb-th", "1"], ["#pcb-thu", "0.035"]]);
@@ -81,13 +81,13 @@ check("vdiv vout=5", val(h, "#vd-vout") === "5");
 
 // ── 时间常数（1kΩ/100µF/10V → τ=0.1s, 能量0.005J）─
 h = set("time-constant", [["#tc-r", "1000"], ["#tc-ru", "1"], ["#tc-c", "100"], ["#tc-cu", "1e-6"], ["#tc-v", "10"]]);
-check("tc τ=0.1s", val(h, "#tc-out") === "0.1 s");
-check("tc E=0.005J", val(h, "#tc-e") === "0.005 J");
+check("tc τ=0.1s", val(h, "#tc-out") === "0.1");
+check("tc E=0.005J", val(h, "#tc-e") === "0.005");
 
 // ── 三相（400V/10A → S=√3·V·I=6928.2VA；pf 由用户输入）─
 h = set("three-phase", [["#tp-v", "400"], ["#tp-i", "10"], ["#tp-pf", "1"]]);
-check("3phase S=6928", val(h, "#tp-s").startsWith("6928.20"));
-check("3phase P=S*pf", val(h, "#tp-p").startsWith("6928.20"));
+check("3phase S=6.928kVA", val(h, "#tp-s") === "6.928203");
+check("3phase P=S*pf", val(h, "#tp-p") === "6.928203");
 check("3phase Q=0@pf1", val(h, "#tp-q") === "0");
 
 // ── 频率波长（300MHz → 0.9993m，采用精确光速 299792458）─
@@ -146,8 +146,8 @@ check("colorcode 6band tempcoef", has(val(h, ".tool-resultline"), "100 ppm/K"));
 
 // ── 并联/串联电容（2×10µF → 并联20µF, 串联5µF）─
 h = set("parallel-series-cap", [["#cap-c1", "10"]]);
-check("pcap par=20µF", has(val(h, "#cap-par"), "0.00002"));
-check("pcap ser=5µF", has(val(h, "#cap-ser"), "0.000005"));
+check("pcap par=20µF", val(h, "#cap-par") === "20 µF");
+check("pcap ser=5µF", val(h, "#cap-ser") === "5 µF");
 
 // ── 单位换算（标准值）──
 function unit(id, from, to, input) {

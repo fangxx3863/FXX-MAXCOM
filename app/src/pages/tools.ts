@@ -82,6 +82,43 @@ function fmtCap(pf: number): string {
   return `${fmt(pf)} pF`;
 }
 
+// ── 通用工程计数法 ──
+// 把数值缩放进 [1e-3, 1e3) 的尾数并配 SI 前缀：0.00002 F → 20 µF、500000 Ω → 500 kΩ、
+// 5000 W → 5 kW；而 0.5 W、6 W、0.1 s、0.005 J、0.0628 Ω 等本例原值保持不动，
+// 避免把已可读的小数值强行压成 mW/mJ/mΩ。
+function engScale(v: number): { m: number; p: string } {
+  if (!Number.isFinite(v)) return { m: v, p: "" };
+  if (v === 0) return { m: 0, p: "" };
+  const a = Math.abs(v);
+  if (a >= 1e9) return { m: v / 1e9, p: "G" };
+  if (a >= 1e6) return { m: v / 1e6, p: "M" };
+  if (a >= 1e3) return { m: v / 1e3, p: "k" };
+  if (a >= 1e-3) return { m: v, p: "" };
+  if (a >= 1e-6) return { m: v * 1e6, p: "µ" };
+  if (a >= 1e-9) return { m: v * 1e9, p: "n" };
+  return { m: v * 1e12, p: "p" };
+}
+
+// 值+单位 一体字符串：如 20 µF、500 kΩ、5 kW。
+function fmtEng(v: number, unit: string): string {
+  if (!Number.isFinite(v)) return "—";
+  const { m, p } = engScale(v);
+  return `${fmt(m)} ${p}${unit}`.trim();
+}
+
+// 把「数值放 input、单位放 tool-suffix span」的输出赋值：数值按工程计数缩放到尾数，
+// span 文字设为 前缀+单位（如 500 | kΩ）。返回一个 setter 供 update 复用。
+function setEng(input: HTMLInputElement, baseUnit: string): (v: number) => void {
+  const sfx = input.parentElement?.querySelector<HTMLElement>(".tool-suffix");
+  return (v: number) => {
+    if (!Number.isFinite(v)) { input.value = ""; if (sfx) sfx.textContent = baseUnit; return; }
+    if (v === 0) { input.value = "0"; if (sfx) sfx.textContent = baseUnit; return; }
+    const { m, p } = engScale(v);
+    input.value = fmt(m);
+    if (sfx) sfx.textContent = p + baseUnit;
+  };
+}
+
 // ── 通用单位换算器 ──
 interface UnitDef {
   id: string;
@@ -283,7 +320,7 @@ function build555(host: HTMLElement): ToolController {
     // 且时间单位须跟随所选单位，不能写死 ms。改用可换行的 resultline 展示。
     const unit = os.selectedOptions[0].textContent;
     lines.textContent =
-      `${t("tools.555.freq")} ${fmt(a.freq)} Hz\n` +
+      `${t("tools.555.freq")} ${fmtEng(a.freq, "Hz")}\n` +
       `${t("tools.555.tHigh")} ${fmt(a.tHigh / om)} ${unit}\n` +
       `${t("tools.555.tLow")} ${fmt(a.tLow / om)} ${unit}\n` +
       `${t("tools.555.duty")} ${fmt(a.duty * 100, 4)} %`;
@@ -459,10 +496,10 @@ function buildCapacitorDischarge(host: HTMLElement): ToolController {
     const rr = r * ru;
     const cc = c * cu;
     const d = capDischarge(cc, v0, vs, rr);
-    (host.querySelector("#capd-t") as HTMLInputElement).value = fmt(d.time);
-    (host.querySelector("#capd-p") as HTMLInputElement).value = fmt(d.power);
-    (host.querySelector("#capd-tau") as HTMLInputElement).value = fmt(d.tau);
-    (host.querySelector("#capd-e") as HTMLInputElement).value = fmt(d.energy);
+    setEng(host.querySelector<HTMLInputElement>("#capd-t")!, "s")(d.time);
+    setEng(host.querySelector<HTMLInputElement>("#capd-p")!, "W")(d.power);
+    setEng(host.querySelector<HTMLInputElement>("#capd-tau")!, "s")(d.tau);
+    setEng(host.querySelector<HTMLInputElement>("#capd-e")!, "J")(d.energy);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -506,9 +543,9 @@ function buildCurrentDivider(host: HTMLElement): ToolController {
     }
     const total = 1 / list.reduce<number>((a, x) => a + 1 / x!, 0);
     rows.querySelectorAll<HTMLInputElement>(".cd-out").forEach((o, idx) => {
-      o.value = fmt((is * iu * total) / list[idx]!);
+      setEng(o, "A")((is * iu * total) / list[idx]!);
     });
-    result.textContent = `I_total = ${fmt(is * iu)} A, R_total = ${fmt(total)} Ω`;
+    result.textContent = `I_total = ${fmtEng(is * iu, "A")}, R_total = ${fmtEng(total, "Ω")}`;
   };
   rows.addEventListener("input", update);
   rows.addEventListener("change", update);
@@ -544,11 +581,7 @@ function buildVoltageDivider(host: HTMLElement): ToolController {
     }
     return out;
   };
-  const fmtRes = (v: number) => {
-    if (v >= 1e6) return `${fmt(v / 1e6)} MΩ`;
-    if (v >= 1e3) return `${fmt(v / 1e3)} KΩ`;
-    return `${fmt(v)} Ω`;
-  };
+  const fmtRes = (v: number) => fmtEng(v, "Ω");
   const resultRow = (r: { r1: number; r2: number; out: number }) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -598,12 +631,13 @@ function buildVoltageDivider(host: HTMLElement): ToolController {
     const r2 = num((host.querySelector("#vd-r2") as HTMLInputElement).value);
     const r1u = Number((host.querySelector("#vd-r1u") as HTMLSelectElement).value);
     const r2u = Number((host.querySelector("#vd-r2u") as HTMLSelectElement).value);
+    const voutEl = host.querySelector<HTMLInputElement>("#vd-vout")!;
     if (vin === null || r1 === null || r2 === null || r1 * r1u + r2 * r2u === 0) {
-      (host.querySelector("#vd-vout") as HTMLInputElement).value = "";
+      voutEl.value = "";
       return;
     }
     const vout = vin * (r2 * r2u) / (r1 * r1u + r2 * r2u);
-    (host.querySelector("#vd-vout") as HTMLInputElement).value = fmt(vout);
+    setEng(voutEl, "V")(vout);
   };
   const updateFit = () => {
     const vin = num((host.querySelector("#fd-vin") as HTMLInputElement).value);
@@ -703,8 +737,8 @@ function buildLedResistor(host: HTMLElement): ToolController {
       (host.querySelector("#led-w") as HTMLInputElement).value = "";
       return;
     }
-    (host.querySelector("#led-r") as HTMLInputElement).value = fmt(ledResistor(vs, vf, ifv * ifu));
-    (host.querySelector("#led-w") as HTMLInputElement).value = fmt(ledPower(vs, vf, ifv * ifu)) + " W";
+    setEng(host.querySelector<HTMLInputElement>("#led-r")!, "Ω")(ledResistor(vs, vf, ifv * ifu));
+    setEng(host.querySelector<HTMLInputElement>("#led-w")!, "W")(ledPower(vs, vf, ifv * ifu));
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -730,15 +764,17 @@ function buildOhm(host: HTMLElement): ToolController {
     const iu = Number((host.querySelector("#ohm-iu") as HTMLSelectElement).value);
     const iOut = host.querySelector<HTMLInputElement>("#ohm-r")!;
     const line = host.querySelector<HTMLElement>("#ohm-line")!;
+    const setOut = setEng(iOut, "Ω");
     if (v === null || i === null || i * iu === 0) {
       iOut.value = "";
       line.textContent = "";
       return;
     }
     const o = ohmLaw(v, i * iu);
-    // 功率 P 是独立结果，不应塞进带 Ω 后缀的电阻输入框（会被截断且单位重复）
-    iOut.value = fmt(o.r);
-    line.textContent = t("tools.ohm.power", { p: fmt(o.p) });
+    // 功率 P 是独立结果，不应塞进带 Ω 后缀的电阻输入框（会被截断且单位重复）；
+    // 阻值/功率都用工程计数法缩放（500000→500 kΩ、5000→5 kW）
+    setOut(o.r);
+    line.textContent = t("tools.ohm.power", { p: fmtEng(o.p, "W") });
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -783,7 +819,7 @@ function buildFilter(host: HTMLElement): ToolController {
     if (ftype === "rc") formula.innerHTML = bandSpan + math("f_c = \\dfrac{1}{2\\pi RC}");
     else if (ftype === "rl") formula.innerHTML = bandSpan + math("f_c = \\dfrac{R}{2\\pi L}");
     else formula.innerHTML = bandSpan + math("f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}");
-    (host.querySelector("#flt-f") as HTMLInputElement).value = f === null ? "" : fmt(f) + " Hz";
+    setEng(host.querySelector<HTMLInputElement>("#flt-f")!, "Hz")(f === null ? NaN : f);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -912,8 +948,8 @@ function buildParallelSeriesCapacitor(host: HTMLElement): ToolController {
     });
     const par = parallelCap(values);
     const ser = seriesCap(values);
-    (host.querySelector("#cap-par") as HTMLInputElement).value = par === null ? "" : fmt(par) + " F";
-    (host.querySelector("#cap-ser") as HTMLInputElement).value = ser === null ? "" : fmt(ser) + " F";
+    (host.querySelector("#cap-par") as HTMLInputElement).value = par === null ? "" : fmtEng(par, "F");
+    (host.querySelector("#cap-ser") as HTMLInputElement).value = ser === null ? "" : fmtEng(ser, "F");
   };
   host.querySelector("#cap-add")!.addEventListener("click", () => { row(); update(); });
   host.querySelector("#cap-remove")!.addEventListener("click", () => {
@@ -1142,8 +1178,8 @@ function buildTimeConstant(host: HTMLElement): ToolController {
       (host.querySelector("#tc-e") as HTMLInputElement).value = "";
       return;
     }
-    (host.querySelector("#tc-out") as HTMLInputElement).value = fmt(rcTau(r * ru, c * cu)) + " s";
-    (host.querySelector("#tc-e") as HTMLInputElement).value = v === null ? "" : fmt(0.5 * c * cu * v * v) + " J";
+    setEng(host.querySelector<HTMLInputElement>("#tc-out")!, "s")(rcTau(r * ru, c * cu));
+    setEng(host.querySelector<HTMLInputElement>("#tc-e")!, "J")(v === null ? NaN : 0.5 * c * cu * v * v);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -1192,11 +1228,11 @@ function buildThreePhase(host: HTMLElement): ToolController {
     const q = s * Math.sqrt(1 - pf * pf);
     const vph = conn === "delta" ? v : v / Math.sqrt(3);
     const iph = conn === "delta" ? i / Math.sqrt(3) : i;
-    (host.querySelector("#tp-s") as HTMLInputElement).value = fmt(s);
-    (host.querySelector("#tp-p") as HTMLInputElement).value = fmt(p);
-    (host.querySelector("#tp-q") as HTMLInputElement).value = fmt(q);
-    (host.querySelector("#tp-vph") as HTMLInputElement).value = fmt(vph);
-    (host.querySelector("#tp-iph") as HTMLInputElement).value = fmt(iph);
+    setEng(host.querySelector<HTMLInputElement>("#tp-s")!, "VA")(s);
+    setEng(host.querySelector<HTMLInputElement>("#tp-p")!, "W")(p);
+    setEng(host.querySelector<HTMLInputElement>("#tp-q")!, "var")(q);
+    setEng(host.querySelector<HTMLInputElement>("#tp-vph")!, "V")(vph);
+    setEng(host.querySelector<HTMLInputElement>("#tp-iph")!, "A")(iph);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -1221,7 +1257,7 @@ function buildFrequencyWavelength(host: HTMLElement): ToolController {
       (host.querySelector("#fw-w") as HTMLInputElement).value = "";
       return;
     }
-    (host.querySelector("#fw-w") as HTMLInputElement).value = fmt(299792458 / (f * fu)) + " m";
+    setEng(host.querySelector<HTMLInputElement>("#fw-w")!, "m")(299792458 / (f * fu));
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -1409,7 +1445,7 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
     const areaMils2 = (i / (k * dt ** 0.44)) ** (1 / 0.725);
     const widthMil = areaMils2 / thickMil;
     const widthMm = widthMil * 0.0254;
-    (host.querySelector("#pcb-w") as HTMLInputElement).value = fmt(widthMm) + " mm";
+    setEng(host.querySelector<HTMLInputElement>("#pcb-w")!, "mm")(widthMm);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -1461,8 +1497,8 @@ function buildAttenuator(host: HTMLElement): ToolController {
       r2.value = "";
       formula.innerHTML = math("R_{hi}=Z_0\\dfrac{K+1}{K-1},\\quad R_{lo}=Z_0\\dfrac{K-1}{K+1},\\quad K=10^{A_{dB}/20}");
     } else {
-      r1.value = fmt(res.r1);
-      r2.value = res.r2 === null ? "" : fmt(res.r2);
+      setEng(r1, "Ω")(res.r1);
+      setEng(r2, "Ω")(res.r2 === null ? NaN : res.r2);
       const f = type() === "pi"
         ? math("R_1 = Z_0 \\dfrac{K+1}{K-1},\\quad R_2 = \\dfrac{Z_0}{2}\\dfrac{K^2-1}{K},\\quad K=10^{A_{dB}/20}")
         : type() === "bridgeT"
@@ -1543,8 +1579,8 @@ function buildParallelSeriesResistor(host: HTMLElement): ToolController {
     });
     const ser = seriesRes(values);
     const par = parallelRes(values);
-    (host.querySelector("#res-ser") as HTMLInputElement).value = ser === null ? "" : fmt(ser) + " Ω";
-    (host.querySelector("#res-par") as HTMLInputElement).value = par === null ? "" : fmt(par) + " Ω";
+    (host.querySelector("#res-ser") as HTMLInputElement).value = ser === null ? "" : fmtEng(ser, "Ω");
+    (host.querySelector("#res-par") as HTMLInputElement).value = par === null ? "" : fmtEng(par, "Ω");
   };
   host.querySelector("#res-add")!.addEventListener("click", () => { row(); update(); });
   host.querySelector("#res-remove")!.addEventListener("click", () => {
@@ -1586,8 +1622,8 @@ function buildReactance(host: HTMLElement): ToolController {
       return;
     }
     const r = rx(f * fu, l * lu, c * cu);
-    (host.querySelector("#rx-xl") as HTMLInputElement).value = fmt(r.xl);
-    (host.querySelector("#rx-xc") as HTMLInputElement).value = fmt(r.xc);
+    setEng(host.querySelector<HTMLInputElement>("#rx-xl")!, "Ω")(r.xl);
+    setEng(host.querySelector<HTMLInputElement>("#rx-xc")!, "Ω")(r.xc);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
