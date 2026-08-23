@@ -258,6 +258,9 @@ const zh: Dict = {
   // ── 协议页（Modbus RTU）──
   "protocol.notConnected": "未连接（请在顶部栏连接串口/网络）",
   "protocol.connected": "已连接（复用顶部栏连接）",
+  "protocol.modbus": "Modbus RTU",
+  "protocol.can": "CAN",
+  "protocol.canSoon": "CAN 协议即将上线，敬请期待",
   "protocol.txBuf": "发送缓冲区",
   "protocol.rxBuf": "接收缓冲区",
   "protocol.clear": "清空数据",
@@ -614,6 +617,9 @@ const en: Dict = {
   // ── Protocol page (Modbus RTU) ──
   "protocol.notConnected": "Not connected (connect a serial/network in the top bar)",
   "protocol.connected": "Connected (uses top-bar connection)",
+  "protocol.modbus": "Modbus RTU",
+  "protocol.can": "CAN",
+  "protocol.canSoon": "CAN coming soon",
   "protocol.txBuf": "TX buffer",
   "protocol.rxBuf": "RX buffer",
   "protocol.clear": "Clear data",

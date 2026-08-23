@@ -721,19 +721,39 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 /* ── 协议页（Modbus RTU）── */
 #page-protocol { padding: 16px 20px; overflow-y: auto; }
 .proto-page { display: flex; flex-direction: column; gap: 14px; max-width: 1080px; width: 100%; margin: 0 auto; }
+/* 协议切换条：横向排开，可随协议增多滚动 */
+.proto-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.proto-tab {
+  padding: 6px 16px; border-radius: 8px;
+  background: var(--bg2); border: 1px solid var(--border);
+  color: var(--fg-dim); font-size: 13px; cursor: pointer;
+}
+.proto-tab:hover { color: var(--fg); border-color: var(--accent); }
+.proto-tab.active {
+  background: var(--accent); color: #10131a; border-color: transparent; font-weight: 600;
+}
 .proto-status {
   display: flex; align-items: center; gap: 8px;
   padding: 10px 14px; border-radius: 10px;
   background: var(--bg2); border: 1px solid var(--border);
   color: var(--fg-dim); font-size: 13px;
 }
+/* 协议面板宿主：每次只显示一个 */
+.proto-stack { display: block; }
+.proto-panel { display: flex; flex-direction: column; gap: 12px; }
+/* 未实现协议的占位提示 */
+.proto-can {
+  padding: 48px 20px; text-align: center; color: var(--fg-dim);
+  background: var(--bg2); border: 1px dashed var(--border); border-radius: 10px;
+}
 .proto-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 12px; align-items: start;
+  gap: 12px; align-items: stretch;
 }
 .proto-card {
   background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
   padding: 2px 14px 12px; min-width: 0;
+  display: flex; flex-direction: column;
 }
 .proto-card-head {
   font-weight: 600; font-size: 13px; padding: 12px 0 10px;
