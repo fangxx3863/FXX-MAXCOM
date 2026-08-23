@@ -330,8 +330,7 @@ export class PlotPage {
         // 右侧柱状表占用宽度后，波形区域要相应扣除
         targetW = Math.max(220, cell.clientWidth - side.clientWidth - 6 - 10);
       }
-      const bodyH = host?.clientHeight || cell.clientHeight;
-      const inner = bodyH - 10; // 减 body 上下 padding+border
+      const inner = cell.clientHeight - 10; // 减 cell 上下 padding+border
       const delta = inner - p.root.offsetHeight; // 正=画布偏小，负=偏大
       const nextH = Math.max(80, p.height + delta);
       if (Math.abs(delta) > 2 || Math.abs(p.width - targetW) > 3) {
