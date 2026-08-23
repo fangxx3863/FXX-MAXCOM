@@ -14,9 +14,10 @@ import { PlotPage, Y_PRESETS, type PlotLayout, type ViewMode } from "./pages/plo
 import { StatsPage } from "./pages/stats";
 import { FlashPage, type FlashRunConfig } from "./pages/flash";
 import { RulesPanel, type RulesSnapshot } from "./pages/rules";
+import { ProtocolPage } from "./pages/protocol";
 
-type PageId = "terminal" | "logview" | "plot" | "stats" | "flash" | "settings";
-const PAGES: readonly PageId[] = ["terminal", "logview", "plot", "stats", "flash", "settings"];
+type PageId = "terminal" | "logview" | "plot" | "stats" | "flash" | "protocol" | "settings";
+const PAGES: readonly PageId[] = ["terminal", "logview", "plot", "stats", "flash", "protocol", "settings"];
 
 interface MsRow {
   enabled: boolean;
@@ -222,6 +223,7 @@ class SessionApp {
   statsPage!: StatsPage;
   flashPage!: FlashPage;
   rulesPanel!: RulesPanel;
+  protocolPage!: ProtocolPage;
 
   connTypeDd!: DropdownHandle;
   portDd!: DropdownHandle;
@@ -598,6 +600,7 @@ class SessionApp {
     this.stateLabel = s.label ? displayLabel(s.label) : s.label;
     this.lastError = s.error ?? null;
     if (!s.connected) this.terminalPage.clear();
+    this.protocolPage.setConnected(s.connected);
     const dot = this.q("#conn-state");
     dot.className = `dot ${s.connected ? "on" : "off"}`;
     dot.title = s.error ?? (s.connected ? t("state.connected") : t("state.disconnected"));
@@ -648,6 +651,8 @@ class SessionApp {
     );
     // 规则面板：初始规则来自标签快照；变更即推本会话引擎，值级持久化交给轮询
     this.rulesPanel = new RulesPanel(this.el, this.api, rules0, () => {});
+    // 协议页：传输复用本会话顶部栏连接（发送走 api.send，响应走 onRaw 原始流）
+    this.protocolPage = new ProtocolPage(this.q("#page-protocol"), this.api, () => this.connected);
 
     this.el.querySelectorAll<HTMLButtonElement>("#sidebar button").forEach((btn) => {
       btn.addEventListener("click", () => this.switchPage(btn.dataset.page as PageId));
@@ -1222,6 +1227,7 @@ class SessionApp {
     r["plot.buffer"] = (this.q("#plot-buffer") as HTMLInputElement).value;
     r["rulesjson"] = JSON.stringify(this.rulesPanel.snapshot());
     r["msjson"] = JSON.stringify(this.msRows);
+    r["protjson"] = JSON.stringify(this.protocolPage.snapshot());
     return r;
   }
 
@@ -1311,6 +1317,13 @@ class SessionApp {
     if (g("plot.ymin")) (this.q("#plot-ymin") as HTMLInputElement).value = g("plot.ymin");
     if (g("plot.ymax")) (this.q("#plot-ymax") as HTMLInputElement).value = g("plot.ymax");
     if (g("plot.buffer")) (this.q("#plot-buffer") as HTMLInputElement).value = g("plot.buffer");
+    if (g("protjson")) {
+      try {
+        this.protocolPage.applySnapshot(JSON.parse(g("protjson")) as Record<string, string>);
+      } catch {
+        /* 忽略坏数据 */
+      }
+    }
     this.applyLogOptions();
   }
 
@@ -1604,7 +1617,12 @@ setInterval(() => {
 }, 1200);
 
 // ── 全局事件路由：负载带 session 标签，分发到对应标签页 ──
-onRaw((e) => sessions.get(e.session)?.terminalPage.feed(e.bytes));
+onRaw((e) => {
+  const s = sessions.get(e.session);
+  if (!s) return;
+  s.terminalPage.feed(e.bytes);
+  s.protocolPage.onRaw(e.bytes);
+});
 onEntries((e) => sessions.get(e.session)?.logViewPage.append(e.batch));
 onState((e) => sessions.get(e.session)?.applyConnState(e.state));
 
