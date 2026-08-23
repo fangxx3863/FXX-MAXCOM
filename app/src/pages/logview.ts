@@ -1,6 +1,7 @@
 // 传统收发页（模式 B）：时间戳 + 自动染色 + 过滤 + 发送面板
 // 控件所有权在 main.ts（自绘下拉），本类只收：视图、自动滚动框、时间戳模式取值器
 import type { EntriesBatch, LogEntryDto } from "../types";
+import { t } from "../i18n";
 
 const MAX_LINES = 100_000; // ADR-0010：接收区上限，超出丢旧行
 
@@ -95,7 +96,7 @@ export class LogViewPage {
       // HEX 模式：原始字节十六进制（染色让位——二进制没有"颜色语义"）
       const s = document.createElement("span");
       s.className = "log-hex";
-      s.textContent = e.raw_hex || "(空)";
+      s.textContent = e.raw_hex || t("log.empty");
       div.appendChild(s);
       return div;
     }

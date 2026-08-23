@@ -6,6 +6,7 @@ import { createDropdown, type DropdownHandle } from "../dropdown";
 import { IS_TAURI, flashFirmware, listChips, listProbes, pickFirmwarePath } from "../api";
 import { flattenChips, withAuto } from "../chips";
 import type { FlashConfig } from "../types";
+import { t } from "../i18n";
 
 export interface RttDefaults {
   up_channel: number;
@@ -45,7 +46,7 @@ export class FlashPage {
     this.onRun = onRun;
     this.getRttDefaults = getRttDefaults;
 
-    const probeDd = createDropdown({ items: [], placeholder: "选择探针…", width: 220 });
+    const probeDd = createDropdown({ items: [], placeholder: t("conn.probe.placeholder"), width: 220 });
     this.probeDd = probeDd;
     this.q<HTMLElement>("#flash-probe-dd").replaceWith(probeDd.el);
 
@@ -53,7 +54,7 @@ export class FlashPage {
       items: withAuto([]),
       value: "auto",
       editable: true,
-      placeholder: "芯片",
+      placeholder: t("conn.chip.placeholder"),
       width: 220,
     });
     this.chipDd = chipDd;
@@ -64,9 +65,9 @@ export class FlashPage {
 
     const formatDd = createDropdown({
       items: [
-        { value: "auto", label: "自动" },
+        { value: "auto", label: t("format.auto") },
         { value: "elf", label: "ELF" },
-        { value: "hex", label: "Intel HEX" },
+        { value: "hex", label: t("format.hex") },
         { value: "bin", label: "BIN" },
         { value: "uf2", label: "UF2" },
       ],
@@ -117,7 +118,7 @@ export class FlashPage {
         label: `${p.identifier} [${p.selector}]`,
       })));
     } catch (e) {
-      this.status(`探针枚举失败: ${e}`, true);
+      this.status(t("probe.enumerate.error", { e }), true);
     }
   }
 
@@ -159,13 +160,13 @@ export class FlashPage {
   async flash(runAfter: boolean) {
     if (this.busy) return;
     const cfg = this.config();
-    if (!cfg.path) return this.status("请先选择固件文件", true);
+    if (!cfg.path) return this.status(t("flash.noFile"), true);
 
     this.setBusy(true);
-    this.status(`正在烧录 ${cfg.path} …`);
+    this.status(t("flash.flashing", { path: cfg.path }));
     try {
       const msg = await flashFirmware(cfg);
-      this.status(runAfter ? `${msg}，正在连接 RTT…` : msg);
+      this.status(runAfter ? t("flash.connectingRtt", { msg }) : msg);
       if (runAfter) {
         const d = this.getRttDefaults();
         this.onRun({
@@ -177,7 +178,7 @@ export class FlashPage {
         });
       }
     } catch (e) {
-      this.status(`烧录失败: ${e}`, true);
+      this.status(t("flash.error", { e }), true);
     } finally {
       this.setBusy(false);
     }

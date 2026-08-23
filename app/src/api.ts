@@ -9,6 +9,7 @@ import type {
   PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import { getMock, mockOnRaw, mockOnEntries, mockOnState } from "./mock";
+import { t } from "./i18n";
 
 export const EV_RAW = "conn://raw";
 export const EV_ENTRIES = "conn://entries";
@@ -121,8 +122,8 @@ export async function listChips(): Promise<ChipFamilyInfo[]> {
 export async function flashFirmware(config: FlashConfig): Promise<string> {
   if (!IS_TAURI) {
     await new Promise((r) => setTimeout(r, 400));
-    if (!config.path.trim()) throw "未选择固件文件";
-    return `烧录完成（演示）: ${config.chip}`;
+    if (!config.path.trim()) throw t("flash.noFile");
+    return t("flash.demoDone", { chip: config.chip });
   }
   return await invoke<string>("flash_firmware", { config });
 }
@@ -135,8 +136,8 @@ export async function pickFirmwarePath(): Promise<string | null> {
     multiple: false,
     directory: false,
     filters: [
-      { name: "固件", extensions: ["elf", "hex", "ihx", "bin", "uf2", "out", "axf"] },
-      { name: "所有文件", extensions: ["*"] },
+      { name: t("flash.filterFirmware"), extensions: ["elf", "hex", "ihx", "bin", "uf2", "out", "axf"] },
+      { name: t("flash.filterAll"), extensions: ["*"] },
     ],
   });
   return typeof picked === "string" ? picked : null;

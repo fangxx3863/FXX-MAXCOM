@@ -5,6 +5,7 @@ import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 import type { PlotSnapshotDto } from "../types";
 import { pickSavePath, saveTextFile } from "../api";
+import { t } from "../i18n";
 
 export const CH_COLORS = ["#4da3ff", "#33cc70", "#ffb340", "#ff5544", "#c792ea", "#33d1d1", "#f7a8b8", "#a3e635"];
 
@@ -181,7 +182,7 @@ export class PlotPage {
     this.syncSizes();
     if (needWave) this.updateWave(snap);
     if (needBars) this.updateBars(snap);
-    this.info.textContent = `总点数 ${snap.total_points}`;
+    this.info.textContent = t("plot.totalPoints", { n: snap.total_points });
   }
 
   // ── 重建 ──
@@ -518,11 +519,11 @@ export class PlotPage {
       chip.className = "ch-chip";
       chip.dataset.ch = String(i);
       chip.innerHTML =
-        `<input type="color" class="ch-color" value="${st.color}" title="通道颜色" />` +
+        `<input type="color" class="ch-color" value="${st.color}" title="${t("plot.chColor")}" />` +
         `<span class="ch-name">${this.labelFor(i)}</span>` +
-        `<label class="chk" title="显示通道"><input type="checkbox" class="ch-vis" ${st.visible ? "checked" : ""} /></label>` +
-        `<span class="ch-io" title="增益">×<input type="number" class="ch-gain" value="${st.gain}" step="0.1" /></span>` +
-        `<span class="ch-io" title="偏移">+<input type="number" class="ch-off" value="${st.offset}" step="1" /></span>`;
+        `<label class="chk" title="${t("plot.chShow")}"><input type="checkbox" class="ch-vis" ${st.visible ? "checked" : ""} /></label>` +
+        `<span class="ch-io" title="${t("plot.chGain")}">×<input type="number" class="ch-gain" value="${st.gain}" step="0.1" /></span>` +
+        `<span class="ch-io" title="${t("plot.chOffset")}">+<input type="number" class="ch-off" value="${st.offset}" step="1" /></span>`;
       frag.appendChild(chip);
     });
     this.chbar.replaceChildren(frag);

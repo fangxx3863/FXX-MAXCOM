@@ -9,6 +9,7 @@ import type {
   PlotSnapshotDto, PortInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import type { ColoredSegment } from "./types";
+import { t } from "./i18n";
 
 type Listener<T> = (payload: T) => void;
 
@@ -89,14 +90,18 @@ class MockBackend implements MockApi {
   }
 
   async connect(config: ConnConfig) {
-    if (this.connected) throw "已有活动连接（先断开再连）";
+    if (this.connected) throw t("mock.busy");
     this.connected = true;
     this.label =
       config.type === "serial"
-        ? `串口 ${config.port} @ ${config.baud}`
+        ? t("conn.label.serial", { port: config.port, baud: config.baud })
         : config.type === "rtt"
-          ? `RTT ${config.chip}#${config.up_channel}`
-          : `${config.type === "tcp_client" ? "TCP" : "UDP"} ${config.host}:${config.port}`;
+          ? t("conn.label.rtt", { chip: config.chip, up: config.up_channel })
+          : t("conn.label.net", {
+              proto: config.type === "tcp_client" ? "TCP" : "UDP",
+              host: config.host,
+              port: config.port,
+            });
     this.emitState();
     const tick = window.setInterval(() => this.pump(), 160);
     this.timers.push(tick);
@@ -110,7 +115,7 @@ class MockBackend implements MockApi {
   }
 
   async send(payload: SendPayload) {
-    if (!this.connected) throw "未连接";
+    if (!this.connected) throw t("mock.notConnected");
     let bytes: Uint8Array;
     if (payload.hex) {
       const clean = payload.hex.replace(/\s+/g, "");

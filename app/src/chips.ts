@@ -3,6 +3,7 @@
 
 import type { ChipFamilyInfo } from "./types";
 import type { DropdownItem } from "./dropdown";
+import { t } from "./i18n";
 
 /**
  * 把 probe-rs 家族列表展开为去重、小写、字母排序的候选 chip 名。
@@ -28,5 +29,5 @@ export function flattenChips(fams: ChipFamilyInfo[]): DropdownItem[] {
 
 /** 在候选列表最前加“自动检测”项（value = "auto"）。 */
 export function withAuto(items: DropdownItem[]): DropdownItem[] {
-  return [{ value: "auto", label: "自动检测" }, ...items];
+  return [{ value: "auto", label: t("chip.auto") }, ...items];
 }

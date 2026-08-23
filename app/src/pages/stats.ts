@@ -1,5 +1,6 @@
 // 统计页：连接统计卡片 + 每通道指标表
 import type { ChannelMetrics, PlotSnapshotDto, StatsSnapshot } from "../types";
+import { t } from "../i18n";
 
 const CH_COLORS = ["#4da3ff", "#33cc70", "#ffb340", "#ff5544", "#c792ea", "#33d1d1", "#f7a8b8", "#a3e635"];
 
@@ -22,12 +23,12 @@ export class StatsPage {
 
   updateConn(s: StatsSnapshot) {
     const items: [string, string][] = [
-      ["RX 字节", fmtBytes(s.rx_bytes)],
-      ["TX 字节", fmtBytes(s.tx_bytes)],
-      ["RX 速率", `${s.rx_rate_kbs.toFixed(2)} KB/s`],
-      ["TX 速率", `${s.tx_rate_kbs.toFixed(2)} KB/s`],
-      ["CRC 错误", String(s.crc_errors)],
-      ["帧错误", String(s.frame_errors)],
+      [t("stats.rxBytes"), fmtBytes(s.rx_bytes)],
+      [t("stats.txBytes"), fmtBytes(s.tx_bytes)],
+      [t("stats.rxRate"), `${s.rx_rate_kbs.toFixed(2)} KB/s`],
+      [t("stats.txRate"), `${s.tx_rate_kbs.toFixed(2)} KB/s`],
+      [t("stats.crcErrors"), String(s.crc_errors)],
+      [t("stats.frameErrors"), String(s.frame_errors)],
     ];
     this.cards.replaceChildren(
       ...items.map(([k, v]) => {
@@ -46,7 +47,10 @@ export class StatsPage {
   }
 
   updateChannels(snap: PlotSnapshotDto) {
-    const cols = ["通道", "当前值", "样本数", "均值", "标准差", "方差", "最小", "最大", "峰峰值", "RMS"];
+    const cols = [
+      t("stats.ch"), t("stats.current"), t("stats.count"), t("stats.mean"), t("stats.std"),
+      t("stats.variance"), t("stats.min"), t("stats.max"), t("stats.peakToPeak"), t("stats.rms"),
+    ];
     this.tableHead.replaceChildren(...cols.map((c) => th(c)));
     this.tableBody.replaceChildren();
     snap.metrics.forEach((m: ChannelMetrics | null, i: number) => {

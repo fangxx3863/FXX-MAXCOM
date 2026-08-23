@@ -2,6 +2,7 @@
 // 标签持久化（Notepad++ 式恢复）。单会话逻辑整体封装在 SessionApp；
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
+import { t, getLang, setLang, applyStaticI18n, type Lang } from "./i18n";
 import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips } from "./api";
 import type { ConnConfig, ConnState, DataFormat, DType, PortInfo, StatsSnapshot } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
@@ -254,6 +255,8 @@ class SessionApp {
     this.el = document.createElement("div");
     this.el.className = "session-ui hidden-session";
     for (const n of PRISTINE) this.el.appendChild(n.cloneNode(true));
+    // 静态标签（data-i18n）按当前语言落地
+    applyStaticI18n(this.el);
 
     this.api = makeApi(id);
 
@@ -300,12 +303,12 @@ class SessionApp {
   private wireConnectionArea() {
     this.connTypeDd = createDropdown({
       items: [
-        { value: "serial", label: "串口" },
-        { value: "tcp_client", label: "TCP 客户端" },
-        { value: "udp_client", label: "UDP" },
-        { value: "ssh", label: "SSH" },
-        { value: "telnet", label: "Telnet" },
-        { value: "rtt", label: "RTT" },
+        { value: "serial", label: t("conn.serial") },
+        { value: "tcp_client", label: t("conn.tcp") },
+        { value: "udp_client", label: t("conn.udp") },
+        { value: "ssh", label: t("conn.ssh") },
+        { value: "telnet", label: t("conn.telnet") },
+        { value: "rtt", label: t("conn.rtt") },
       ],
       onChange: (v) => {
         this.connKind = v;
@@ -319,14 +322,14 @@ class SessionApp {
     });
     this.q("#conn-type-dd").replaceWith(this.connTypeDd.el);
 
-    this.portDd = createDropdown({ items: [], placeholder: "选择串口…", width: 260 });
+    this.portDd = createDropdown({ items: [], placeholder: t("conn.port.placeholder"), width: 260 });
     this.q("#serial-port-dd").replaceWith(this.portDd.el);
 
     this.baudDd = createDropdown({
       items: BAUD_PRESETS.map((b) => ({ value: b, label: b })),
       value: "115200",
       editable: true,
-      placeholder: "波特率",
+      placeholder: t("conn.baud.placeholder"),
       width: 120,
     });
     this.q("#baud-dd").replaceWith(this.baudDd.el);
@@ -345,10 +348,10 @@ class SessionApp {
 
     this.tsModeDd = createDropdown({
       items: [
-        { value: "absolute", label: "绝对" },
-        { value: "relative", label: "相对" },
-        { value: "delta", label: "差值 Δ" },
-        { value: "none", label: "无" },
+        { value: "absolute", label: t("ts.absolute") },
+        { value: "relative", label: t("ts.relative") },
+        { value: "delta", label: t("ts.delta") },
+        { value: "none", label: t("ts.none") },
       ],
       value: "absolute",
       onChange: () => {
@@ -360,7 +363,7 @@ class SessionApp {
 
     this.encodingDd = createDropdown({
       items: [
-        { value: "auto", label: "自动" },
+        { value: "auto", label: t("encoding.auto") },
         { value: "utf-8", label: "UTF-8" },
         { value: "gbk", label: "GBK" },
         { value: "gb2312", label: "GB2312" },
@@ -375,11 +378,11 @@ class SessionApp {
     const rtsChk = this.q<HTMLInputElement>("#rts-chk");
     dtrChk.addEventListener("change", () => {
       this.dtrOn = dtrChk.checked;
-      void this.api.setDtr(this.dtrOn).catch((e) => this.setHint(`DTR 设置失败: ${e}`));
+      void this.api.setDtr(this.dtrOn).catch((e) => this.setHint(t("conn.dtr.error", { e })));
     });
     rtsChk.addEventListener("change", () => {
       this.rtsOn = rtsChk.checked;
-      void this.api.setRts(this.rtsOn).catch((e) => this.setHint(`RTS 设置失败: ${e}`));
+      void this.api.setRts(this.rtsOn).catch((e) => this.setHint(t("conn.rts.error", { e })));
     });
 
     this.q("#more-serial").addEventListener("click", () => this.q("#serial-setup").classList.toggle("hidden"));
@@ -392,12 +395,12 @@ class SessionApp {
       items: loadTcpHosts().map((h) => ({ value: h, label: h })),
       value: "127.0.0.1",
       editable: true,
-      placeholder: "主机",
+      placeholder: t("conn.host.placeholder"),
       width: 150,
     });
     this.q("#tcp-host-dd").replaceWith(this.tcpHostDd.el);
 
-    this.probeDd = createDropdown({ items: [], placeholder: "选择探针…", width: 150 });
+    this.probeDd = createDropdown({ items: [], placeholder: t("conn.probe.placeholder"), width: 150 });
     this.q("#probe-dd").replaceWith(this.probeDd.el);
     this.q("#refresh-probes").addEventListener("click", () => void this.refreshProbes());
 
@@ -405,7 +408,7 @@ class SessionApp {
       items: withAuto([]),
       value: "auto",
       editable: true,
-      placeholder: "芯片",
+      placeholder: t("conn.chip.placeholder"),
       width: 150,
     });
     this.q("#rtt-chip-dd").replaceWith(this.chipDd.el);
@@ -432,7 +435,7 @@ class SessionApp {
         this.pendingProbe = "";
       }
     } catch (e) {
-      this.setHint(`探针枚举失败: ${e}`);
+      this.setHint(t("probe.enumerate.error", { e }));
     }
   }
 
@@ -512,7 +515,7 @@ class SessionApp {
             : ("none" as const),
       };
       if (!cfg.port) {
-        alert("请先选择串口");
+        alert(t("conn.noPort"));
         return;
       }
     } else if (this.connKind === "rtt") {
@@ -565,7 +568,7 @@ class SessionApp {
         // 连接即按当前绘图控件下发格式（默认 ASCII），无需手动点应用
         void this.api.setPlotFormat(this.buildPlotFormat()).catch(() => {});
       })
-      .catch((e) => alert(`连接失败: ${e}`));
+      .catch((e) => alert(t("conn.connectError", { e })));
   }
 
   /** 烧录页“一键运行”：把探针/芯片信息带回顶栏 RTT 配置并自动连接 */
@@ -583,7 +586,7 @@ class SessionApp {
     void (async () => {
       if (this.connected) await this.api.disconnect();
       this.toggleConnect();
-    })().catch((e) => this.setHint(`切换 RTT 失败: ${e}`));
+    })().catch((e) => this.setHint(t("rtt.switchError", { e })));
   }
 
   /** 连接状态事件（引擎推送，经全局路由进入） */
@@ -594,14 +597,14 @@ class SessionApp {
     if (!s.connected) this.terminalPage.clear();
     const dot = this.q("#conn-state");
     dot.className = `dot ${s.connected ? "on" : "off"}`;
-    dot.title = s.error ?? (s.connected ? "已连接" : "未连接");
+    dot.title = s.error ?? (s.connected ? t("state.connected") : t("state.disconnected"));
     this.q("#conn-label").textContent = this.stateLabel ?? "";
     this.q("#sb-state").textContent = s.error
-      ? `错误: ${s.error}`
+      ? t("state.error", { e: s.error })
       : s.connected
-        ? `已连接 ${this.stateLabel ?? ""}`
-        : "未连接";
-    this.q("#connect-btn").textContent = s.connected ? "断开" : "连接";
+        ? t("state.connectedWith", { label: this.stateLabel ?? "" })
+        : t("state.disconnected");
+    this.q("#connect-btn").textContent = s.connected ? t("conn.disconnect") : t("conn.connect");
     this.q("#connect-btn").classList.toggle("danger", s.connected);
     renderTabs();
   }
@@ -711,7 +714,7 @@ class SessionApp {
   private makePanelResizable(panel: HTMLElement) {
     const h = document.createElement("div");
     h.className = "panel-resizer";
-    h.title = "拖拽调整宽度";
+    h.title = t("panel.resize");
     panel.prepend(h);
     const saved = Number(localStorage.getItem(`maxcom.panelw.${this.id}.${panel.id}`));
     if (saved >= 220) panel.style.width = `${Math.min(760, saved)}px`;
@@ -741,7 +744,7 @@ class SessionApp {
 
     this.newlineDd = createDropdown({
       items: [
-        { value: "none", label: "无换行" },
+        { value: "none", label: t("send.newline.none") },
         { value: "\\n", label: "\\n" },
         { value: "\\r", label: "\\r" },
         { value: "\\r\\n", label: "\\r\\n" },
@@ -752,8 +755,8 @@ class SessionApp {
 
     this.sendModeDd = createDropdown({
       items: [
-        { value: "text", label: "文本" },
-        { value: "hex", label: "HEX" },
+        { value: "text", label: t("send.mode.text") },
+        { value: "hex", label: t("send.mode.hex") },
       ],
       value: "text",
     });
@@ -818,18 +821,18 @@ class SessionApp {
           const hex = [...chunk].map((b) => b.toString(16).padStart(2, "0")).join("");
           await this.api.send({ hex, newline: "none" });
           sentBytes += chunk.length;
-          fileBtn.textContent = `发文件 ${Math.min(99, Math.round((sentBytes / bytes.length) * 100))}%`;
+          fileBtn.textContent = t("log.file.progress", { pct: Math.min(99, Math.round((sentBytes / bytes.length) * 100)) });
           const dueMs = ((sentBytes * 10) / baud) * 1000;
           const wait = dueMs - (performance.now() - t0);
           if (wait > 0) await new Promise((r) => setTimeout(r, Math.ceil(wait)));
         }
         const hint = this.q("#send-hint");
-        hint.textContent = `文件已发送: ${file.name} (${bytes.length} B)`;
+        hint.textContent = t("log.file.done", { name: file.name, size: bytes.length });
         setTimeout(() => (hint.textContent = ""), 3000);
       } catch (err) {
-        this.setHint(`发文件失败: ${err}`);
+        this.setHint(t("log.file.error", { e: err }));
       } finally {
-        fileBtn.textContent = "发文件";
+        fileBtn.textContent = t("log.file");
         fileBtn.disabled = false;
         input.value = "";
       }
@@ -855,7 +858,7 @@ class SessionApp {
       }
     } catch (e) {
       const hint = this.q("#send-hint");
-      hint.textContent = `发送失败: ${e}`;
+      hint.textContent = t("log.send.error", { e });
       setTimeout(() => (hint.textContent = ""), 3000);
     }
   }
@@ -869,19 +872,19 @@ class SessionApp {
     const [capturing] = await this.api.captureState();
     if (!capturing) {
       await this.api.startCapture();
-      captureBtn.textContent = "■ 停止并保存";
+      captureBtn.textContent = t("log.capture.stop");
       captureBtn.classList.add("recording");
     } else {
       const path = await pickSavePath("maxcom_capture.bin");
       if (!path) {
         // 浏览器演示模式：mock 直接触发下载
         const n = await this.api.saveCapture("maxcom_capture.bin");
-        this.setHint(`已保存捕获 ${n} B`, false);
+        this.setHint(t("log.capture.saved", { size: n }), false);
       } else {
         const n = await this.api.saveCapture(path as string);
-        this.setHint(`已保存捕获 ${n} B → ${path}`, false);
+        this.setHint(t("log.capture.savedPath", { size: n, path }), false);
       }
-      captureBtn.textContent = "● 捕获";
+      captureBtn.textContent = t("log.capture");
       captureBtn.classList.remove("recording");
     }
   }
@@ -890,7 +893,7 @@ class SessionApp {
   updateCaptureBadge(size: number) {
     const captureBtn = this.q("#capture-btn");
     if (captureBtn.classList.contains("recording")) {
-      captureBtn.textContent = `■ 停止并保存 (${(size / 1024).toFixed(1)} KB)`;
+      captureBtn.textContent = t("log.capture.stopsize", { size: (size / 1024).toFixed(1) });
     }
   }
 
@@ -919,7 +922,7 @@ class SessionApp {
           for (const row of this.msRows.filter((r) => r.enabled && r.content)) {
             if (!this.q<HTMLInputElement>("#ms-loop").checked) return;
             await this.sendMsRow(row);
-            this.q("#ms-status").textContent = `已发送: ${row.content.slice(0, 24)}`;
+            this.q("#ms-status").textContent = t("multistr.sent", { content: row.content.slice(0, 24) });
             await new Promise((r) => setTimeout(r, Math.max(10, row.delayMs)));
           }
           if (this.q<HTMLInputElement>("#ms-loop").checked) this.msLoopTimer = window.setTimeout(loopOnce, 50);
@@ -952,7 +955,7 @@ class SessionApp {
         const input = document.createElement("input");
         input.className = "ms-content";
         input.value = row.content;
-        input.placeholder = row.hex ? "HEX 字节，如 13 00 FF" : "字符串内容";
+        input.placeholder = row.hex ? t("multistr.hex.placeholder") : t("multistr.text.placeholder");
         input.addEventListener("change", () => {
           row.content = input.value;
           this.persistMs();
@@ -970,17 +973,17 @@ class SessionApp {
         delay.className = "ms-delay";
         delay.value = String(row.delayMs);
         delay.min = "10";
-        delay.title = "循环发送时本行之后的延时(ms)";
+        delay.title = t("multistr.delay.title");
         delay.addEventListener("change", () => {
           row.delayMs = Number(delay.value) || 0;
           this.persistMs();
         });
         const sendOne = document.createElement("button");
-        sendOne.textContent = "发送";
+        sendOne.textContent = t("multistr.send");
         sendOne.addEventListener("click", () => void this.sendMsRow(row));
         const del = document.createElement("button");
         del.textContent = "✕";
-        del.title = "删除本行";
+        del.title = t("common.deleteRow");
         del.addEventListener("click", () => {
           this.msRows.splice(idx, 1);
           this.persistMs();
@@ -1004,9 +1007,9 @@ class SessionApp {
   private wirePlotControls() {
     this.plotFmtDd = createDropdown({
       items: [
-        { value: "ascii_delimited", label: "ASCII 分隔" },
-        { value: "simple_binary", label: "Simple Binary" },
-        { value: "custom_frame", label: "自定义帧" },
+        { value: "ascii_delimited", label: t("plot.fmt.ascii") },
+        { value: "simple_binary", label: t("plot.fmt.binary") },
+        { value: "custom_frame", label: t("plot.fmt.frame") },
       ],
       value: "ascii_delimited",
       onChange: () => this.applyPlotFmtControls(),
@@ -1025,8 +1028,8 @@ class SessionApp {
     );
     this.plotEndianDd = createDropdown({
       items: [
-        { value: "little", label: "小端" },
-        { value: "big", label: "大端" },
+        { value: "little", label: t("plot.endian.little") },
+        { value: "big", label: t("plot.endian.big") },
       ],
       value: "little",
     });
@@ -1034,8 +1037,8 @@ class SessionApp {
 
     this.plotASplitDd = createDropdown({
       items: [
-        { value: "channel", label: "分通道" },
-        { value: "package", label: "分包·整行覆盖" },
+        { value: "channel", label: t("plot.asplit.channel") },
+        { value: "package", label: t("plot.asplit.package") },
       ],
       value: "channel",
     });
@@ -1043,8 +1046,8 @@ class SessionApp {
 
     this.plotFrameLenDd = createDropdown({
       items: [
-        { value: "fixed", label: "定长字节" },
-        { value: "payload", label: "首字节=长度" },
+        { value: "fixed", label: t("plot.frameLen.fixed") },
+        { value: "payload", label: t("plot.frameLen.payload") },
       ],
       value: "fixed",
       onChange: () => {
@@ -1056,9 +1059,9 @@ class SessionApp {
 
     this.plotViewDd = createDropdown({
       items: [
-        { value: "waveform", label: "波形图" },
-        { value: "bars", label: "垂直柱状" },
-        { value: "both", label: "同屏显示" },
+        { value: "waveform", label: t("plot.view.waveform") },
+        { value: "bars", label: t("plot.view.bars") },
+        { value: "both", label: t("plot.view.both") },
       ],
       value: "waveform",
       onChange: (v) => this.plotPage.setViewMode(v as ViewMode),
@@ -1067,8 +1070,8 @@ class SessionApp {
 
     this.plotLayoutDd = createDropdown({
       items: [
-        { value: "subplots", label: "分开子图" },
-        { value: "overlay", label: "单图叠加" },
+        { value: "subplots", label: t("plot.layout.subplots") },
+        { value: "overlay", label: t("plot.layout.overlay") },
       ],
       value: "subplots",
       onChange: (v) => this.plotPage.setLayout(v as PlotLayout),
@@ -1077,7 +1080,7 @@ class SessionApp {
 
     this.plotYRangeDd = createDropdown({
       items: [
-        { value: "auto", label: "自动缩放" },
+        { value: "auto", label: t("plot.yrange.auto") },
         { value: "s8", label: "int8: -128~127" },
         { value: "u8", label: "uint8: 0~255" },
         { value: "s16", label: "int16: ±32768" },
@@ -1087,7 +1090,7 @@ class SessionApp {
         { value: "pm1", label: "-1 ~ 1" },
         { value: "pm100", label: "-100 ~ 100" },
         { value: "pm1000", label: "-1000 ~ 1000" },
-        { value: "custom", label: "自定义…" },
+        { value: "custom", label: t("plot.yrange.custom") },
       ],
       value: "auto",
       onChange: (v) => this.applyYRangeSelection(v),
@@ -1338,6 +1341,12 @@ class SessionApp {
     );
     themeSel.addEventListener("change", () => saveSettings({ ...currentSettings, theme: themeSel.value }));
     this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
+    // 界面语言：全局共享，切换后整页重载（标签页/设置保留）
+    const langSel = this.q<HTMLSelectElement>("#set-lang");
+    if (langSel) {
+      langSel.value = getLang();
+      langSel.addEventListener("change", () => setLang(langSel.value as Lang));
+    }
   }
 }
 
@@ -1388,7 +1397,7 @@ function tabTitle(s: SessionApp): string {
     }
     return `${proto} ${s.tcpHostDd.value}:${(s.el.querySelector<HTMLInputElement>("#tcp-port") as HTMLInputElement).value || "8888"}`;
   }
-  return `新建 ${s.seqNo}`;
+  return t("tab.newDefault", { n: s.seqNo });
 }
 
 function renderTabs() {
@@ -1397,7 +1406,7 @@ function renderTabs() {
   for (const [id, s] of sessions) {
     const tab = document.createElement("div");
     tab.className = `tab${id === activeId ? " active" : ""}`;
-    tab.title = s.lastError ? `错误: ${s.lastError}` : tabTitle(s);
+    tab.title = s.lastError ? t("state.error", { e: s.lastError }) : tabTitle(s);
 
     const dot = document.createElement("span");
     dot.className = `tab-dot${s.connected ? " on" : ""}${s.lastError ? " err" : ""}`;
@@ -1417,7 +1426,7 @@ function renderTabs() {
     const close = document.createElement("button");
     close.className = "tab-close";
     close.textContent = "✕";
-    close.title = "关闭标签页 (Ctrl+W)";
+    close.title = t("tab.close");
     close.addEventListener("click", (e) => {
       e.stopPropagation();
       closeTabById(id);
@@ -1434,18 +1443,18 @@ function renderTabs() {
       e.stopPropagation(); // 不落入全局右键菜单
       openContextMenu(
         [
-          { label: "✏️ 重命名", hint: "双击标签同样有效", action: () => startRename(id) },
-          { label: "🧬 复制标签页", hint: "以当前配置新开一个标签", action: () => duplicateTab(id) },
+          { label: t("tab.rename"), hint: t("tab.rename.hint"), action: () => startRename(id) },
+          { label: t("tab.duplicate"), hint: t("tab.duplicate.hint"), action: () => duplicateTab(id) },
           { sep: true },
-          { label: "✕ 关闭", hint: "Ctrl+W", action: () => closeTabById(id) },
+          { label: t("tab.closeItem"), hint: "Ctrl+W", action: () => closeTabById(id) },
           {
-            label: "关闭其他标签页",
+            label: t("tab.closeOther"),
             action: () => {
               for (const k of [...sessions.keys()]) if (k !== id) closeTabById(k);
             },
           },
           {
-            label: "关闭右侧标签页",
+            label: t("tab.closeRight"),
             action: () => {
               const ks = [...sessions.keys()];
               for (const k of ks.slice(ks.indexOf(id) + 1)) closeTabById(k);
@@ -1510,7 +1519,7 @@ function activate(id: string) {
 
 function newTab(): void {
   if (sessions.size >= MAX_TABS) {
-    sessions.get(activeId)?.setHint(`最多 ${MAX_TABS} 个标签页`);
+    sessions.get(activeId)?.setHint(t("tab.max", { n: MAX_TABS }));
     return;
   }
   const s = createSession(null);
@@ -1603,7 +1612,7 @@ setInterval(() => {
       const sbRate = s.el.querySelector<HTMLElement>("#sb-rate")!;
       sbRx.textContent = `RX ${fmtBytes(st.rx_bytes)}`;
       sbTx.textContent = `TX ${fmtBytes(st.tx_bytes)}`;
-      sbRate.textContent = `↓ ${st.rx_rate_kbs.toFixed(2)} KB/s ↑ ${st.tx_rate_kbs.toFixed(2)} KB/s`;
+      sbRate.textContent = t("sb.rate", { rx: st.rx_rate_kbs.toFixed(2), tx: st.tx_rate_kbs.toFixed(2) });
     })
     .catch(() => {});
 }, 500);
@@ -1657,6 +1666,18 @@ function saveSettings(st: AppSettings) {
 // ── 标签栏按钮 / 新建 ──
 document.getElementById("tab-new")?.addEventListener("click", () => newTab());
 
+// ── 标题栏语言切换（全局单例，位于 session-root 之外）──
+{
+  // 标题栏静态标签（win-* 按钮 title、lang 标签等）按当前语言落地
+  const titlebar = document.getElementById("titlebar");
+  if (titlebar) applyStaticI18n(titlebar);
+  const langSel = document.getElementById("lang-select") as HTMLSelectElement | null;
+  if (langSel) {
+    langSel.value = getLang();
+    langSel.addEventListener("change", () => setLang(langSel.value as Lang));
+  }
+}
+
 // ── 键盘快捷键：Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab 切换 ──
 window.addEventListener("keydown", (e) => {
   if (!(e.ctrlKey || e.metaKey)) return;
@@ -1694,29 +1715,29 @@ window.addEventListener("contextmenu", (e) => {
   const me = e as MouseEvent;
   if (me.shiftKey) return;
   me.preventDefault();
-  const t = me.target as HTMLElement;
-  if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) t.focus();
+  const tv = me.target as HTMLElement;
+  if (tv instanceof HTMLInputElement || tv instanceof HTMLTextAreaElement) tv.focus();
   const items: CtxItem[] = [];
   const S = sessions.get(activeId);
   if (S && S.currentPage === "plot") {
-    const cell = t.closest?.(".plot-cell") as HTMLElement | null;
+    const cell = tv.closest?.(".plot-cell") as HTMLElement | null;
     if (cell) {
       const chAttr = cell.dataset.ch;
       items.push({
-        label: "📋 复制图表为 PNG",
-        hint: "写入剪贴板；失败时转为下载",
+        label: t("ctx.copyPng"),
+        hint: t("ctx.copyPng.hint"),
         action: () => S.plotPage.copyChartPng(chAttr === undefined ? null : Number(chAttr)),
       });
       items.push({
-        label: "📄 导出 CSV",
-        hint: chAttr === undefined ? "全部通道缓冲数据" : `CH${Number(chAttr) + 1} 缓冲数据`,
+        label: t("ctx.exportCsv"),
+        hint: chAttr === undefined ? t("ctx.exportCsv.all") : t("ctx.exportCsv.ch", { n: Number(chAttr) + 1 }),
         action: () => S.plotPage.exportCsv(chAttr === undefined ? null : Number(chAttr)),
       });
       items.push({ sep: true });
-    } else if (t.closest?.("#plot-bars") || t.closest?.("#plot-holder")) {
+    } else if (tv.closest?.("#plot-bars") || tv.closest?.("#plot-holder")) {
       items.push({
-        label: "📄 导出 CSV",
-        hint: "全部通道缓冲数据",
+        label: t("ctx.exportCsv"),
+        hint: t("ctx.exportCsv.all"),
         action: () => S.plotPage.exportCsv(null),
       });
       items.push({ sep: true });

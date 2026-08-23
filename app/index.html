@@ -12,17 +12,23 @@
     <header id="titlebar">
       <div id="brand" data-tauri-drag-region>MAXCOM</div>
       <div id="tabstrip"></div>
-      <button id="tab-new" title="新建标签页 (Ctrl+T)">＋</button>
+      <button id="tab-new" title="新建标签页 (Ctrl+T)" data-i18n-title="tab.new">＋</button>
+      <label id="lang-dd" title="界面语言 / Interface language">
+        <select id="lang-select">
+          <option value="zh">中文</option>
+          <option value="en">English</option>
+        </select>
+      </label>
       <div class="tb-drag" data-tauri-drag-region></div>
       <div id="win-controls">
-        <button id="win-min" title="最小化">
+        <button id="win-min" title="最小化" data-i18n-title="win.min">
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 5 H9.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
         </button>
-        <button id="win-max" title="最大化 / 还原">
+        <button id="win-max" title="最大化 / 还原" data-i18n-title="win.maxrestore">
           <svg class="icon-max" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><rect x="0.55" y="0.55" width="8.9" height="8.9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
           <svg class="icon-restore" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.6 2.6 V0.55 H9.45 V7.4 H7.4" fill="none" stroke="currentColor" stroke-width="1"/><rect x="0.55" y="2.6" width="6.85" height="6.85" fill="none" stroke="currentColor" stroke-width="1"/></svg>
         </button>
-        <button id="win-close" title="关闭">
+        <button id="win-close" title="关闭" data-i18n-title="win.close">
           <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
         </button>
       </div>
@@ -39,44 +45,44 @@
     <header id="topbar">
       <div id="conn-type-dd"></div>
       <div id="serial-port-dd" class="grow"></div>
-      <button id="refresh-ports" title="刷新串口列表">⟳</button>
+      <button id="refresh-ports" title="刷新串口列表" data-i18n-title="refresh.ports">⟳</button>
       <div id="baud-dd"></div>
       <div class="serial-setup-wrap serial-only">
-        <button id="more-serial" title="数据位/停止位/校验/流控">更多串口设置 ⚙</button>
+        <button id="more-serial" title="数据位/停止位/校验/流控" data-i18n-title="serial.more.title" data-i18n="serial.more">更多串口设置 ⚙</button>
         <div id="serial-setup" class="setup-pop hidden">
-          <div class="setup-title">串口设置</div>
-          <span class="ctl">数据位 <div id="databits-dd"></div></span>
-          <span class="ctl">停止位 <div id="stopbits-dd"></div></span>
-          <span class="ctl">校验 <div id="parity-dd"></div></span>
-          <span class="ctl">流控 <div id="flowctl-dd"></div></span>
-          <button id="setup-ok" class="primary">确定</button>
+          <div class="setup-title" data-i18n="serial.setup.title">串口设置</div>
+          <span class="ctl"><span data-i18n="serial.databits">数据位</span> <div id="databits-dd"></div></span>
+          <span class="ctl"><span data-i18n="serial.stopbits">停止位</span> <div id="stopbits-dd"></div></span>
+          <span class="ctl"><span data-i18n="serial.parity">校验</span> <div id="parity-dd"></div></span>
+          <span class="ctl"><span data-i18n="serial.flowctl">流控</span> <div id="flowctl-dd"></div></span>
+          <button id="setup-ok" class="primary" data-i18n="common.ok">确定</button>
         </div>
       </div>
       <label class="chk serial-only"><input id="dtr-chk" type="checkbox" />DTR</label>
       <label class="chk serial-only"><input id="rts-chk" type="checkbox" />RTS</label>
       <div id="tcp-host-dd" class="hidden"></div>
-      <input id="tcp-port" type="number" placeholder="端口" value="8888" class="hidden" />
-      <input id="ssh-user" type="text" placeholder="用户名" value="" class="hidden" />
-      <input id="ssh-pass" type="password" placeholder="密码(可选)" value="" class="hidden" />
+      <input id="tcp-port" type="number" data-i18n-placeholder="tcp.port.placeholder" placeholder="端口" value="8888" class="hidden" />
+      <input id="ssh-user" type="text" data-i18n-placeholder="ssh.user.placeholder" placeholder="用户名" value="" class="hidden" />
+      <input id="ssh-pass" type="password" data-i18n-placeholder="ssh.pass.placeholder" placeholder="密码(可选)" value="" class="hidden" />
       <div id="probe-dd" class="rtt-only hidden"></div>
-      <button id="refresh-probes" title="刷新探针列表" class="rtt-only hidden">⟳</button>
+      <button id="refresh-probes" title="刷新探针列表" data-i18n-title="refresh.probes" class="rtt-only hidden">⟳</button>
       <div id="rtt-chip-dd" class="rtt-only hidden"></div>
-      <input id="rtt-up" type="number" placeholder="UP通道" value="0" class="rtt-only hidden" title="RTT up 通道（目标→主机，打印输出）" />
-      <input id="rtt-down" type="number" placeholder="DOWN通道" value="0" class="rtt-only hidden" title="RTT down 通道（主机→目标，发送）" />
-      <input id="rtt-addr" type="text" placeholder="RTT地址(可选)" value="" class="rtt-only hidden" title="RTT 控制块地址，留空自动扫描" />
-      <label class="chk"><input id="auto-reconnect" type="checkbox" checked />自动重连</label>
-      <button id="connect-btn" class="primary">连接</button>
-      <span id="conn-state" class="dot off" title="未连接"></span>
+      <input id="rtt-up" type="number" data-i18n-placeholder="rtt.up.placeholder" placeholder="UP通道" value="0" class="rtt-only hidden" title="RTT up 通道（目标→主机，打印输出）" data-i18n-title="rtt.up.title" />
+      <input id="rtt-down" type="number" data-i18n-placeholder="rtt.down.placeholder" placeholder="DOWN通道" value="0" class="rtt-only hidden" title="RTT down 通道（主机→目标，发送）" data-i18n-title="rtt.down.title" />
+      <input id="rtt-addr" type="text" data-i18n-placeholder="rtt.addr.placeholder" placeholder="RTT地址(可选)" value="" class="rtt-only hidden" title="RTT 控制块地址，留空自动扫描" data-i18n-title="rtt.addr.title" />
+      <label class="chk"><input id="auto-reconnect" type="checkbox" checked /><span data-i18n="conn.autoReconnect">自动重连</span></label>
+      <button id="connect-btn" class="primary" data-i18n="conn.connect">连接</button>
+      <span id="conn-state" class="dot off" title="未连接" data-i18n-title="state.disconnected"></span>
       <span id="conn-label"></span>
     </header>
     <div id="layout">
       <nav id="sidebar">
-        <button data-page="terminal" title="交互式终端">⌨️<span>终端</span></button>
-        <button data-page="logview" class="active" title="传统收发">📄<span>收发</span></button>
-        <button data-page="plot" title="数据绘图">📈<span>绘图</span></button>
-        <button data-page="stats" title="统计仪表盘">📊<span>统计</span></button>
-        <button data-page="flash" title="烧录">🔥<span>烧录</span></button>
-        <button data-page="settings" title="设置">⚙️<span>设置</span></button>
+        <button data-page="terminal" title="交互式终端" data-i18n-title="page.terminal.title">⌨️<span data-i18n="page.terminal">终端</span></button>
+        <button data-page="logview" class="active" title="传统收发" data-i18n-title="page.logview.title">📄<span data-i18n="page.logview">收发</span></button>
+        <button data-page="plot" title="数据绘图" data-i18n-title="page.plot.title">📈<span data-i18n="page.plot">绘图</span></button>
+        <button data-page="stats" title="统计仪表盘" data-i18n-title="page.stats.title">📊<span data-i18n="page.stats">统计</span></button>
+        <button data-page="flash" title="烧录" data-i18n-title="page.flash.title">🔥<span data-i18n="page.flash">烧录</span></button>
+        <button data-page="settings" title="设置" data-i18n-title="page.settings.title">⚙️<span data-i18n="page.settings">设置</span></button>
       </nav>
       <main id="pages">
         <section id="page-terminal" class="page hidden"></section>
@@ -84,64 +90,64 @@
           <div class="logview-grid">
             <div class="logview-main">
               <div id="log-controls">
-                <span class="ctl">时间戳 <div id="ts-mode-dd" class="inline-dd"></div></span>
-                <span class="ctl">编码 <div id="encoding-dd" class="inline-dd"></div></span>
-                <label>分包超时(ms) <input id="idle-timeout" type="number" min="1" max="500" value="10" /></label>
-                <label><input id="hex-display" type="checkbox" />HEX显示</label>
-                <label><input id="autoscroll" type="checkbox" checked />自动滚动</label>
-                <input id="quick-filter" placeholder="过滤：仅显示匹配行" title="支持正则（非法时按子串匹配），对新旧数据即时生效" size="16" />
-                <button id="clear-log">清空</button>
-                <button id="toggle-multistr" title="多字符串/HEX 发送面板">☰ 多字符串</button>
-                <button id="toggle-rules" title="过滤与染色规则">🎨 规则</button>
+                <span class="ctl"><span data-i18n="log.timestamp">时间戳</span> <div id="ts-mode-dd" class="inline-dd"></div></span>
+                <span class="ctl"><span data-i18n="log.encoding">编码</span> <div id="encoding-dd" class="inline-dd"></div></span>
+                <label><span data-i18n="log.idleTimeout">分包超时(ms)</span> <input id="idle-timeout" type="number" min="1" max="500" value="10" /></label>
+                <label><input id="hex-display" type="checkbox" /><span data-i18n="log.hexDisplay">HEX显示</span></label>
+                <label><input id="autoscroll" type="checkbox" checked /><span data-i18n="log.autoscroll">自动滚动</span></label>
+                <input id="quick-filter" data-i18n-placeholder="log.filter.placeholder" data-i18n-title="log.filter.title" placeholder="过滤：仅显示匹配行" title="支持正则（非法时按子串匹配），对新旧数据即时生效" size="16" />
+                <button id="clear-log" data-i18n="common.clear">清空</button>
+                <button id="toggle-multistr" title="多字符串/HEX 发送面板" data-i18n-title="log.multistr.title" data-i18n="log.multistr">☰ 多字符串</button>
+                <button id="toggle-rules" title="过滤与染色规则" data-i18n-title="log.rules.title" data-i18n="log.rules">🎨 规则</button>
               </div>
               <div id="log-view"></div>
               <div id="send-panel">
                 <div class="send-row">
                   <div id="send-mode-dd"></div>
-                  <textarea id="send-input" rows="3" placeholder="输入要发送的内容…&#10;Enter 换行 / Ctrl+Enter 发送 / ↑↓ 历史"></textarea>
+                  <textarea id="send-input" rows="3" data-i18n-placeholder="log.send.placeholder" placeholder="输入要发送的内容…&#10;Enter 换行 / Ctrl+Enter 发送 / ↑↓ 历史"></textarea>
                 </div>
                 <div class="send-row send-actions">
-                  <span class="ctl">换行 <div id="send-newline-dd" class="inline-dd"></div></span>
-                  <label class="chk"><input id="timer-send" type="checkbox" />定时</label>
-                  <input id="timer-ms" type="number" min="10" value="1000" title="定时发送间隔(ms)" />
+                  <span class="ctl"><span data-i18n="log.newline">换行</span> <div id="send-newline-dd" class="inline-dd"></div></span>
+                  <label class="chk"><input id="timer-send" type="checkbox" /><span data-i18n="log.timer">定时</span></label>
+                  <input id="timer-ms" type="number" min="10" value="1000" title="定时发送间隔(ms)" data-i18n-title="log.timer.ms" />
                   <span class="hint" id="send-hint"></span>
                   <span class="spacer"></span>
-                  <button id="file-btn" title="分块发送文件原始字节">发文件</button>
+                  <button id="file-btn" title="分块发送文件原始字节" data-i18n-title="log.file.title" data-i18n="log.file">发文件</button>
                   <input id="file-input" type="file" class="hidden" />
-                  <button id="capture-btn" title="捕获接收数据并保存为文件">● 捕获</button>
-                  <button id="send-btn" class="primary">发送 Ctrl+↵</button>
+                  <button id="capture-btn" title="捕获接收数据并保存为文件" data-i18n-title="log.capture.title" data-i18n="log.capture">● 捕获</button>
+                  <button id="send-btn" class="primary" data-i18n="log.send.main">发送 Ctrl+↵</button>
                 </div>
               </div>
             </div>
             <aside id="rules-panel" class="hidden">
               <div class="ms-toolbar">
-                <span class="rowtag">过滤规则</span>
-                <button id="flt-add">＋ 添加</button>
+                <span class="rowtag" data-i18n="rules.filter">过滤规则</span>
+                <button id="flt-add" data-i18n="common.add">＋ 添加</button>
                 <span class="spacer"></span>
-                <button id="flt-clear">清空</button>
-                <button id="rules-close" class="icon-btn" title="关闭面板">✕</button>
+                <button id="flt-clear" data-i18n="common.clear">清空</button>
+                <button id="rules-close" class="icon-btn" title="关闭面板" data-i18n-title="panel.close">✕</button>
               </div>
               <div id="flt-rows"></div>
               <div class="ms-toolbar">
-                <label class="chk"><input id="color-master" type="checkbox" checked />染色总开关</label>
-                <label class="chk"><input id="color-yield" type="checkbox" checked />ANSI 让位</label>
+                <label class="chk"><input id="color-master" type="checkbox" checked /><span data-i18n="rules.colorMaster">染色总开关</span></label>
+                <label class="chk"><input id="color-yield" type="checkbox" checked /><span data-i18n="rules.ansiYield">ANSI 让位</span></label>
               </div>
               <div class="ms-toolbar">
-                <span class="rowtag">用户染色规则</span>
-                <button id="color-add">＋ 添加</button>
+                <span class="rowtag" data-i18n="rules.userColor">用户染色规则</span>
+                <button id="color-add" data-i18n="common.add">＋ 添加</button>
                 <span class="spacer"></span>
-                <button id="color-clear">清空</button>
+                <button id="color-clear" data-i18n="common.clear">清空</button>
               </div>
               <div id="color-rows"></div>
             </aside>
             <aside id="multistr-panel" class="hidden">
               <div class="ms-toolbar">
-                <button id="ms-add">＋ 添加</button>
-                <label class="chk"><input id="ms-loop" type="checkbox" />循环发送</label>
+                <button id="ms-add" data-i18n="common.add">＋ 添加</button>
+                <label class="chk"><input id="ms-loop" type="checkbox" /><span data-i18n="multistr.loop">循环发送</span></label>
                 <span id="ms-status"></span>
                 <span class="spacer"></span>
-                <button id="ms-clear">清空</button>
-                <button id="ms-close" class="icon-btn" title="关闭面板">✕</button>
+                <button id="ms-clear" data-i18n="common.clear">清空</button>
+                <button id="ms-close" class="icon-btn" title="关闭面板" data-i18n-title="panel.close">✕</button>
               </div>
               <div id="ms-rows"></div>
             </aside>
@@ -149,30 +155,30 @@
         </section>
         <section id="page-plot" class="page hidden">
           <div id="plot-controls">
-            <span class="ctl">格式 <div id="plot-fmt-dd" class="inline-dd"></div></span>
+            <span class="ctl"><span data-i18n="plot.format">格式</span> <div id="plot-fmt-dd" class="inline-dd"></div></span>
             <span id="plot-ch-ctl">
-              <label>通道数 <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
-              <span class="ctl">类型 <div id="plot-dtype-dd" class="inline-dd"></div></span>
-              <span class="ctl">端序 <div id="plot-endian-dd" class="inline-dd"></div></span>
+              <label><span data-i18n="plot.channels">通道数</span> <input id="plot-channels" type="number" min="1" max="32" value="1" /></label>
+              <span class="ctl"><span data-i18n="plot.dtype">类型</span> <div id="plot-dtype-dd" class="inline-dd"></div></span>
+              <span class="ctl"><span data-i18n="plot.endian">端序</span> <div id="plot-endian-dd" class="inline-dd"></div></span>
             </span>
-            <label id="plot-ascii-ctl" class="hidden" title="列数由首行数据自动探测，列数变更自动跟随">分隔符 <input id="plot-delimiter" value="," size="3" /></label>
-            <span class="ctl" id="plot-asplit-ctl" title="分通道：第i列→第i通道；分包：整行=单通道样本序列，新行覆盖（如 FFT 数组打印）">拆分 <div id="plot-asplit-dd" class="inline-dd"></div></span>
+            <label id="plot-ascii-ctl" class="hidden" title="列数由首行数据自动探测，列数变更自动跟随" data-i18n-title="plot.delimiter.title"><span data-i18n="plot.delimiter">分隔符</span> <input id="plot-delimiter" value="," size="3" /></label>
+            <span class="ctl" id="plot-asplit-ctl" title="分通道：第i列→第i通道；分包：整行=单通道样本序列，新行覆盖（如 FFT 数组打印）" data-i18n-title="plot.split.title"><span data-i18n="plot.split">拆分</span> <div id="plot-asplit-dd" class="inline-dd"></div></span>
             <span id="plot-custom-ctl" class="hidden">
-              <label title="十六进制帧头，可含空格，如 AA BB">帧头(HEX) <input id="plot-frame-header" value="AA BB" size="7" /></label>
-              <span class="ctl">帧长 <div id="plot-framelen-dd" class="inline-dd"></div></span>
-              <label id="plot-framelen-fixed" title="载荷总字节数（不含帧头/长度/校验字节）">定长 <input id="plot-frame-size" type="number" min="1" max="255" value="1" /></label>
-              <label class="chk" title="载荷逐字节累加和（低8位），附于帧尾">校验 <input id="plot-checksum" type="checkbox" /></label>
+              <label title="十六进制帧头，可含空格，如 AA BB" data-i18n-title="plot.frameHeader.title"><span data-i18n="plot.frameHeader">帧头(HEX)</span> <input id="plot-frame-header" value="AA BB" size="7" /></label>
+              <span class="ctl"><span data-i18n="plot.frameLen">帧长</span> <div id="plot-framelen-dd" class="inline-dd"></div></span>
+              <label id="plot-framelen-fixed" title="载荷总字节数（不含帧头/长度/校验字节）" data-i18n-title="plot.fixed.title"><span data-i18n="plot.fixed">定长</span> <input id="plot-frame-size" type="number" min="1" max="255" value="1" /></label>
+              <label class="chk" title="载荷逐字节累加和（低8位），附于帧尾" data-i18n-title="plot.checksum.title"><span data-i18n="plot.checksum">校验</span> <input id="plot-checksum" type="checkbox" /></label>
             </span>
-            <span class="ctl">显示 <div id="plot-view-dd" class="inline-dd"></div></span>
-            <span class="ctl">布局 <div id="plot-layout-dd" class="inline-dd"></div></span>
-            <span class="ctl">Y轴范围 <div id="plot-yrange-dd" class="inline-dd"></div></span>
+            <span class="ctl"><span data-i18n="plot.view">显示</span> <div id="plot-view-dd" class="inline-dd"></div></span>
+            <span class="ctl"><span data-i18n="plot.layout">布局</span> <div id="plot-layout-dd" class="inline-dd"></div></span>
+            <span class="ctl"><span data-i18n="plot.yRange">Y轴范围</span> <div id="plot-yrange-dd" class="inline-dd"></div></span>
             <span id="plot-ycustom-ctl" class="hidden">
-              <input id="plot-ymin" type="number" value="-100" title="Y 最小值" />
+              <input id="plot-ymin" type="number" value="-100" title="Y 最小值" data-i18n-title="plot.ymin.title" />
               <span class="ctl">~</span>
-              <input id="plot-ymax" type="number" value="100" title="Y 最大值" />
+              <input id="plot-ymax" type="number" value="100" title="Y 最大值" data-i18n-title="plot.ymax.title" />
             </span>
-            <label title="X 轴缓冲点数，改动即生效（会清空当前波形）">X轴点数 <input id="plot-buffer" type="number" min="100" max="1000000" step="100" value="10000" /></label>
-            <button id="plot-apply">应用</button>
+            <label title="X 轴缓冲点数，改动即生效（会清空当前波形）" data-i18n-title="plot.buffer.title"><span data-i18n="plot.buffer">X轴点数</span> <input id="plot-buffer" type="number" min="100" max="1000000" step="100" value="10000" /></label>
+            <button id="plot-apply" data-i18n="common.apply">应用</button>
             <span id="plot-info"></span>
           </div>
           <div id="plot-chbar" class="hidden"></div>
@@ -180,46 +186,46 @@
           <div id="plot-holder"></div>
         </section>
         <section id="page-stats" class="page hidden">
-          <h3>连接统计</h3>
+          <h3 data-i18n="stats.title">连接统计</h3>
           <div id="stat-cards" class="cards"></div>
-          <h3>通道指标（来自绘图引擎）</h3>
+          <h3 data-i18n="stats.channelsTitle">通道指标（来自绘图引擎）</h3>
           <table id="ch-metrics"><thead><tr></tr></thead><tbody></tbody></table>
         </section>
         <section id="page-flash" class="page hidden">
           <div class="flash-body">
-            <h3>固件烧录</h3>
+            <h3 data-i18n="flash.title">固件烧录</h3>
             <div class="flash-card">
               <div class="flash-field">
-                <span class="set-label">探针</span>
+                <span class="set-label" data-i18n="flash.probe">探针</span>
                 <div id="flash-probe-dd" class="flash-dd"></div>
-                <button id="flash-refresh-probes" title="刷新探针列表">⟳</button>
+                <button id="flash-refresh-probes" title="刷新探针列表" data-i18n-title="refresh.probes">⟳</button>
               </div>
               <div class="flash-field">
-                <span class="set-label">芯片</span>
+                <span class="set-label" data-i18n="flash.chip">芯片</span>
                 <div id="flash-chip-dd" class="flash-dd"></div>
               </div>
               <div class="flash-field">
-                <span class="set-label">固件</span>
-                <input id="flash-file-path" type="text" readonly placeholder="选择 .elf / .hex / .bin / .uf2 固件" />
-                <button id="flash-browse">浏览…</button>
+                <span class="set-label" data-i18n="flash.firmware">固件</span>
+                <input id="flash-file-path" type="text" readonly data-i18n-placeholder="flash.file.placeholder" placeholder="选择 .elf / .hex / .bin / .uf2 固件" />
+                <button id="flash-browse" data-i18n="flash.browse">浏览…</button>
                 <input id="flash-file-input" type="file" class="hidden"
                   accept=".elf,.hex,.ihx,.bin,.uf2,.out,.axf" />
               </div>
               <div class="flash-field">
-                <span class="set-label">格式</span>
+                <span class="set-label" data-i18n="flash.format">格式</span>
                 <div id="flash-format-dd" class="flash-dd"></div>
               </div>
               <div class="flash-field">
-                <span class="set-label">BIN 基址</span>
-                <input id="flash-bin-base" type="text" placeholder="留空=目标默认起始地址" />
+                <span class="set-label" data-i18n="flash.binBase">BIN 基址</span>
+                <input id="flash-bin-base" type="text" data-i18n-placeholder="flash.binBase.placeholder" placeholder="留空=目标默认起始地址" />
               </div>
               <div class="flash-options">
-                <label class="chk"><input id="flash-verify" type="checkbox" checked />烧录后校验</label>
-                <label class="chk"><input id="flash-reset" type="checkbox" checked />烧录后复位</label>
+                <label class="chk"><input id="flash-verify" type="checkbox" checked /><span data-i18n="flash.verify">烧录后校验</span></label>
+                <label class="chk"><input id="flash-reset" type="checkbox" checked /><span data-i18n="flash.reset">烧录后复位</span></label>
               </div>
               <div class="flash-actions">
-                <button id="flash-do" class="primary">烧录</button>
-                <button id="flash-do-run">烧录并打开 RTT</button>
+                <button id="flash-do" class="primary" data-i18n="flash.do">烧录</button>
+                <button id="flash-do-run" data-i18n="flash.doRun">烧录并打开 RTT</button>
               </div>
               <p id="flash-status" class="flash-status"></p>
             </div>
@@ -228,67 +234,78 @@
         <section id="page-settings" class="page hidden">
           <div class="settings-body">
             <div class="settings-header">
-              <h3>外观</h3>
-              <button id="set-reset" class="ghost" title="恢复所有外观设置为默认值">恢复默认</button>
+              <h3 data-i18n="settings.appearance">外观</h3>
+              <button id="set-reset" class="ghost" title="恢复所有外观设置为默认值" data-i18n-title="settings.reset.title" data-i18n="settings.reset">恢复默认</button>
             </div>
-            <p class="hint-p">设置即时生效并保存在浏览器本地。恢复默认可点击右上角按钮。</p>
+            <p class="hint-p" data-i18n="settings.hint">设置即时生效并保存在浏览器本地。恢复默认可点击右上角按钮。</p>
             <div class="settings-grid">
               <div class="set-card">
-                <div class="set-card-head">🎨 配色</div>
+                <div class="set-card-head" data-i18n="settings.themeCard">🎨 配色</div>
                 <div class="set-field">
-                  <span class="set-label">配色方案</span>
+                  <span class="set-label" data-i18n="settings.theme">配色方案</span>
                   <select id="set-theme">
-                    <optgroup label="系统">
-                      <option value="system">跟随系统</option>
+                    <optgroup label="系统" data-i18n-label="settings.groupSystem">
+                      <option value="system" data-i18n="theme.system">跟随系统</option>
                     </optgroup>
-                    <optgroup label="浅色">
-                      <option value="light">浅色</option>
-                      <option value="solar-light">Solarized 浅色</option>
+                    <optgroup label="浅色" data-i18n-label="settings.groupLight">
+                      <option value="light" data-i18n="theme.light">浅色</option>
+                      <option value="solar-light" data-i18n="theme.solarLight">Solarized 浅色</option>
                     </optgroup>
-                    <optgroup label="深色">
-                      <option value="dark">深色（默认）</option>
-                      <option value="midnight">深色·午夜蓝</option>
-                      <option value="solar">深色·Solarized</option>
-                      <option value="oled">深色·OLED 纯黑</option>
-                      <option value="nord">深色·Nord</option>
-                      <option value="dracula">深色·Dracula</option>
+                    <optgroup label="深色" data-i18n-label="settings.groupDark">
+                      <option value="dark" data-i18n="theme.dark">深色（默认）</option>
+                      <option value="midnight" data-i18n="theme.midnight">深色·午夜蓝</option>
+                      <option value="solar" data-i18n="theme.solar">深色·Solarized</option>
+                      <option value="oled" data-i18n="theme.oled">深色·OLED 纯黑</option>
+                      <option value="nord" data-i18n="theme.nord">深色·Nord</option>
+                      <option value="dracula" data-i18n="theme.dracula">深色·Dracula</option>
                     </optgroup>
-                    <optgroup label="彩色">
-                      <option value="orange">橙色</option>
-                      <option value="red">红色</option>
-                      <option value="green">绿色</option>
-                      <option value="pink">粉色</option>
-                      <option value="purple">紫色</option>
+                    <optgroup label="彩色" data-i18n-label="settings.groupColor">
+                      <option value="orange" data-i18n="theme.orange">橙色</option>
+                      <option value="red" data-i18n="theme.red">红色</option>
+                      <option value="green" data-i18n="theme.green">绿色</option>
+                      <option value="pink" data-i18n="theme.pink">粉色</option>
+                      <option value="purple" data-i18n="theme.purple">紫色</option>
                     </optgroup>
                   </select>
                 </div>
-                <div class="set-note">选择“跟随系统”时会根据操作系统的深色/浅色模式自动切换。</div>
+                <div class="set-note" data-i18n="settings.themeNote">选择“跟随系统”时会根据操作系统的深色/浅色模式自动切换。</div>
               </div>
               <div class="set-card">
-                <div class="set-card-head">📄 收发区</div>
+                <div class="set-card-head" data-i18n="settings.langCard">🌐 语言</div>
                 <div class="set-field">
-                  <span class="set-label">字体大小</span>
+                  <span class="set-label" data-i18n="settings.lang">界面语言</span>
+                  <select id="set-lang">
+                    <option value="zh" data-i18n="lang.zh">中文</option>
+                    <option value="en" data-i18n="lang.en">English</option>
+                  </select>
+                </div>
+                <div class="set-note" data-i18n="settings.langNote">切换语言将刷新界面（标签页与设置会保留）。</div>
+              </div>
+              <div class="set-card">
+                <div class="set-card-head" data-i18n="settings.logCard">📄 收发区</div>
+                <div class="set-field">
+                  <span class="set-label" data-i18n="settings.logSize">字体大小</span>
                   <input id="set-log-size" type="number" min="9" max="28" step="0.5" />
                 </div>
                 <div class="set-field">
-                  <span class="set-label">字体</span>
+                  <span class="set-label" data-i18n="settings.logFamily">字体</span>
                   <select id="set-log-family">
                     <option value='Consolas, "Cascadia Mono", monospace'>Consolas</option>
                     <option value='"Cascadia Mono", Consolas, monospace'>Cascadia Mono</option>
                     <option value='"JetBrains Mono", monospace'>JetBrains Mono</option>
-                    <option value='"Microsoft YaHei", sans-serif'>微软雅黑（非等宽）</option>
-                    <option value='system-ui, sans-serif'>系统默认（非等宽）</option>
+                    <option value='"Microsoft YaHei", sans-serif' data-i18n="settings.fontYahei">微软雅黑（非等宽）</option>
+                    <option value='system-ui, sans-serif' data-i18n="settings.fontSystem">系统默认（非等宽）</option>
                   </select>
                 </div>
-                <div class="set-note">影响日志视图与 HEX 显示的字体。</div>
+                <div class="set-note" data-i18n="settings.logNote">影响日志视图与 HEX 显示的字体。</div>
               </div>
               <div class="set-card">
-                <div class="set-card-head">⌨️ 终端</div>
+                <div class="set-card-head" data-i18n="settings.termCard">⌨️ 终端</div>
                 <div class="set-field">
-                  <span class="set-label">终端字号</span>
+                  <span class="set-label" data-i18n="settings.termSize">终端字号</span>
                   <input id="set-term-size" type="number" min="8" max="32" />
                 </div>
-                <div class="set-note">xterm 终端模拟器的显示字号。</div>
+                <div class="set-note" data-i18n="settings.termNote">xterm 终端模拟器的显示字号。</div>
               </div>
             </div>
           </div>
@@ -296,7 +313,7 @@
       </main>
     </div>
     <footer id="statusbar">
-      <span id="sb-state">未连接</span>
+      <span id="sb-state" data-i18n="state.disconnected">未连接</span>
       <span class="spacer"></span>
       <span id="sb-rx">RX 0 B</span>
       <span id="sb-tx">TX 0 B</span>

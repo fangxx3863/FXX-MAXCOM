@@ -2,6 +2,7 @@
 // 数据由 SessionApp 注入/收集（随标签页快照持久化），变更即推本会话引擎热更新。
 import type { SessionApi } from "../api";
 import { createDropdown, type DropdownHandle } from "../dropdown";
+import { t } from "../i18n";
 
 export interface FilterRuleUi {
   enabled: boolean;
@@ -133,14 +134,14 @@ export class RulesPanel {
           rule.enabled = v;
           this.changed();
         });
-        const input = textInput(rule.pattern, "正则，如 HEARTBEAT|DEBUG", (v) => {
+        const input = textInput(rule.pattern, t("rules.filterRegex.placeholder"), (v) => {
           rule.pattern = v;
           this.changed();
         });
         const dd = createDropdown({
           items: [
-            { value: "hide", label: "隐藏" },
-            { value: "show", label: "显示" },
+            { value: "hide", label: t("rules.hide") },
+            { value: "show", label: t("rules.show") },
           ],
           value: rule.action,
           width: 84,
@@ -170,14 +171,14 @@ export class RulesPanel {
           rule.enabled = v;
           this.changed();
         });
-        const input = textInput(rule.pattern, "正则，如 temp:\\s*\\d+", (v) => {
+        const input = textInput(rule.pattern, t("rules.colorRegex.placeholder"), (v) => {
           rule.pattern = v;
           this.changed();
         });
         const target = createDropdown({
           items: [
-            { value: "match", label: "命中段" },
-            { value: "line", label: "整行" },
+            { value: "match", label: t("rules.match") },
+            { value: "line", label: t("rules.line") },
           ],
           value: rule.target,
           width: 88,
@@ -189,7 +190,7 @@ export class RulesPanel {
         const color = document.createElement("input");
         color.type = "color";
         color.value = rule.color;
-        color.title = "颜色";
+        color.title = t("rules.color");
         color.addEventListener("input", () => {
           rule.color = color.value;
           this.changed();
@@ -200,7 +201,7 @@ export class RulesPanel {
           rule.bold = v;
           this.changed();
         });
-        boldLabel.append(bold, document.createTextNode("粗"));
+        boldLabel.append(bold, document.createTextNode(t("rules.bold")));
         const del = delBtn(() => {
           this.colors.splice(idx, 1);
           this.renderColors();
@@ -237,7 +238,7 @@ function textInput(value: string, placeholder: string, onChange: (v: string) => 
 function delBtn(onClick: () => void): HTMLButtonElement {
   const el = document.createElement("button");
   el.textContent = "✕";
-  el.title = "删除本行";
+  el.title = t("common.deleteRow");
   el.addEventListener("click", onClick);
   return el;
 }

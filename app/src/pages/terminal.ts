@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { SessionApi } from "../api";
+import { t } from "../i18n";
 
 export class TerminalPage {
   private term = new Terminal({
@@ -40,7 +41,7 @@ export class TerminalPage {
         .then(() => {
           if (localEcho) this.term.write(data); // 回显只在写入成功后做
         })
-        .catch((e) => this.onSendError?.(`发送失败: ${e}`));
+        .catch((e) => this.onSendError?.(t("log.send.error", { e })));
     });
 
     // 工具条：本地回显 / 清屏
@@ -53,9 +54,9 @@ export class TerminalPage {
     echoChk.addEventListener("change", () => {
       localEcho = echoChk.checked;
     });
-    echoLabel.append(echoChk, document.createTextNode("本地回显"));
+    echoLabel.append(echoChk, document.createTextNode(t("term.localEcho")));
     const clearBtn = document.createElement("button");
-    clearBtn.textContent = "清屏";
+    clearBtn.textContent = t("term.clear");
     clearBtn.addEventListener("click", () => this.clear());
     bar.append(echoLabel, clearBtn);
     el.prepend(bar);

@@ -1,5 +1,6 @@
 // 自定义右键菜单：原生菜单被屏蔽后的替代品（编辑四件套 + 各页面扩展项）。
 // Shift+右键 不拦截，保留原生菜单用于调试。
+import { t } from "./i18n";
 
 export interface CtxItem {
   label?: string;
@@ -118,7 +119,7 @@ export function commonEditItems(): CtxItem[] {
     const target = (edNow ?? ed)!;
     const readOnly = "readOnly" in target && target.readOnly;
     items.push({
-      label: "剪切",
+      label: t("ctx.cut"),
       enabled: hasSel && !readOnly,
       action: () => {
         const s = target.selectionStart ?? 0;
@@ -131,7 +132,7 @@ export function commonEditItems(): CtxItem[] {
     });
   }
   items.push({
-    label: "复制",
+    label: t("ctx.copy"),
     enabled: hasSel,
     action: () => {
       const text = selText(edNow ?? ed);
@@ -141,8 +142,8 @@ export function commonEditItems(): CtxItem[] {
   if (isEditable) {
     const target = (edNow ?? ed)!;
     items.push({
-      label: "粘贴",
-      hint: "读取剪贴板文本插入光标处",
+      label: t("ctx.paste"),
+      hint: t("ctx.paste.hint"),
       action: () => {
         navigator.clipboard
           .readText()
@@ -157,7 +158,7 @@ export function commonEditItems(): CtxItem[] {
       },
     });
     items.push({
-      label: "全选",
+      label: t("ctx.selectAll"),
       action: () => {
         target.focus();
         target.select();
