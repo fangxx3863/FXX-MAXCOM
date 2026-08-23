@@ -1666,16 +1666,10 @@ function saveSettings(st: AppSettings) {
 // ── 标签栏按钮 / 新建 ──
 document.getElementById("tab-new")?.addEventListener("click", () => newTab());
 
-// ── 标题栏语言切换（全局单例，位于 session-root 之外）──
+// ── 标题栏静态标签（win-* 按钮 title 等）按当前语言落地 ──
 {
-  // 标题栏静态标签（win-* 按钮 title、lang 标签等）按当前语言落地
   const titlebar = document.getElementById("titlebar");
   if (titlebar) applyStaticI18n(titlebar);
-  const langSel = document.getElementById("lang-select") as HTMLSelectElement | null;
-  if (langSel) {
-    langSel.value = getLang();
-    langSel.addEventListener("change", () => setLang(langSel.value as Lang));
-  }
 }
 
 // ── 键盘快捷键：Ctrl+T 新建 / Ctrl+W 关闭 / Ctrl+Tab 切换 ──
