@@ -59,8 +59,8 @@ function plotAxes(): uPlot.Axis[] {
   const grid = cssVar("--border") || "#2c313a";
   const stroke = cssVar("--fg-dim") || "#8b919c";
   return [
-    { stroke, grid: { stroke: grid }, space: 60, label: "样本序号", labelSize: 22 },
-    { stroke, grid: { stroke: grid }, space: 24, labelSize: 22 },
+    { stroke, grid: { stroke: grid }, space: 60 },
+    { stroke, grid: { stroke: grid }, space: 24 },
   ];
 }
 
@@ -250,6 +250,12 @@ export class PlotPage {
       const cell = document.createElement("div");
       cell.className = "plot-cell";
       cell.dataset.overlay = "1"; // 右键菜单识别：叠加图导出全通道
+      const body = document.createElement("div");
+      body.className = "plot-body";
+      const xlabel = document.createElement("div");
+      xlabel.className = "plot-xlabel";
+      xlabel.textContent = "样本序号";
+      cell.append(body, xlabel);
       this.holder.appendChild(cell);
       this.cells.push(cell);
       const w = Math.max(220, cell.clientWidth - 10);
@@ -266,7 +272,7 @@ export class PlotPage {
           legend: { show: true },
         },
         undefined,
-        cell,
+        body,
       );
     } else {
       // 分开子图：每通道一个 uPlot（带标题，图例隐藏）
@@ -279,6 +285,12 @@ export class PlotPage {
         cell.className = "plot-cell sub";
         cell.classList.toggle("hidden", !(this.chState[ch]?.visible ?? true));
         cell.dataset.ch = String(ch); // 右键菜单识别：子图导出单通道
+        const body = document.createElement("div");
+        body.className = "plot-body";
+        const xlabel = document.createElement("div");
+        xlabel.className = "plot-xlabel";
+        xlabel.textContent = "样本序号";
+        cell.append(body, xlabel);
         this.holder.appendChild(cell);
         this.cells.push(cell);
         const w = Math.max(220, cell.clientWidth - 10);
@@ -295,7 +307,7 @@ export class PlotPage {
               legend: { show: false },
             },
             undefined,
-            cell,
+            body,
           ),
         );
       }
@@ -315,15 +327,17 @@ export class PlotPage {
   private fitPlots() {
     const all = this.overlay ? [...this.plots, this.overlay] : [...this.plots];
     for (const p of all) {
-      const cell = p.root.parentElement as HTMLElement | null;
+      const host = p.root.parentElement as HTMLElement | null;
+      const cell = host?.closest(".plot-cell") as HTMLElement | null;
       if (!cell || !cell.clientHeight) continue;
       let targetW = Math.max(220, cell.clientWidth - 10);
-      const side = cell.querySelector<HTMLElement>(".bar-side");
+      const side = host?.querySelector<HTMLElement>(".bar-side");
       if (side) {
         // 右侧柱状表占用宽度后，波形区域要相应扣除
         targetW = Math.max(220, cell.clientWidth - side.clientWidth - 6 - 10);
       }
-      const inner = cell.clientHeight - 10; // 减 cell 上下 padding+border
+      const bodyH = host?.clientHeight || cell.clientHeight;
+      const inner = bodyH - 10; // 减 body 上下 padding+border
       const delta = inner - p.root.offsetHeight; // 正=画布偏小，负=偏大
       const nextH = Math.max(80, p.height + delta);
       if (Math.abs(delta) > 2 || Math.abs(p.width - targetW) > 3) {
@@ -409,10 +423,12 @@ export class PlotPage {
       const cell = this.cells[ch];
       if (!cell) continue;
       cell.classList.add("side-bars");
+      const body = cell.querySelector<HTMLElement>(".plot-body");
+      if (!body) continue;
       const side = document.createElement("div");
       side.className = "bar-side";
       side.appendChild(this.makeMeter(this.chState[ch], ch));
-      cell.appendChild(side);
+      body.appendChild(side);
     }
   }
 
