@@ -113,12 +113,10 @@ export class ModbusPanel implements ProtoController {
       : t("protocol.f04");
     return this.card(
       title,
-      `<div class="proto-row">
-        <label class="proto-lab">${t("protocol.slave")}<input class="proto-in" data-slave value="1" /></label>
-        <label class="proto-lab">${t("protocol.regAddr")}<input class="proto-in" data-start value="${startValue}" title="${t("protocol.regAddr")}" /></label>
-        <label class="proto-lab">${t("protocol.regCount")}<input class="proto-in" data-count value="1" /></label>
-        <button class="primary proto-go" data-read="${func}">${t("protocol.read")}</button>
-      </div>
+      `<span class="proto-lab">${t("protocol.slave")}</span><input class="proto-in" data-slave value="1" />
+      <span class="proto-lab">${t("protocol.regAddr")}</span><input class="proto-in" data-start value="${startValue}" title="${t("protocol.regAddr")}" />
+      <span class="proto-lab">${t("protocol.regCount")}</span><input class="proto-in" data-count value="1" />
+      <button class="primary proto-go" data-read="${func}">${t("protocol.read")}</button>
       <div class="proto-result" data-result>${t("protocol.empty")}</div>`,
     );
   }
@@ -126,12 +124,10 @@ export class ModbusPanel implements ProtoController {
   private writeCoilCard(): string {
     return this.card(
       t("protocol.f05"),
-      `<div class="proto-row">
-        <label class="proto-lab">${t("protocol.slave")}<input class="proto-in" data-slave value="1" /></label>
-        <label class="proto-lab">${t("protocol.regAddr")}<input class="proto-in" data-addr value="1" /></label>
-        <label class="proto-lab">${t("protocol.coilValue")}<input class="proto-in" data-value value="0" title="0=关 非0=开" /></label>
-        <button class="primary proto-go" data-write="5">${t("protocol.send")}</button>
-      </div>
+      `<span class="proto-lab">${t("protocol.slave")}</span><input class="proto-in" data-slave value="1" />
+      <span class="proto-lab">${t("protocol.regAddr")}</span><input class="proto-in" data-addr value="1" />
+      <span class="proto-lab">${t("protocol.coilValue")}</span><input class="proto-in" data-value value="0" title="0=关 非0=开" />
+      <button class="primary proto-go" data-write="5">${t("protocol.send")}</button>
       <div class="proto-result" data-result>${t("protocol.empty")}</div>`,
     );
   }
@@ -139,12 +135,10 @@ export class ModbusPanel implements ProtoController {
   private writeRegCard(): string {
     return this.card(
       t("protocol.f06"),
-      `<div class="proto-row">
-        <label class="proto-lab">${t("protocol.slave")}<input class="proto-in" data-slave value="1" /></label>
-        <label class="proto-lab">${t("protocol.regAddr")}<input class="proto-in" data-addr value="1" /></label>
-        <label class="proto-lab">${t("protocol.regValue")}<input class="proto-in" data-value value="0" /></label>
-        <button class="primary proto-go" data-write="6">${t("protocol.send")}</button>
-      </div>
+      `<span class="proto-lab">${t("protocol.slave")}</span><input class="proto-in" data-slave value="1" />
+      <span class="proto-lab">${t("protocol.regAddr")}</span><input class="proto-in" data-addr value="1" />
+      <span class="proto-lab">${t("protocol.regValue")}</span><input class="proto-in" data-value value="0" />
+      <button class="primary proto-go" data-write="6">${t("protocol.send")}</button>
       <div class="proto-result" data-result>${t("protocol.empty")}</div>`,
     );
   }
@@ -152,12 +146,10 @@ export class ModbusPanel implements ProtoController {
   private writeMultiCard(): string {
     return this.card(
       t("protocol.f10"),
-      `<div class="proto-row">
-        <label class="proto-lab">${t("protocol.slave")}<input class="proto-in" data-slave value="1" /></label>
-        <label class="proto-lab">${t("protocol.regAddr")}<input class="proto-in" data-addr value="0" /></label>
-        <label class="proto-lab proto-lab-wide">${t("protocol.regValues")}<input class="proto-in" data-values value="1 2 3" title="${t("protocol.regValues")}" /></label>
-        <button class="primary proto-go" data-write="16">${t("protocol.send")}</button>
-      </div>
+      `<span class="proto-lab">${t("protocol.slave")}</span><input class="proto-in" data-slave value="1" />
+      <span class="proto-lab">${t("protocol.regAddr")}</span><input class="proto-in" data-addr value="0" />
+      <span class="proto-lab">${t("protocol.regValues")}</span><input class="proto-in" data-values value="1 2 3" title="${t("protocol.regValues")}" />
+      <button class="primary proto-go" data-write="16">${t("protocol.send")}</button>
       <div class="proto-result" data-result>${t("protocol.empty")}</div>`,
     );
   }
@@ -165,8 +157,8 @@ export class ModbusPanel implements ProtoController {
   private arbitraryCard(): string {
     return this.card(
       t("protocol.arbitrary"),
-      `<div class="proto-row proto-arb">
-        <textarea class="proto-in proto-arb-in" data-arb placeholder="${t("protocol.arbitraryPlaceholder")}" rows="1"></textarea>
+      `<textarea class="proto-in proto-arb-in" data-arb placeholder="${t("protocol.arbitraryPlaceholder")}" rows="1"></textarea>
+      <div class="proto-arb-actions">
         <button class="primary proto-go" data-arb-send>${t("protocol.send")}</button>
         <button class="primary proto-go" data-arb-crc>${t("protocol.crcSend")}</button>
       </div>
