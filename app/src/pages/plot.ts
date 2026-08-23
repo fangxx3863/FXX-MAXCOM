@@ -252,10 +252,7 @@ export class PlotPage {
       cell.dataset.overlay = "1"; // 右键菜单识别：叠加图导出全通道
       const body = document.createElement("div");
       body.className = "plot-body";
-      const xlabel = document.createElement("div");
-      xlabel.className = "plot-xlabel";
-      xlabel.textContent = "样本序号";
-      cell.append(body, xlabel);
+      cell.appendChild(body);
       this.holder.appendChild(cell);
       this.cells.push(cell);
       const w = Math.max(220, cell.clientWidth - 10);
@@ -287,10 +284,7 @@ export class PlotPage {
         cell.dataset.ch = String(ch); // 右键菜单识别：子图导出单通道
         const body = document.createElement("div");
         body.className = "plot-body";
-        const xlabel = document.createElement("div");
-        xlabel.className = "plot-xlabel";
-        xlabel.textContent = "样本序号";
-        cell.append(body, xlabel);
+        cell.appendChild(body);
         this.holder.appendChild(cell);
         this.cells.push(cell);
         const w = Math.max(220, cell.clientWidth - 10);
