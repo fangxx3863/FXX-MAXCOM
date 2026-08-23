@@ -70,6 +70,8 @@ const PLOT_MIN_COL = 340;
 const U_TITLE_H = 28;
 /** uPlot 图例(.legend)估算高度：同样在画布之外（叠加布局用，实际以溢出实测闭环为准） */
 const U_LEGEND_H = 26;
+/** 多通道上下滚动时每个波形的最小高度，避免行高被压没导致显示异常 */
+const MIN_PLOT_H = 180;
 
 function fmtNum(v: number): string {
   const a = Math.abs(v);
@@ -231,7 +233,8 @@ export class PlotPage {
     }
     // minmax(0,1fr)：轨道可压缩到内容以下，杜绝“内容撑大行 → 反馈溢出”的死循环
     this.holder.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-    this.holder.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+    // 行高使用最小高度 + auto：通道多时容器可纵向滚动，但每个波形不会压扁
+    this.holder.style.gridTemplateRows = `repeat(${rows}, minmax(${MIN_PLOT_H}px, auto))`;
 
     const mk = (ch: number): uPlot.Series => ({
       label: this.labelFor(ch),
@@ -268,7 +271,7 @@ export class PlotPage {
     } else {
       // 分开子图：每通道一个 uPlot（带标题，图例隐藏）
       const estH = Math.max(
-        120,
+        MIN_PLOT_H,
         Math.floor((this.holder.clientHeight - 16 - (rows - 1) * 8) / rows) - 10 - U_TITLE_H,
       );
       for (let ch = 0; ch < n; ch++) {
