@@ -299,6 +299,10 @@ class SessionApp {
       ],
       onChange: (v) => {
         this.connKind = v;
+        const portEl = this.q<HTMLInputElement>("#tcp-port");
+        if ((v === "ssh" || v === "telnet") && (portEl.value === "" || portEl.value === "8888")) {
+          portEl.value = v === "ssh" ? "22" : "23";
+        }
         this.syncConnTypeUI();
       },
     });

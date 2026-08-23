@@ -11,6 +11,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const READ_TIMEOUT_MS: u32 = 50;
+const HANDSHAKE_TIMEOUT_MS: u32 = 15_000;
+const CHANNEL_TIMEOUT_MS: u32 = 10_000;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 const KEY_NAMES: &[&str] = &["id_ed25519", "id_ecdsa", "id_rsa", "id_dsa"];
@@ -23,21 +25,25 @@ pub fn open(host: &str, port: u16, username: &str, password: &str) -> io::Result
 
     let stream = connect_with_timeout(host, port)?;
     stream.set_nodelay(true)?;
-    stream.set_read_timeout(Some(Duration::from_millis(u64::from(READ_TIMEOUT_MS))))?;
-    stream.set_write_timeout(Some(Duration::from_millis(u64::from(READ_TIMEOUT_MS))))?;
 
     let mut sess = Session::new().map_err(io::Error::from)?;
     sess.set_tcp_stream(stream);
-    sess.set_timeout(READ_TIMEOUT_MS);
+    // 握手阶段绝不能套 50ms 心跳超时；认证/通道建立同理，否则慢网络下会超时。
+    // 整个握手 + 认证 + 通道协商期间用一个较宽松的超时，最后再切回心跳节拍。
+    sess.set_timeout(HANDSHAKE_TIMEOUT_MS);
     sess.handshake().map_err(io::Error::from)?;
 
     authenticate(&sess, username, password)?;
 
+    sess.set_timeout(CHANNEL_TIMEOUT_MS);
     let mut channel = sess.channel_session().map_err(io::Error::from)?;
     channel
         .request_pty("xterm", None, Some((80, 24, 0, 0)))
         .map_err(io::Error::from)?;
     channel.shell().map_err(io::Error::from)?;
+
+    // 通道就绪后，读端按 50ms 心跳节拍返回 Ok(0)（会话引擎用它判断空闲/存活）。
+    sess.set_timeout(READ_TIMEOUT_MS);
 
     let write_channel = channel.clone();
     Ok(ConnPair {
