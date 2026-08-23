@@ -88,6 +88,7 @@ export class PlotPage {
   private cells: HTMLElement[] = [];
   private overlay: uPlot | null = null;
   private meters: Meter[] = [];
+  private sideBars = false;
   private chState: ChState[] = [];
   /** ASCII 表头智能识别的通道名（空 → 回退 CHn） */
   private names: string[] = [];
@@ -199,18 +200,22 @@ export class PlotPage {
     const n = Math.max(1, snap.channel_count);
     this.ensureChStates(n);
     this.buildChBar();
+    // 同屏 + 子图 + 通道数不多时，柱状表直接放到对应波形右侧；
+    // 超多通道仍走顶部独立条，避免挤在一起。
+    this.sideBars = this.viewMode === "both" && this.layout === "subplots" && n >= 2 && n <= 6;
     this.syncVisibility();
-    // 先建柱状（有固定高度），强制布局后再量可用高度建波形 —— 否则量到的是柱状区未占位的高度，波形必溢出
-    if (this.viewMode !== "waveform") this.buildBars(n);
+    // 先建波形（拿到格子），再把柱状嵌到右侧；顶部独立条用于纯柱状/多通道。
+    if (this.viewMode !== "waveform" && !this.sideBars) this.buildBars(n);
     if (this.viewMode !== "bars") this.buildWave(n);
+    if (this.sideBars) this.buildSideBars(n);
     this.update(snap); // 立即灌一次数据
   }
 
   private syncVisibility() {
-    this.barsEl.classList.toggle("hidden", this.viewMode === "waveform");
+    this.barsEl.classList.toggle("hidden", this.viewMode === "waveform" || this.sideBars);
     this.holder.classList.toggle("hidden", this.viewMode === "bars");
     // 纯柱状模式：柱状区撑满剩余空间（同屏模式下保持固定行高）
-    this.barsEl.classList.toggle("full", this.viewMode === "bars");
+    this.barsEl.classList.toggle("full", this.viewMode === "bars" && !this.sideBars);
   }
 
   private buildWave(n: number) {
@@ -309,7 +314,12 @@ export class PlotPage {
     for (const p of all) {
       const cell = p.root.parentElement as HTMLElement | null;
       if (!cell || !cell.clientHeight) continue;
-      const targetW = Math.max(220, cell.clientWidth - 10);
+      let targetW = Math.max(220, cell.clientWidth - 10);
+      const side = cell.querySelector<HTMLElement>(".bar-side");
+      if (side) {
+        // 右侧柱状表占用宽度后，波形区域要相应扣除
+        targetW = Math.max(220, cell.clientWidth - side.clientWidth - 6 - 10);
+      }
       const inner = cell.clientHeight - 10; // 减 cell 上下 padding+border
       const delta = inner - p.root.offsetHeight; // 正=画布偏小，负=偏大
       const nextH = Math.max(80, p.height + delta);
@@ -362,28 +372,44 @@ export class PlotPage {
     downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), name);
   }
 
+  private makeMeter(st: { visible: boolean; color: string }, ch: number): HTMLElement {
+    const root = document.createElement("div");
+    root.className = "bar-meter";
+    root.classList.toggle("hidden", !(st?.visible ?? true));
+    root.innerHTML =
+      `<div class="bar-head"><i class="bar-swatch" style="background:${st.color}"></i>${this.labelFor(ch)}</div>` +
+      `<div class="bar-track"><div class="bar-fill" style="background:${st.color}"></div><span class="bar-val">--</span></div>` +
+      `<div class="bar-range"><span class="lo">--</span><span class="hi">--</span></div>`;
+    this.meters.push({
+      root,
+      swatch: root.querySelector<HTMLElement>(".bar-swatch")!,
+      fill: root.querySelector<HTMLElement>(".bar-fill")!,
+      val: root.querySelector<HTMLElement>(".bar-val")!,
+      loEl: root.querySelector<HTMLElement>(".lo")!,
+      hiEl: root.querySelector<HTMLElement>(".hi")!,
+      lo: 0,
+      hi: 1,
+      init: false,
+    });
+    return root;
+  }
+
   private buildBars(n: number) {
     for (let ch = 0; ch < n; ch++) {
-      const st = this.chState[ch];
-      const root = document.createElement("div");
-      root.className = "bar-meter";
-      root.classList.toggle("hidden", !(st?.visible ?? true));
-      root.innerHTML =
-        `<div class="bar-head"><i class="bar-swatch" style="background:${st.color}"></i>${this.labelFor(ch)}</div>` +
-        `<div class="bar-track"><div class="bar-fill" style="background:${st.color}"></div><span class="bar-val">--</span></div>` +
-        `<div class="bar-range"><span class="lo">--</span><span class="hi">--</span></div>`;
-      this.barsEl.appendChild(root);
-      this.meters.push({
-        root,
-        swatch: root.querySelector<HTMLElement>(".bar-swatch")!,
-        fill: root.querySelector<HTMLElement>(".bar-fill")!,
-        val: root.querySelector<HTMLElement>(".bar-val")!,
-        loEl: root.querySelector<HTMLElement>(".lo")!,
-        hiEl: root.querySelector<HTMLElement>(".hi")!,
-        lo: 0,
-        hi: 1,
-        init: false,
-      });
+      this.barsEl.appendChild(this.makeMeter(this.chState[ch], ch));
+    }
+  }
+
+  /** 同屏 + 子图：把每通道柱状表放到对应波形格子右侧 */
+  private buildSideBars(n: number) {
+    for (let ch = 0; ch < n; ch++) {
+      const cell = this.cells[ch];
+      if (!cell) continue;
+      cell.classList.add("side-bars");
+      const side = document.createElement("div");
+      side.className = "bar-side";
+      side.appendChild(this.makeMeter(this.chState[ch], ch));
+      cell.appendChild(side);
     }
   }
 
@@ -482,7 +508,7 @@ export class PlotPage {
       chip.innerHTML =
         `<input type="color" class="ch-color" value="${st.color}" title="通道颜色" />` +
         `<span class="ch-name">${this.labelFor(i)}</span>` +
-        `<label class="chk" title="显示通道"><input type="checkbox" class="ch-vis" ${st.visible ? "checked" : ""} />显</label>` +
+        `<label class="chk" title="显示通道"><input type="checkbox" class="ch-vis" ${st.visible ? "checked" : ""} /></label>` +
         `<span class="ch-io" title="增益">×<input type="number" class="ch-gain" value="${st.gain}" step="0.1" /></span>` +
         `<span class="ch-io" title="偏移">+<input type="number" class="ch-off" value="${st.offset}" step="1" /></span>`;
       frag.appendChild(chip);

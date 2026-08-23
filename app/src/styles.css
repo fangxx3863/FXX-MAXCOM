@@ -270,6 +270,11 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 .uplot { min-width: 0 !important; }
 /* 子图隐藏图例；单图叠加显示多色图例 */
 .plot-cell.sub .legend { display: none; }
+/* 同屏 + 子图：柱状表放在对应波形右侧 */
+.plot-cell.side-bars { display: flex; flex-direction: row; align-items: stretch; gap: 6px; }
+.plot-cell.side-bars .uplot { flex: 1 1 auto; min-width: 0; }
+.plot-cell .bar-side { flex: none; width: 84px; display: flex; flex-direction: column; }
+.plot-cell .bar-side .bar-meter { width: 100%; height: auto; flex: 1; min-height: 120px; }
 .uplot .legend { font-size: 11px; color: var(--fg-dim); }
 #plot-info { color: var(--fg-dim); }
 
