@@ -292,9 +292,13 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 .ch-chip {
   display: inline-flex; align-items: center; gap: 5px;
   background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
-  padding: 3px 8px; white-space: nowrap;
+  padding: 3px 8px; white-space: nowrap; flex: 0 0 auto;
 }
-.ch-name { font-size: 11px; color: var(--fg-dim); }
+.ch-name {
+  font-size: 11px; color: var(--fg-dim);
+  width: 36px; flex: none; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
 .ch-chip input[type="color"] {
   width: 18px; height: 18px; padding: 0; border: 1px solid var(--border);
   border-radius: 4px; background: none; cursor: pointer;

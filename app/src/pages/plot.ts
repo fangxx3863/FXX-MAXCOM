@@ -59,8 +59,8 @@ function plotAxes(): uPlot.Axis[] {
   const grid = cssVar("--border") || "#2c313a";
   const stroke = cssVar("--fg-dim") || "#8b919c";
   return [
-    { stroke, grid: { stroke: grid }, space: 60, label: "样本序号" },
-    { stroke, grid: { stroke: grid }, space: 24 },
+    { stroke, grid: { stroke: grid }, space: 60, label: "样本序号", labelSize: 22 },
+    { stroke, grid: { stroke: grid }, space: 24, labelSize: 22 },
   ];
 }
 
