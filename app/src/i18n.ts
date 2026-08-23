@@ -662,13 +662,18 @@ export function getLang(): Lang {
   }
 }
 
-/** 切换语言并整页重载（标签页/设置已持久化，重载即恢复） */
-export function setLang(l: Lang): void {
+/** 持久化语言选择（不重载） */
+export function persistLang(l: Lang): void {
   try {
     localStorage.setItem(LANG_KEY, l);
   } catch {
     /* ignore */
   }
+}
+
+/** 切换语言并整页重载（标签页/设置已持久化，重载即恢复） */
+export function setLang(l: Lang): void {
+  persistLang(l);
   window.location.reload();
 }
 

@@ -2,7 +2,7 @@
 // 标签持久化（Notepad++ 式恢复）。单会话逻辑整体封装在 SessionApp；
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
-import { t, getLang, setLang, applyStaticI18n, type Lang } from "./i18n";
+import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
 import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips } from "./api";
 import type { ConnConfig, ConnState, DataFormat, DType, PortInfo, StatsSnapshot } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
@@ -1350,11 +1350,11 @@ class SessionApp {
       saveSettings({ ...currentSettings, chartStyle: chartStyleSel.value }),
     );
     this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
-    // 界面语言：全局共享，切换后整页重载（标签页/设置保留）
+    // 界面语言：全局共享，切换后整页重载（标签页/设置保留）；重载前先断开所有连接
     const langSel = this.q<HTMLSelectElement>("#set-lang");
     if (langSel) {
       langSel.value = getLang();
-      langSel.addEventListener("change", () => setLang(langSel.value as Lang));
+      langSel.addEventListener("change", () => void changeLanguage(langSel.value as Lang));
     }
   }
 }
@@ -1670,6 +1670,17 @@ function saveSettings(st: AppSettings) {
   currentSettings = st;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(st));
   applySettingsToAll();
+}
+
+/**
+ * 切换语言：持久化后，先断开所有标签的连接，再整页重载。
+ * 引擎是单连接设计（connect 对已有活动连接会报「已有活动连接」），
+ * 若重载前不断开，重载恢复的标签再次 connect 会撞到旧连接而报错。
+ */
+async function changeLanguage(l: Lang): Promise<void> {
+  persistLang(l);
+  await Promise.allSettled([...sessions.values()].map((s) => s.api.disconnect()));
+  window.location.reload();
 }
 
 // ── 标签栏按钮 / 新建 ──
