@@ -581,6 +581,106 @@ export class PlotPage {
   }
 }
 
+/** 圆角矩形路径（避免依赖 ctx.roundRect） */
+function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+/** 同屏(子图)模式：把格子右侧柱状表(.bar-side)按实际渲染合成到 PNG 上 */
+function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect: DOMRect): void {
+  const cs = getComputedStyle(document.documentElement);
+  const bg2 = cs.getPropertyValue("--bg2").trim() || "#1b1e24";
+  const bg3 = cs.getPropertyValue("--bg3").trim() || "#23272f";
+  const border = cs.getPropertyValue("--border").trim() || "#2a2f37";
+  const fg = cs.getPropertyValue("--fg").trim() || "#dce0e8";
+  const fgDim = cs.getPropertyValue("--fg-dim").trim() || "#8b919c";
+  const pad = 10;
+  side.querySelectorAll<HTMLElement>(".bar-meter").forEach((m) => {
+    if (m.classList.contains("hidden")) return;
+    const mr = m.getBoundingClientRect();
+    if (mr.width <= 1 || mr.height <= 1) return;
+    const mx = mr.left - cellRect.left;
+    const my = mr.top - cellRect.top;
+    roundRectPath(ctx, mx, my, mr.width, mr.height, 8);
+    ctx.fillStyle = bg2;
+    ctx.fill();
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // 头部：色标 + 通道名
+    const head = m.querySelector<HTMLElement>(".bar-head");
+    let hy = my + pad;
+    if (head) {
+      const swatch = head.querySelector<HTMLElement>(".bar-swatch");
+      const sw = swatch ? getComputedStyle(swatch).backgroundColor : CH_COLORS[0];
+      const label = head.textContent?.trim() ?? "";
+      ctx.fillStyle = sw;
+      ctx.fillRect(mx + pad, hy, 9, 9);
+      ctx.fillStyle = fgDim;
+      ctx.font = '11px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, mx + pad + 15, hy + 5);
+      hy += 9 + 6;
+    }
+    // 轨道 + 填充条 + 当前值
+    const track = m.querySelector<HTMLElement>(".bar-track");
+    if (track) {
+      const tr = track.getBoundingClientRect();
+      const tx = tr.left - cellRect.left;
+      const ty = tr.top - cellRect.top;
+      const tw = tr.width;
+      const th = tr.height;
+      roundRectPath(ctx, tx, ty, tw, th, 5);
+      ctx.fillStyle = bg3;
+      ctx.fill();
+      ctx.strokeStyle = border;
+      ctx.stroke();
+      const fill = track.querySelector<HTMLElement>(".bar-fill");
+      if (fill) {
+        const fc = getComputedStyle(fill).backgroundColor;
+        const pct = Math.max(0, Math.min(1, (parseFloat(fill.style.height) || 0) / 100));
+        const fh = pct * th;
+        ctx.fillStyle = fc;
+        ctx.globalAlpha = 0.9;
+        ctx.fillRect(tx + 1, ty + th - fh, tw - 2, fh);
+        ctx.globalAlpha = 1;
+      }
+      const val = track.querySelector<HTMLElement>(".bar-val");
+      if (val) {
+        ctx.fillStyle = fg;
+        ctx.font = '600 12px Consolas, "Cascadia Mono", monospace';
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(val.textContent ?? "", tx + tw / 2, ty + th / 2);
+        ctx.textAlign = "left";
+      }
+    }
+    // 量程（低/高）
+    const range = m.querySelector<HTMLElement>(".bar-range");
+    if (range) {
+      const rr = range.getBoundingClientRect();
+      const rcX = rr.left - cellRect.left;
+      const rcY = rr.top - cellRect.top + rr.height / 2;
+      ctx.fillStyle = fgDim;
+      ctx.font = '10px Consolas, "Cascadia Mono", monospace';
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "left";
+      ctx.fillText(range.querySelector<HTMLElement>(".lo")?.textContent ?? "", rcX, rcY);
+      ctx.textAlign = "right";
+      ctx.fillText(range.querySelector<HTMLElement>(".hi")?.textContent ?? "", rr.right - cellRect.left, rcY);
+      ctx.textAlign = "left";
+    }
+  });
+}
+
 /** 把图表格子（标题 + 画布 + 图例标签）合成为一张 PNG */
 async function composePng(
   cell: HTMLElement,
@@ -609,6 +709,8 @@ async function composePng(
     const r = c.getBoundingClientRect();
     ctx.drawImage(c, r.left - rect.left, r.top - rect.top, r.width, r.height);
   });
+  // 同屏(子图)模式：格子右侧的柱状表是 DOM（非 canvas），需按实际渲染手动合到图上
+  cell.querySelectorAll<HTMLElement>(".bar-side").forEach((side) => drawBarSide(ctx, side, rect));
   // 图例：叠加模式的 DOM 表格不进画布，手动画色标+标签在顶部一行
   ctx.textBaseline = "middle";
   let lx = 12;
