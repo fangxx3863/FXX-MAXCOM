@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
-  ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, PlotSnapshotDto,
+  ChipFamilyInfo, ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, PlotSnapshotDto,
   PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import { getMock, mockOnRaw, mockOnEntries, mockOnState } from "./mock";
@@ -97,6 +97,24 @@ export async function saveTextFile(path: string, contents: string): Promise<numb
 export async function listProbes(): Promise<ProbeInfo[]> {
   if (!IS_TAURI) return [];
   return await invoke<ProbeInfo[]>("list_probes");
+}
+
+/** 浏览器演示模式的芯片候选（Tauri 下由 probe-rs 提供全量列表） */
+const DEMO_CHIP_FAMILIES: ChipFamilyInfo[] = [
+  { family: "nRF52840", variants: ["nrf52832", "nrf52833", "nrf52840", "nrf5340"] },
+  { family: "RP2040", variants: ["rp2040"] },
+  { family: "ESP32", variants: ["esp32", "esp32c3", "esp32s3", "esp32c6"] },
+  { family: "STM32F1", variants: ["stm32f103c8", "stm32f103cbt6", "stm32f103vet6"] },
+  { family: "STM32F4", variants: ["stm32f407vet6", "stm32f411ceu6"] },
+  { family: "CH32", variants: ["ch32v003", "ch32v103", "ch32v203", "ch32v307", "ch582"] },
+  { family: "ATmega", variants: ["atmega328p"] },
+  { family: "GD32", variants: ["gd32f103"] },
+];
+
+/** 列出 probe-rs 内置支持的目标芯片（家族 → 变体）。浏览器演示模式返回少量候选。 */
+export async function listChips(): Promise<ChipFamilyInfo[]> {
+  if (!IS_TAURI) return DEMO_CHIP_FAMILIES;
+  return await invoke<ChipFamilyInfo[]>("list_chips");
 }
 
 /** 烧录固件（会话无关；浏览器演示模式返回模拟成功） */

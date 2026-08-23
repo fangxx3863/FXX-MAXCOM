@@ -32,6 +32,12 @@ export interface ProbeInfo {
   serial: string;
 }
 
+/** probe-rs 内置芯片家族（家族 → 目标芯片变体），对应 `list_chips` */
+export interface ChipFamilyInfo {
+  family: string;
+  variants: string[];
+}
+
 export interface PortInfo {
   device: string;
   description: string;

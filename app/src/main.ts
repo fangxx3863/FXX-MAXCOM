@@ -2,9 +2,10 @@
 // 标签持久化（Notepad++ 式恢复）。单会话逻辑整体封装在 SessionApp；
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
-import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes } from "./api";
+import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips } from "./api";
 import type { ConnConfig, ConnState, DataFormat, DType, PortInfo, StatsSnapshot } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
+import { flattenChips, withAuto } from "./chips";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
 import { TerminalPage } from "./pages/terminal";
 import { LogViewPage } from "./pages/logview";
@@ -113,16 +114,8 @@ const BAUD_PRESETS = [
   "1000000", "1152000", "1500000", "2000000",
 ];
 
-// RTT 常见目标芯片（可自由输入；列表仅为候选过滤建议，需与 probe-rs builtin target 名一致）
-const CHIP_PRESETS = [
-  "nrf52832", "nrf52833", "nrf52840", "nrf5340",
-  "rp2040",
-  "esp32", "esp32c3", "esp32s3", "esp32c6",
-  "stm32f103c8", "stm32f103cbt6", "stm32f103vet6",
-  "stm32f407vet6", "stm32f411ceu6", "stm32g474ret6", "stm32h743zit6",
-  "ch32v003", "ch32v103", "ch32v203", "ch32v307", "ch32x035", "ch582",
-  "atmega328p", "gd32f103",
-];
+// RTT 常见目标芯片不再内置硬编码列表：芯片候选一律由 probe-rs 提供（见 loadChips），
+// 浏览器演示模式由 api.ts 的 DEMO_CHIP_FAMILIES 兜底。
 
 function seededMsRows(): MsRow[] {
   return [
@@ -409,13 +402,14 @@ class SessionApp {
     this.q("#refresh-probes").addEventListener("click", () => void this.refreshProbes());
 
     this.chipDd = createDropdown({
-      items: CHIP_PRESETS.map((c) => ({ value: c, label: c })),
+      items: withAuto([]),
       value: "nrf52840",
       editable: true,
       placeholder: "芯片",
       width: 150,
     });
     this.q("#rtt-chip-dd").replaceWith(this.chipDd.el);
+    void this.loadChips();
 
     this.syncConnTypeUI();
 
@@ -437,6 +431,19 @@ class SessionApp {
       }
     } catch (e) {
       this.setHint(`探针枚举失败: ${e}`);
+    }
+  }
+
+  /** 从 probe-rs 拉取内置目标芯片候选（浏览器演示模式用少量内置列表）。 */
+  private async loadChips() {
+    try {
+      const items = withAuto(flattenChips(await listChips()));
+      const cur = this.chipDd.value;
+      this.chipDd.setItems(items);
+      // setItems 在“当前值不在候选”时会重置为第一项（auto）；这里回填保持用户手输芯片不被清空
+      if (cur) this.chipDd.setValue(cur);
+    } catch {
+      /* 拉取失败时保留“自动检测”候选，仍可手动输入芯片名 */
     }
   }
 
@@ -513,10 +520,7 @@ class SessionApp {
       const down = Math.max(0, Number(this.q<HTMLInputElement>("#rtt-down").value) || 0);
       const addrRaw = this.q<HTMLInputElement>("#rtt-addr").value.trim();
       const rtt_address = addrRaw ? Number(addrRaw) || 0 : null;
-      if (!chip) {
-        alert("请填写目标芯片名");
-        return;
-      }
+      // 空芯片名 / "auto" → probe-rs 自动识别目标芯片（后端处理），故不强制填写
       cfg = { type: "rtt", probe_selector: probe, chip, up_channel: up, down_channel: down, rtt_address };
     } else {
       const host = this.tcpHostDd.value;
@@ -624,7 +628,6 @@ class SessionApp {
     this.statsPage = new StatsPage(this.q("#page-stats"));
     this.flashPage = new FlashPage(
       this.q("#page-flash"),
-      CHIP_PRESETS,
       (cfg) => this.connectRttAfterFlash(cfg),
       () => ({
         up_channel: Math.max(0, Number((this.q("#rtt-up") as HTMLInputElement).value) || 0),

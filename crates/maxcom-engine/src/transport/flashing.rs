@@ -19,7 +19,7 @@ pub struct FlashConfig {
     /// 探针选择器（"VID:PID" 或 "VID:PID:serial"，空 = 第一个探针）
     #[serde(default)]
     pub probe_selector: String,
-    /// 目标芯片名，如 "nrf52840"、"rp2040"、"stm32f103ct6"
+    /// 目标芯片名，如 "nrf52840"、"rp2040"、"stm32f103ct6"；空或 "auto" → probe-rs 自动识别
     pub chip: String,
     /// 固件文件绝对路径
     pub path: String,
@@ -57,9 +57,6 @@ fn infer_format(path: &Path) -> Option<&'static str> {
 
 /// 执行一次烧录，成功返回人类可读的完成信息。
 pub fn flash(config: &FlashConfig) -> Result<String, String> {
-    if config.chip.trim().is_empty() {
-        return Err("目标芯片为空".into());
-    }
     if config.path.trim().is_empty() {
         return Err("请选择固件文件".into());
     }
@@ -68,8 +65,13 @@ pub fn flash(config: &FlashConfig) -> Result<String, String> {
         return Err(format!("固件文件不存在: {}", config.path));
     }
 
-    let mut session =
-        attach_session(&config.probe_selector, &config.chip).map_err(|e| e.to_string())?;
+    // 空芯片名 / "auto" → 让 probe-rs 自动识别目标芯片
+    let chip = if config.chip.trim().is_empty() || config.chip.trim().eq_ignore_ascii_case("auto") {
+        ""
+    } else {
+        config.chip.trim()
+    };
+    let mut session = attach_session(&config.probe_selector, chip).map_err(|e| e.to_string())?;
 
     let format = if config.format == "auto" || config.format.is_empty() {
         infer_format(path)

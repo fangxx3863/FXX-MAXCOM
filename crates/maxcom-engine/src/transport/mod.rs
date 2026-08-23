@@ -59,7 +59,7 @@ pub enum ConnConfig {
         /// 探针选择器（"VID:PID" 或 "VID:PID:serial"，空 = 第一个探针）
         #[serde(default)]
         probe_selector: String,
-        /// 目标芯片名，如 "nrf52840"、"rp2040"、"stm32f103ct6"
+        /// 目标芯片名，如 "nrf52840"、"rp2040"、"stm32f103ct6"；空或 "auto" → probe-rs 自动识别
         chip: String,
         /// up 通道（目标→主机，打印输出）
         #[serde(default = "default_channel")]
@@ -126,7 +126,7 @@ pub struct PortInfo {
 #[cfg(feature = "rtt")]
 pub use flashing::FlashConfig;
 #[cfg(feature = "rtt")]
-pub use rtt::ProbeInfo;
+pub use rtt::{ChipFamilyInfo, ProbeInfo};
 
 /// 读取端：阻塞读，Ok(0) 表示本次超时无数据（作为空闲判定节拍）。
 pub trait TransportRead: Send {
@@ -212,6 +212,12 @@ pub fn discover_probes() -> Vec<ProbeInfo> {
     rtt::discover_probes()
 }
 
+/// 列出 probe-rs 内置支持的目标芯片（家族 → 变体）。非 rtt feature → 空列表。
+#[cfg(feature = "rtt")]
+pub fn chip_list() -> Vec<ChipFamilyInfo> {
+    rtt::chip_list()
+}
+
 impl ConnConfig {
     /// 参数校验（连接前调用；非法返回 Err）
     pub fn validate(&self) -> Result<(), String> {
@@ -237,10 +243,8 @@ impl ConnConfig {
                 }
                 Ok(())
             }
-            ConnConfig::Rtt { chip, .. } => {
-                if chip.trim().is_empty() {
-                    return Err("RTT 目标芯片为空".into());
-                }
+            ConnConfig::Rtt { .. } => {
+                // 空芯片名 / "auto" → probe-rs 自动识别目标芯片，无需强制填写
                 Ok(())
             }
         }

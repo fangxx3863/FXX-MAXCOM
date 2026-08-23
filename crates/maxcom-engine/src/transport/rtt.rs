@@ -14,6 +14,7 @@
 //! 依赖提示：probe-rs 使用 `nusb`（纯 Rust USB）枚举常见探针；`cmsisdap_v1`（HID）为可选。
 
 use super::{ConnPair, TransportRead, TransportWrite};
+use probe_rs::config::{Registry, TargetSelector};
 use probe_rs::probe::list::Lister;
 use probe_rs::rtt::Rtt;
 use probe_rs::{Permissions, Session};
@@ -34,6 +35,15 @@ pub struct ProbeInfo {
     pub serial: String,
 }
 
+/// 芯片家族（对应 probe-rs 内置 target 家族；前端 chip 下拉候选用）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChipFamilyInfo {
+    /// 家族名，如 "nRF52840"、"STM32F1"（对应 `probe-rs chip list` 的族标题）
+    pub family: String,
+    /// 该家族下可附着的目标芯片名列表（即传给 `attach` / `TargetSelector` 的 base 名）
+    pub variants: Vec<String>,
+}
+
 /// 共享状态：探针会话 + RTT 接口。二者都需 `&mut`，用一把锁串行化。
 struct RttState {
     session: Session,
@@ -41,10 +51,16 @@ struct RttState {
 }
 
 /// 按选择器打开调试探针并附着到目标芯片（RTT 与烧录共用）。
+///
+/// `chip` 为空字符串或 "auto" 时，让 probe-rs 自动识别目标芯片
+/// （读取 ROM table / 目标 ID 信息，见 `TargetSelector::Auto`）。
 pub(crate) fn attach_session(probe_selector: &str, chip: &str) -> io::Result<Session> {
-    if chip.trim().is_empty() {
-        return Err(io::Error::other("目标芯片为空"));
-    }
+    let use_auto = chip.trim().is_empty() || chip.trim().eq_ignore_ascii_case("auto");
+    let target: TargetSelector = if use_auto {
+        TargetSelector::Auto
+    } else {
+        TargetSelector::Unspecified(chip.trim().to_string())
+    };
 
     let probe = if probe_selector.trim().is_empty() {
         let list = Lister::new();
@@ -65,9 +81,14 @@ pub(crate) fn attach_session(probe_selector: &str, chip: &str) -> io::Result<Ses
             .map_err(|e| io::Error::other(format!("打开探针失败: {e}")))?
     };
 
-    probe
-        .attach(chip, Permissions::default())
-        .map_err(|e| io::Error::other(format!("附着芯片 {chip} 失败: {e}")))
+    probe.attach(target, Permissions::default()).map_err(|e| {
+        let detail = if use_auto {
+            format!("目标芯片自动识别失败: {e}")
+        } else {
+            format!("附着芯片 {} 失败: {e}", chip.trim())
+        };
+        io::Error::other(detail)
+    })
 }
 
 pub fn open(
@@ -77,10 +98,7 @@ pub fn open(
     down_channel: usize,
     rtt_address: Option<u64>,
 ) -> io::Result<ConnPair> {
-    if chip.trim().is_empty() {
-        return Err(io::Error::other("RTT 目标芯片为空"));
-    }
-
+    // 空芯片名 / "auto" → 自动识别目标芯片（attach_session 处理）
     let mut session = attach_session(probe_selector, chip)?;
 
     let mut rtt = match rtt_address {
@@ -121,7 +139,11 @@ pub fn open(
             state,
             down_channel,
         }),
-        label: format!("RTT {chip}#{up_channel}"),
+        label: if chip.trim().is_empty() {
+            format!("RTT(自动)#{up_channel}")
+        } else {
+            format!("RTT {chip}#{up_channel}")
+        },
     })
 }
 
@@ -143,6 +165,19 @@ pub fn discover_probes() -> Vec<ProbeInfo> {
             vendor_id: format!("{:04x}", p.vendor_id),
             product_id: format!("{:04x}", p.product_id),
             serial: p.serial_number.clone().unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// 列出所有内置目标芯片（家族 → 变体），与 `probe-rs chip list` 同源。
+/// 任何错误 → 空列表，绝不抛异常。
+pub fn chip_list() -> Vec<ChipFamilyInfo> {
+    Registry::from_builtin_families()
+        .families()
+        .iter()
+        .map(|f| ChipFamilyInfo {
+            family: f.name.clone(),
+            variants: f.variants().iter().map(|c| c.name.clone()).collect(),
         })
         .collect()
 }
@@ -203,5 +238,30 @@ impl TransportWrite for RttWrite {
             remaining = &remaining[n..];
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 内置 target 芯片列表应由 probe-rs 提供，且非空（不为空才能支持芯片下拉）。
+    #[test]
+    fn chip_list_is_populated() {
+        let list = chip_list();
+        assert!(!list.is_empty(), "probe-rs 内置 target 列表不应为空");
+        assert!(list.iter().all(|f| !f.family.is_empty()));
+        // 常见家族应存在（大小写不敏感；至少能按前缀命中变体）
+        let names: Vec<String> = list
+            .iter()
+            .flat_map(|f| f.variants.iter().cloned())
+            .map(|n| n.to_ascii_lowercase())
+            .collect();
+        for probe in ["nrf52840", "rp2040", "stm32f103"] {
+            assert!(
+                names.iter().any(|n| n.starts_with(probe)),
+                "缺少常见芯片 `{probe}`"
+            );
+        }
     }
 }

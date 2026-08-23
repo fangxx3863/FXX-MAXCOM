@@ -1,8 +1,10 @@
 // 烧录页：probe-rs 固件烧录 + 一键“烧录并打开 RTT”。
 // 探针/芯片/格式使用与顶栏一致的自绘下拉；浏览器演示模式可正常点击（模拟成功）。
+// 芯片候选来自 probe-rs 内置 target 列表（list_chips），并支持“自动检测”由探针识别目标。
 
 import { createDropdown, type DropdownHandle } from "../dropdown";
-import { IS_TAURI, flashFirmware, listProbes, pickFirmwarePath } from "../api";
+import { IS_TAURI, flashFirmware, listChips, listProbes, pickFirmwarePath } from "../api";
+import { flattenChips, withAuto } from "../chips";
 import type { FlashConfig } from "../types";
 
 export interface RttDefaults {
@@ -36,7 +38,6 @@ export class FlashPage {
 
   constructor(
     root: HTMLElement,
-    chipPresets: string[],
     onRun: (cfg: FlashRunConfig) => void,
     getRttDefaults: () => RttDefaults,
   ) {
@@ -49,14 +50,15 @@ export class FlashPage {
     this.q<HTMLElement>("#flash-probe-dd").replaceWith(probeDd.el);
 
     const chipDd = createDropdown({
-      items: chipPresets.map((c) => ({ value: c, label: c })),
-      value: "nrf52840",
+      items: withAuto([]),
+      value: "auto",
       editable: true,
       placeholder: "芯片",
       width: 220,
     });
     this.chipDd = chipDd;
     this.q<HTMLElement>("#flash-chip-dd").replaceWith(chipDd.el);
+    void this.loadChips();
 
     const formatDd = createDropdown({
       items: [
@@ -90,6 +92,19 @@ export class FlashPage {
 
   private q<T extends HTMLElement>(sel: string): T {
     return this.root.querySelector<T>(sel)!;
+  }
+
+  /** 从 probe-rs 拉取内置目标芯片候选（浏览器演示模式用少量内置列表）。 */
+  private async loadChips() {
+    try {
+      const items = withAuto(flattenChips(await listChips()));
+      const cur = this.chipDd.value;
+      this.chipDd.setItems(items);
+      // setItems 在“当前值不在候选”时会重置为第一项（auto）；这里回填保持用户手输芯片不被清空
+      if (cur) this.chipDd.setValue(cur);
+    } catch {
+      /* 拉取失败时保留“自动检测”候选，仍可手动输入芯片名 */
+    }
   }
 
   async refreshProbes() {
@@ -142,7 +157,6 @@ export class FlashPage {
   async flash(runAfter: boolean) {
     if (this.busy) return;
     const cfg = this.config();
-    if (!cfg.chip) return this.status("请先填写目标芯片", true);
     if (!cfg.path) return this.status("请先选择固件文件", true);
 
     this.setBusy(true);
