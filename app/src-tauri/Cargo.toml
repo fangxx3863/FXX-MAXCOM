@@ -17,9 +17,16 @@ serde_json = "1"
 base64 = "0.22"
 log = "0.4"
 maxcom-core = { path = "../../crates/maxcom-core" }
-maxcom-engine = { path = "../../crates/maxcom-engine", features = ["serial", "rtt"] }
+# serial/rtt 改经外壳 feature 透传。default 保持空；桌面平台由
+# tauri.<platform>.conf.json 的 build.features 显式开启 desktop，避免移动端
+# 链接 probe-rs(nusb)/serialport（Android 无法编译）。
+maxcom-engine = { path = "../../crates/maxcom-engine", default-features = false }
 
 [features]
 # LDK: 本地开发可关掉串口以加速编译：cargo build --no-default-features
 default = []
+# 桌面（Windows/Linux/macOS）：串口 + probe-rs RTT
+desktop = ["maxcom-engine/serial", "maxcom-engine/rtt"]
+# 移动端（Android/iOS）：串口枚举/RTT 不可用，仅网络传输
+mobile = []
 custom-protocol = ["tauri/custom-protocol"]

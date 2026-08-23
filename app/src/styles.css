@@ -909,3 +909,32 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
   border: 1px solid var(--border); padding: 6px 10px; text-align: left;
 }
 .tools-fit-table th { background: var(--bg2); color: var(--fg-dim); font-weight: 600; }
+
+/* ── 响应式布局 ──
+   桌面（桌面窗口 minWidth:960，见 tauri.conf.json）不触发；
+   窄视口/手机竖屏时把左侧功能条（#sidebar）改为底部横向 tab 栏。 */
+@media (max-width: 760px), (orientation: portrait) and (max-width: 1024px) {
+  /* 主内容全高，功能条沉底 */
+  #layout { flex-direction: column; }
+  #pages { order: 1; flex: 1 1 auto; min-height: 0; }
+  #sidebar {
+    order: 2; flex: none;
+    flex-direction: row; justify-content: space-evenly;
+    gap: 2px; padding: 5px 4px;
+    border-right: none; border-top: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  #sidebar button {
+    width: auto; flex: 1 1 0; min-width: 56px;
+    padding: 5px 4px; font-size: 10px;
+  }
+  /* 移动端无 OS 窗口语义：隐藏自绘标题栏与窗口控制条 */
+  #titlebar { display: none; }
+  /* 顶栏可换行，避免窄屏控件被挤出 */
+  #topbar { flex-wrap: wrap; }
+  /* 收发页控制条更紧凑 */
+  #log-controls, #plot-controls { gap: 8px; padding: 5px 8px; }
+  #log-controls label, #log-controls .ctl, #plot-controls label, #plot-controls .ctl {
+    white-space: nowrap;
+  }
+}

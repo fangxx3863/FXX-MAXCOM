@@ -3,7 +3,11 @@ name: Rust/前端 CI（rust-tauri 分支）
 on:
   push:
     branches: [main, rust-tauri]
+    tags: ["v*"]
   pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   core-engine:
@@ -52,10 +56,30 @@ jobs:
       - run: npm run build
         working-directory: app
 
+  # 桌面构建：Windows / Linux / macOS 三个目标平台并行
   desktop-build:
-    # Windows 可执行产物（目标平台）。push 到主分支构建 artifact；打 tag 额外发 Release
+    needs: [core-engine, tauri-shell, frontend]
     if: github.event_name == 'push'
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            bundle: "nsis"
+            artifact: MAXCOM-windows-x64
+            extra-apt: ""
+          - os: ubuntu-latest
+            bundle: "deb,appimage"
+            artifact: MAXCOM-linux-x64
+            extra-apt: >
+              sudo apt-get update &&
+              sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev
+              libayatana-appindicator3-dev librsvg2-dev patchelf libudev-dev
+          - os: macos-latest
+            bundle: "dmg"
+            artifact: MAXCOM-macos
+            extra-apt: ""
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -64,26 +88,99 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
+      - name: 安装 Linux 系统依赖
+        if: runner.os == 'Linux'
+        run: ${{ matrix.extra-apt }}
       - name: 构建前端依赖
         run: npm ci
         working-directory: app
       - name: Tauri 构建（release）
-        run: npm run tauri build
+        run: npm run tauri build -- --bundles ${{ matrix.bundle }}
         working-directory: app
-      - name: 收集产物
+      - name: 收集产物（Windows）
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist-artifacts | Out-Null
           Copy-Item app\src-tauri\target\release\maxcom.exe dist-artifacts\
           Get-ChildItem app\src-tauri\target\release\bundle\nsis\*.exe | Copy-Item -Destination dist-artifacts\
-          Get-ChildItem dist-artifacts
+      - name: 收集产物（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist-artifacts
+          find app/src-tauri/target/release/bundle -type f \( -name "*.deb" -o -name "*.AppImage" \) -exec cp {} dist-artifacts/ \;
+      - name: 收集产物（macOS）
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist-artifacts
+          find app/src-tauri/target/release/bundle -type f \( -name "*.dmg" \) -exec cp {} dist-artifacts/ \;
+      - name: 打印产物清单
+        run: ls -la dist-artifacts
       - uses: actions/upload-artifact@v4
         with:
-          name: MAXCOM-windows-x64
+          name: ${{ matrix.artifact }}
           path: dist-artifacts/*
-      - name: 发布 Release（仅 tag）
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+
+  # Android：安装 SDK/NDK + Rust android targets，编译 APK（serial/rtt 经 mobile feature 禁用）
+  android-build:
+    needs: [core-engine, tauri-shell, frontend]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          files: dist-artifacts/*
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: 安装 Rust android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+      - name: 安装 Android SDK / NDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          target: android-34
+        env:
+          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk-bundle
+      - run: npm ci
+        working-directory: app
+      - name: 初始化 Android 工程（生成 src-tauri/gen/android，提交入库）
+        run: npx tauri android init --ci
+        working-directory: app
+      - name: Tauri Android 构建（release APK）
+        run: npx tauri android build --apk
+        working-directory: app
+      - name: 收集 APK
+        run: |
+          mkdir -p dist-artifacts
+          find app/src-tauri/gen/android -name "*.apk" -exec cp {} dist-artifacts/ \;
+          ls -la dist-artifacts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MAXCOM-android
+          path: dist-artifacts/*
+
+  # 打 tag 时：汇总三平台产物发 Release
+  release:
+    needs: [desktop-build, android-build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+      - name: 打印产物
+        run: ls -la release-artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
           generate_release_notes: true

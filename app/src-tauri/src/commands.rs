@@ -8,7 +8,9 @@ use maxcom_core::filter::FilterRule;
 use maxcom_core::plot::format::DataFormat;
 use maxcom_core::stats::StatsSnapshot;
 use maxcom_engine::session::{LogOptions, PlotSnapshotDto, SendPayload, SessionManager};
-use maxcom_engine::transport::{ChipFamilyInfo, ConnConfig, FlashConfig, PortInfo, ProbeInfo};
+#[cfg(feature = "desktop")]
+use maxcom_engine::transport::{ChipFamilyInfo, FlashConfig, ProbeInfo};
+use maxcom_engine::transport::{ConnConfig, PortInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -67,16 +69,19 @@ pub fn list_ports() -> Vec<PortInfo> {
     maxcom_engine::transport::discover_serial_ports()
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn list_probes() -> Vec<ProbeInfo> {
     maxcom_engine::transport::discover_probes()
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn list_chips() -> Vec<ChipFamilyInfo> {
     maxcom_engine::transport::chip_list()
 }
 
+#[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn flash_firmware(config: FlashConfig) -> Result<String, String> {
     maxcom_engine::transport::flashing::flash(&config)

@@ -16,8 +16,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_ports,
+            #[cfg(feature = "desktop")]
             commands::list_probes,
+            #[cfg(feature = "desktop")]
             commands::list_chips,
+            #[cfg(feature = "desktop")]
             commands::flash_firmware,
             commands::connect,
             commands::disconnect,

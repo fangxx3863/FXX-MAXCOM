@@ -27,13 +27,16 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis"
-    ],
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "一站式串口/网络调试与数据可视化",
+    "longDescription": "MAXCOM：串口 / TCP / UDP / SSH / Telnet 调试与数据可视化平台",
     "icon": [
-      "icons/icon.ico",
+      "icons/32x32.png",
       "icons/128x128.png",
-      "icons/32x32.png"
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
     ]
   }
 }
