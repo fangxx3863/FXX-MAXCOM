@@ -2,17 +2,19 @@
 // 覆盖：规范 F 校验向量、大端编码（寄存器值高字节在前）、帧构造 01/02/03/04/05/06/0x10、
 // 帧解析（普通/异常/回显）、hex 工具、寄存器值列表解析、响应累积器（分包/无关字节）。
 // 机器可验：任何断言失败即打印 ✗ 并以非零退出，接入 npm run build。
-import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+// esbuild JS API：跨平台（Windows 下 node_modules/.bin/esbuild 是 sh 脚本，spawnSync 会 ENOENT）
+const { buildSync } = await import("esbuild");
 const out = join(tmpdir(), `modbus-test-${process.pid}.mjs`);
-execFileSync(
-  join(process.cwd(), "node_modules", ".bin", "esbuild"),
-  ["src/modbus.ts", "--bundle", "--format=esm", `--outfile=${out}`, "--log-level=error"],
-  { cwd: process.cwd() },
-);
+buildSync({
+  entryPoints: ["src/modbus.ts"],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  outfile: out,
+  logLevel: "silent",
+});
 const M = await import(`file://${out}`);
 
 let pass = 0;
