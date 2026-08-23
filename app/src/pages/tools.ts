@@ -7,8 +7,9 @@ import { toolDiagram, toolDiagramVariant } from "../tools-diagrams";
 import {
   mono555, astable555, attenuator as attn,
   capCode3, batteryLifeHours, ohmLaw, reactance as rx,
-  rcTau, ledResistor, filterFc, dbmToMwt, capDischarge,
+  rcTau, ledResistor, ledPower, filterFc, dbmToMwt, capDischarge,
   seriesRes, parallelRes, seriesCap, parallelCap,
+  traceImpedance as tImp, type TraceTopo, type TraceDir, type TraceInput,
 } from "../tools-math";
 
 function math(src: string): string {
@@ -674,8 +675,9 @@ function buildLedResistor(host: HTMLElement): ToolController {
       <div class="tool-grid">
         <div class="tool-field"><label>电源电压</label><div class="tool-inline"><input id="led-vs" class="proto-in" type="number" value="5" /><span class="tool-suffix">V</span></div></div>
         <div class="tool-field"><label>LED 正向压降</label><div class="tool-inline"><input id="led-vf" class="proto-in" type="number" value="2" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>LED 电流</label><div class="tool-inline"><input id="led-if" class="proto-in" type="number" value="20" /><select id="led-ifu" class="tool-sel proto-in"><option value="1" selected>mA</option><option value="0.001">A</option></select></div></div>
+        <div class="tool-field"><label>LED 电流</label><div class="tool-inline"><input id="led-if" class="proto-in" type="number" value="20" /><select id="led-ifu" class="tool-sel proto-in"><option value="0.001" selected>mA</option><option value="1">A</option></select></div></div>
         <div class="tool-field"><label>串联电阻</label><div class="tool-inline"><input id="led-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>电阻功率</label><div class="tool-inline"><input id="led-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
       </div>
       <div class="tool-formula">${math("R = \\dfrac{V_s - V_f}{I_f}")}</div>
     </div>`;
@@ -686,9 +688,11 @@ function buildLedResistor(host: HTMLElement): ToolController {
     const ifu = Number((host.querySelector("#led-ifu") as HTMLSelectElement).value);
     if (vs === null || vf === null || ifv === null || vs - vf <= 0 || ifv * ifu <= 0) {
       (host.querySelector("#led-r") as HTMLInputElement).value = "";
+      (host.querySelector("#led-w") as HTMLInputElement).value = "";
       return;
     }
     (host.querySelector("#led-r") as HTMLInputElement).value = fmt(ledResistor(vs, vf, ifv * ifu));
+    (host.querySelector("#led-w") as HTMLInputElement).value = fmt(ledPower(vs, vf, ifv * ifu)) + " W";
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -734,8 +738,10 @@ function buildOhm(host: HTMLElement): ToolController {
 function buildFilter(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
+      <div class="tools-diagram" id="flt-diagram"><img class="tool-diagram" alt="滤波器电路图" /></div>
       <div class="tool-grid">
         <div class="tool-field"><label>滤波类型</label><select id="flt-type" class="proto-in"><option value="rc" selected>RC</option><option value="rl">RL</option><option value="lc">LC</option></select></div>
+        <div class="tool-field"><label>通带</label><select id="flt-band" class="proto-in"><option value="lp" selected>低通 (LP)</option><option value="hp">高通 (HP)</option></select></div>
         <div class="tool-field"><label>电阻</label><div class="tool-inline"><input id="flt-r" class="proto-in" type="number" min="0" value="1000" /><select id="flt-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
         <div class="tool-field"><label>电容</label><div class="tool-inline"><input id="flt-c" class="proto-in" type="number" min="0" value="100" /><select id="flt-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
         <div class="tool-field"><label>电感</label><div class="tool-inline"><input id="flt-l" class="proto-in" type="number" min="0" value="10" /><select id="flt-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
@@ -744,9 +750,16 @@ function buildFilter(host: HTMLElement): ToolController {
       <div class="tool-formula" id="flt-formula"></div>
     </div>`;
   const type = host.querySelector<HTMLSelectElement>("#flt-type")!;
+  const band = host.querySelector<HTMLSelectElement>("#flt-band")!;
   const formula = host.querySelector<HTMLElement>("#flt-formula")!;
+  const diagram = host.querySelector<HTMLElement>("#flt-diagram")!;
+  const diagImg = diagram.querySelector<HTMLImageElement>("img")!;
   const update = () => {
     const t = type.value;
+    const src = toolDiagramVariant("filter", `${t}_${band.value}`);
+    if (src) { diagImg.src = src; diagram.style.display = ""; }
+    else { diagram.style.display = "none"; }
+    const bandLabel = band.value === "hp" ? "高通" : "低通";
     const r = num((host.querySelector("#flt-r") as HTMLInputElement).value);
     const c = num((host.querySelector("#flt-c") as HTMLInputElement).value);
     const l = num((host.querySelector("#flt-l") as HTMLInputElement).value);
@@ -754,9 +767,10 @@ function buildFilter(host: HTMLElement): ToolController {
     const cu = Number((host.querySelector("#flt-cu") as HTMLSelectElement).value);
     const lu = Number((host.querySelector("#flt-lu") as HTMLSelectElement).value);
     const f = filterFc(t as "rc" | "rl" | "lc", r === null ? null : r * ru, c === null ? null : c * cu, l === null ? null : l * lu);
-    if (t === "rc") formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi RC}");
-    else if (t === "rl") formula.innerHTML = math("f_c = \\dfrac{R}{2\\pi L}");
-    else formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}");
+    const bandSpan = `<span class="tool-band">${esc(bandLabel)}</span> `;
+    if (t === "rc") formula.innerHTML = bandSpan + math("f_c = \\dfrac{1}{2\\pi RC}");
+    else if (t === "rl") formula.innerHTML = bandSpan + math("f_c = \\dfrac{R}{2\\pi L}");
+    else formula.innerHTML = bandSpan + math("f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}");
     (host.querySelector("#flt-f") as HTMLInputElement).value = f === null ? "" : fmt(f) + " Hz";
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
@@ -1005,27 +1019,58 @@ function buildSmdCapacitor(host: HTMLElement): ToolController {
 // ── 电阻色环 ──
 function buildColorCode(host: HTMLElement): ToolController {
   const colors: [string, number, string][] = [["黑",0,""],["棕",1,"±1%"],["红",2,"±2%"],["橙",3,""],["黄",4,""],["绿",5,"±0.5%"],["蓝",6,"±0.25%"],["紫",7,"±0.1%"],["灰",8,""],["白",9,""],["金",-1,"±5%"],["银",-2,"±10%"]];
+  const digits = colors.slice(0, 10);
+  const tempcoef: [string, number][] = [["棕",100],["红",50],["橙",15],["黄",25],["蓝",10],["紫",5],["灰",1]];
+  const opt = (arr: [string, number, string][], sel: number) => arr.map((c, i) => `<option value="${i}"${i === sel ? " selected" : ""}>${c[0]}</option>`).join("");
+  const oid = (arr: [string, number][], sel: number) => arr.map((c, i) => `<option value="${i}"${i === sel ? " selected" : ""}>${c[0]}</option>`).join("");
+  let cur = 4;
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>第一环</label><select id="cc-a" class="proto-in">${colors.map((c,i)=>`<option value="${i}"${i===1?" selected":""}>${c[0]}</option>`).join("")}</select></div>
-        <div class="tool-field"><label>第二环</label><select id="cc-b" class="proto-in">${colors.map((c,i)=>`<option value="${i}"${i===0?" selected":""}>${c[0]}</option>`).join("")}</select></div>
-        <div class="tool-field"><label>倍率环</label><select id="cc-m" class="proto-in">${colors.map((c,i)=>`<option value="${i}"${i===2?" selected":""}>${c[0]}</option>`).join("")}</select></div>
-        <div class="tool-field"><label>误差环</label><select id="cc-t" class="proto-in">${colors.map((c,i)=>`<option value="${i}"${i===10?" selected":""}>${c[0]}</option>`).join("")}</select></div>
+        <div class="tool-field"><label>色环数</label><select id="cc-band" class="tool-sel proto-in"><option value="4" selected>4 环</option><option value="5">5 环</option><option value="6">6 环</option></select></div>
+        <div class="tool-field"><label>第 1 位</label><select id="cc-a" class="proto-in">${opt(digits,1)}</select></div>
+        <div class="tool-field"><label>第 2 位</label><select id="cc-b" class="proto-in">${opt(digits,0)}</select></div>
+        <div class="tool-field" id="cc-d3f"><label>第 3 位</label><select id="cc-d3" class="proto-in">${opt(digits,0)}</select></div>
+        <div class="tool-field"><label>倍率环</label><select id="cc-m" class="proto-in">${opt(colors,2)}</select></div>
+        <div class="tool-field"><label>误差环</label><select id="cc-t" class="proto-in">${opt(colors,10)}</select></div>
+        <div class="tool-field" id="cc-tcf"><label>温度系数</label><select id="cc-tc" class="proto-in">${oid(tempcoef,0)}</select></div>
       </div>
       <div class="tool-resultline" id="cc-result"></div>
     </div>`;
   const res = host.querySelector<HTMLElement>("#cc-result")!;
-  const update = () => {
-    const get = (id: string) => Number((host.querySelector(id) as HTMLSelectElement).value);
-    const a = colors[get("#cc-a")]!;
-    const b = colors[get("#cc-b")]!;
-    const m = colors[get("#cc-m")]!;
-    const tol = colors[get("#cc-t")]!;
-    const value = (a[1] * 10 + b[1]) * 10 ** m[1];
-    res.textContent = `${a[0]} ${b[0]} ${m[0]} ${tol[0]} = ${fmt(value)} Ω ${tol[2]}`;
+  const show = (n: number) => {
+    cur = n;
+    (host.querySelector("#cc-d3f") as HTMLElement).style.display = n >= 5 ? "" : "none";
+    (host.querySelector("#cc-tcf") as HTMLElement).style.display = n >= 6 ? "" : "none";
   };
-  host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  const update = () => {
+    const g = (id: string) => Number((host.querySelector(id) as HTMLSelectElement).value);
+    const get = (id: string) => colors[g(id)]!;
+    const d1 = get("#cc-a");
+    const d2 = get("#cc-b");
+    const m = get("#cc-m");
+    const tol = get("#cc-t");
+    let value: number;
+    let sig3 = "";
+    if (cur >= 5) {
+      const d3 = get("#cc-d3");
+      sig3 = d3[0] + " ";
+      value = (d1[1] * 100 + d2[1] * 10 + d3[1]) * 10 ** m[1];
+    } else {
+      value = (d1[1] * 10 + d2[1]) * 10 ** m[1];
+    }
+    let msg = `${d1[0]} ${d2[0]} ${sig3}${m[0]} ${tol[0]} = ${fmt(value)} Ω ${tol[2]}`;
+    if (cur >= 6) {
+      const tc = tempcoef[g("#cc-tc")];
+      msg += `（${tc[0]} ${tc[1]} ppm/K）`;
+    }
+    res.textContent = msg;
+  };
+  host.querySelectorAll("select").forEach((el) => el.addEventListener("change", () => {
+    if (el.id === "cc-band") show(Number((el as HTMLSelectElement).value));
+    update();
+  }));
+  show(4);
   update();
   return {};
 }
@@ -1097,17 +1142,27 @@ function buildTimeConstant(host: HTMLElement): ToolController {
 function buildThreePhase(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
+      <div class="tools-diagram" id="tp-diagram"><img class="tool-diagram" alt="三相电路图" /></div>
       <div class="tool-grid">
+        <div class="tool-field"><label>接法</label><select id="tp-conn" class="proto-in"><option value="y" selected>星形 (Y)</option><option value="delta">三角 (Δ)</option></select></div>
         <div class="tool-field"><label>线电压</label><div class="tool-inline"><input id="tp-v" class="proto-in" type="number" value="380" /><span class="tool-suffix">V</span></div></div>
         <div class="tool-field"><label>线电流</label><div class="tool-inline"><input id="tp-i" class="proto-in" type="number" value="10" /><span class="tool-suffix">A</span></div></div>
         <div class="tool-field"><label>功率因数</label><div class="tool-inline"><input id="tp-pf" class="proto-in" type="number" step="0.01" value="0.8" /></div></div>
         <div class="tool-field"><label>视在功率</label><div class="tool-inline"><input id="tp-s" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">VA</span></div></div>
         <div class="tool-field"><label>有功功率</label><div class="tool-inline"><input id="tp-p" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
         <div class="tool-field"><label>无功功率</label><div class="tool-inline"><input id="tp-q" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">var</span></div></div>
+        <div class="tool-field"><label>相电压</label><div class="tool-inline"><input id="tp-vph" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>相电流</label><div class="tool-inline"><input id="tp-iph" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">A</span></div></div>
       </div>
       <div class="tool-formula">${math("S = \\sqrt{3} V I,\\quad P = S \\cos\\varphi,\\quad Q = S \\sin\\varphi")}</div>
     </div>`;
   const update = () => {
+    const conn = (host.querySelector("#tp-conn") as HTMLSelectElement).value;
+    const diagram = host.querySelector<HTMLElement>("#tp-diagram")!;
+    const diagImg = diagram.querySelector<HTMLImageElement>("img")!;
+    const src = toolDiagramVariant("three-phase", conn);
+    if (src) { diagImg.src = src; diagram.style.display = ""; }
+    else { diagram.style.display = "none"; }
     const v = num((host.querySelector("#tp-v") as HTMLInputElement).value);
     const i = num((host.querySelector("#tp-i") as HTMLInputElement).value);
     const pf = num((host.querySelector("#tp-pf") as HTMLInputElement).value);
@@ -1115,16 +1170,23 @@ function buildThreePhase(host: HTMLElement): ToolController {
       (host.querySelector("#tp-s") as HTMLInputElement).value = "";
       (host.querySelector("#tp-p") as HTMLInputElement).value = "";
       (host.querySelector("#tp-q") as HTMLInputElement).value = "";
+      (host.querySelector("#tp-vph") as HTMLInputElement).value = "";
+      (host.querySelector("#tp-iph") as HTMLInputElement).value = "";
       return;
     }
     const s = Math.sqrt(3) * v * i;
     const p = s * pf;
     const q = s * Math.sqrt(1 - pf * pf);
+    const vph = conn === "delta" ? v : v / Math.sqrt(3);
+    const iph = conn === "delta" ? i / Math.sqrt(3) : i;
     (host.querySelector("#tp-s") as HTMLInputElement).value = fmt(s);
     (host.querySelector("#tp-p") as HTMLInputElement).value = fmt(p);
     (host.querySelector("#tp-q") as HTMLInputElement).value = fmt(q);
+    (host.querySelector("#tp-vph") as HTMLInputElement).value = fmt(vph);
+    (host.querySelector("#tp-iph") as HTMLInputElement).value = fmt(iph);
   };
-  host.querySelectorAll("input").forEach((el) => el.addEventListener("input", update));
+  host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
+  host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
   update();
   return {};
 }
@@ -1184,33 +1246,124 @@ function buildWireGauge(host: HTMLElement): ToolController {
   return {};
 }
 
-// ── 走线阻抗（微带线近似）──
+// ── 走线阻抗（7 种结构）──
 function buildTraceImpedance(host: HTMLElement): ToolController {
+  const ROW_VIS: Record<TraceTopo, string[]> = {
+    m: ["t", "h"],
+    "m-embedded": ["t", "h", "hp"],
+    "m-edge": ["t", "h", "s"],
+    s: ["t", "h"],
+    "s-asym": ["t", "ha", "hb"],
+    "s-broadside": ["t", "hp", "ht"],
+    "s-edge": ["t", "h", "s"],
+  };
+  const DIRS: Record<TraceTopo, TraceDir[]> = {
+    m: ["im", "w"], "m-embedded": ["im"], "m-edge": ["im", "w"],
+    s: ["im"], "s-asym": ["im"], "s-broadside": ["im"], "s-edge": ["im"],
+  };
+  const FORMULA: Record<TraceTopo, string> = {
+    m: "Z_0 = \\frac{87}{\\sqrt{\\varepsilon_r+1.41}}\\ln(\\frac{5.98h}{0.8w+t})",
+    "m-embedded": "\\varepsilon_{eff}=\\varepsilon_r(1-e^{-1.55h/h_p}), Z_0=\\frac{60}{\\sqrt{\\varepsilon_{eff}}}\\ln(\\frac{5.98h_p}{0.8w+t})",
+    "m-edge": "Z_0=\\frac{87}{\\sqrt{\\varepsilon_r+1.41}}\\ln(\\frac{5.98h}{0.8w+t}), Z_d=2Z_0(1-\\frac{0.48}{e^{0.96s/h}})",
+    s: "Z_0 = \\frac{60}{\\sqrt{\\varepsilon_r}}\\ln(\\frac{1.9(2h+t)}{0.8w+t})",
+    "s-asym": "Z_0 = \\frac{80}{\\sqrt{\\varepsilon_r}}\\ln(\\frac{1.9(2h+t)}{0.8w+t})(1-\\frac{h}{4h_1})",
+    "s-broadside": "Z_0=\\frac{80}{\\sqrt{\\varepsilon_r}}\\ln(\\frac{1.9(2h_p+t)}{0.8w+t})(1-\\frac{h_p}{4(h_p+h_t+t)})",
+    "s-edge": "Z_0=\\frac{60}{\\sqrt{\\varepsilon_r}}\\ln(\\frac{1.9(2h+t)}{0.8w+t}), Z_d=2Z_0(1-\\frac{0.347}{e^{2.9s/(2h+t)}})",
+  };
+  const LEN_U = '<option value="39.3" selected>mm</option><option value="1">mil</option><option value="393">cm</option><option value="0.0393">µm</option><option value="1000">inch</option>';
+  const THICK_U = '<option value="39.3" selected>mm</option><option value="1">mil</option><option value="1.379">oz</option><option value="0.0393">µm</option><option value="1000">inch</option>';
+  const typeOpts = ([["m", "微带线"], ["m-embedded", "嵌入式微带线"], ["m-edge", "边缘耦合微带线"], ["s", "带状线"], ["s-asym", "非对称带状线"], ["s-broadside", "宽边耦合带状线"], ["s-edge", "边缘耦合带状线"]] as [TraceTopo, string][]).map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+
   host.innerHTML = `
     <div class="tool-panel">
+      <div class="tools-diagram" id="ti-diagram"><img class="tool-diagram" alt="走线阻抗示意图" /></div>
       <div class="tool-grid">
-        <div class="tool-field"><label>线宽 W</label><div class="tool-inline"><input id="ti-w" class="proto-in" type="number" value="0.25" /><span class="tool-suffix">mm</span></div></div>
-        <div class="tool-field"><label>介质高度 H</label><div class="tool-inline"><input id="ti-h" class="proto-in" type="number" value="0.2" /><span class="tool-suffix">mm</span></div></div>
-        <div class="tool-field"><label>铜厚 T</label><div class="tool-inline"><input id="ti-t" class="proto-in" type="number" value="0.035" /><span class="tool-suffix">mm</span></div></div>
-        <div class="tool-field"><label>介电常数 εr</label><div class="tool-inline"><input id="ti-e" class="proto-in" type="number" step="0.1" value="4.5" /></div></div>
-        <div class="tool-field"><label>特性阻抗</label><div class="tool-inline"><input id="ti-z" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>结构</label><select id="ti-type" class="proto-in">${typeOpts}</select></div>
+        <div class="tool-field" id="ti-dir-field" style="display:none"><label>计算</label><select id="ti-dir" class="proto-in"><option value="im">按线宽算阻抗</option><option value="w">按阻抗算线宽</option></select></div>
       </div>
-      <div class="tool-formula">${math("Z_0 \\approx \\dfrac{87}{\\sqrt{\\epsilon_r+1.41}} \\ln\\left(\\dfrac{5.98H}{0.8W+T}\\right)")}</div>
+      <div class="tool-grid" id="ti-fields">
+        <div class="tool-field" id="ti-row-input"><label id="ti-input-label">线宽 W</label><div class="tool-inline"><input id="ti-input" class="proto-in" type="number" value="0.25" /><select id="ti-input-u" class="tool-sel proto-in">${LEN_U}</select><span id="ti-input-sfx" class="tool-suffix" style="display:none">Ω</span></div></div>
+        <div class="tool-field" id="ti-row-t"><label>铜厚 T</label><div class="tool-inline"><input id="ti-t" class="proto-in" type="number" value="0.035" /><select id="ti-t-u" class="tool-sel proto-in">${THICK_U}</select></div></div>
+        <div class="tool-field" id="ti-row-h"><label>介质高度 H</label><div class="tool-inline"><input id="ti-h" class="proto-in" type="number" value="0.2" /><select id="ti-h-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-s" style="display:none"><label>线间距 S</label><div class="tool-inline"><input id="ti-s" class="proto-in" type="number" value="0.25" /><select id="ti-s-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-hp" style="display:none"><label>覆盖/到地高度</label><div class="tool-inline"><input id="ti-hp" class="proto-in" type="number" value="0.15" /><select id="ti-hp-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-ht" style="display:none"><label>两线间距</label><div class="tool-inline"><input id="ti-ht" class="proto-in" type="number" value="0.15" /><select id="ti-ht-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-ha" style="display:none"><label>上侧高度</label><div class="tool-inline"><input id="ti-ha" class="proto-in" type="number" value="0.2" /><select id="ti-ha-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-hb" style="display:none"><label>下侧高度</label><div class="tool-inline"><input id="ti-hb" class="proto-in" type="number" value="0.4" /><select id="ti-hb-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field"><label>介电常数 εr</label><div class="tool-inline"><input id="ti-er" class="proto-in" type="number" step="0.1" value="4.5" /></div></div>
+        <div class="tool-field" id="ti-row-out"><label id="ti-out-label">特性阻抗</label><div class="tool-inline"><input id="ti-out" class="tool-output proto-in" readonly placeholder="—" /><span id="ti-out-sfx" class="tool-suffix">Ω</span></div></div>
+      </div>
+      <div class="tool-formula" id="ti-formula"></div>
     </div>`;
-  const update = () => {
-    const w = num((host.querySelector("#ti-w") as HTMLInputElement).value);
-    const h = num((host.querySelector("#ti-h") as HTMLInputElement).value);
-    const th = num((host.querySelector("#ti-t") as HTMLInputElement).value);
-    const er = num((host.querySelector("#ti-e") as HTMLInputElement).value);
-    if (w === null || h === null || th === null || er === null || w <= 0 || h <= 0 || th < 0 || 0.8 * w + th <= 0) {
-      (host.querySelector("#ti-z") as HTMLInputElement).value = "";
-      return;
+  const typeEl = host.querySelector<HTMLSelectElement>("#ti-type")!;
+  const dirEl = host.querySelector<HTMLSelectElement>("#ti-dir")!;
+  const dirField = host.querySelector<HTMLElement>("#ti-dir-field")!;
+  const inputEl = host.querySelector<HTMLInputElement>("#ti-input")!;
+  const inputU = host.querySelector<HTMLSelectElement>("#ti-input-u")!;
+  const inputSfx = host.querySelector<HTMLElement>("#ti-input-sfx")!;
+  const inputLabel = host.querySelector<HTMLElement>("#ti-input-label")!;
+  const outEl = host.querySelector<HTMLInputElement>("#ti-out")!;
+  const outSfx = host.querySelector<HTMLElement>("#ti-out-sfx")!;
+  const outLabel = host.querySelector<HTMLElement>("#ti-out-label")!;
+  const formulaEl = host.querySelector<HTMLElement>("#ti-formula")!;
+  const diagram = host.querySelector<HTMLElement>("#ti-diagram")!;
+  const diagImg = diagram.querySelector<HTMLImageElement>("img")!;
+
+  const unitVal = (sel: HTMLSelectElement) => Number(sel.value);
+  const compute = () => {
+    const topo = typeEl.value as TraceTopo;
+    const dir = dirEl.value as TraceDir;
+    const er = num(host.querySelector<HTMLInputElement>("#ti-er")!.value);
+    const input: TraceInput = { er: er ?? 0 };
+    let bad = er === null;
+    for (const k of ROW_VIS[topo]) {
+      const el = host.querySelector<HTMLInputElement>("#ti-" + k);
+      if (!el) continue;
+      const v = num(el.value);
+      if (v === null) { bad = true; continue; }
+      const u = unitVal(host.querySelector<HTMLSelectElement>("#ti-" + k + "-u")!);
+      (input as unknown as Record<string, unknown>)[k] = v * u;
     }
-    const z = (87 / Math.sqrt(er + 1.41)) * Math.log((5.98 * h) / (0.8 * w + th));
-    (host.querySelector("#ti-z") as HTMLInputElement).value = fmt(z);
+    const p = num(inputEl.value);
+    if (p === null) bad = true;
+    if (dir === "im") (input as unknown as Record<string, unknown>).w = p !== null ? p * unitVal(inputU) : NaN;
+    else (input as unknown as Record<string, unknown>).z = p;
+    formulaEl.innerHTML = math(FORMULA[topo]);
+    if (bad) { outEl.value = ""; outEl.title = ""; return; }
+    const res = tImp(topo, dir, input);
+    if (dir === "im") {
+      outEl.value = res.z !== undefined ? fmt(res.z) : "";
+    } else {
+      const wu = unitVal(inputU);
+      outEl.value = res.w !== undefined ? fmt(res.w / wu) : "";
+    }
+    outEl.title = res.warn ?? "";
   };
-  host.querySelectorAll("input").forEach((el) => el.addEventListener("input", update));
-  update();
+  const render = () => {
+    const topo = typeEl.value as TraceTopo;
+    const dir = dirEl.value as TraceDir;
+    for (const k of ["t", "h", "s", "hp", "ht", "ha", "hb"]) {
+      (host.querySelector("#ti-row-" + k) as HTMLElement | null)!.style.display = ROW_VIS[topo].includes(k) ? "" : "none";
+    }
+    dirField.style.display = DIRS[topo].length > 1 ? "" : "none";
+    if (!DIRS[topo].includes(dir)) dirEl.value = "im";
+    const im = dirEl.value === "im";
+    inputEl.value = im ? "0.25" : "50";
+    inputLabel.textContent = im ? "线宽 W" : "特性阻抗";
+    inputU.style.display = im ? "" : "none";
+    inputSfx.style.display = im ? "none" : "";
+    outLabel.textContent = im ? "特性阻抗" : "线宽 W";
+    outSfx.textContent = im ? "Ω" : (inputU.options[inputU.selectedIndex]?.textContent || "mm").trim();
+    const src = toolDiagramVariant("trace-impedance", topo);
+    if (src) { diagImg.src = src; diagram.style.display = ""; } else { diagram.style.display = "none"; }
+    compute();
+  };
+  host.querySelectorAll("#ti-type, #ti-dir").forEach((el) => el.addEventListener("change", render));
+  host.querySelectorAll("#ti-fields input, #ti-fields select").forEach((el) => {
+    el.addEventListener("input", compute);
+    el.addEventListener("change", compute);
+  });
+  render();
   return {};
 }
 
@@ -1221,6 +1374,7 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
       <div class="tool-grid">
         <div class="tool-field"><label>电流</label><div class="tool-inline"><input id="pcb-i" class="proto-in" type="number" min="0" value="1" /><span class="tool-suffix">A</span></div></div>
         <div class="tool-field"><label>允许温升</label><div class="tool-inline"><input id="pcb-dt" class="proto-in" type="number" min="0" value="10" /><span class="tool-suffix">°C</span></div></div>
+        <div class="tool-field"><label>走线层</label><select id="pcb-layer" class="proto-in"><option value="0.048" selected>外层</option><option value="0.024">内层</option></select></div>
         <div class="tool-field"><label>铜厚</label><div class="tool-inline"><input id="pcb-th" class="proto-in" type="number" min="0" value="1" /><select id="pcb-thu" class="tool-sel proto-in"><option value="0.035" selected>1 oz (35 µm)</option><option value="0.07">2 oz (70 µm)</option><option value="0.105">3 oz (105 µm)</option></select></div></div>
         <div class="tool-field"><label>推荐线宽</label><div class="tool-inline"><input id="pcb-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
       </div>
@@ -1230,13 +1384,16 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
     const i = num((host.querySelector("#pcb-i") as HTMLInputElement).value);
     const dt = num((host.querySelector("#pcb-dt") as HTMLInputElement).value);
     const th = num((host.querySelector("#pcb-th") as HTMLInputElement).value);
-    if (i === null || dt === null || th === null || i <= 0 || dt <= 0 || th <= 0) {
+    const thu = Number((host.querySelector("#pcb-thu") as HTMLSelectElement).value);
+    const k = Number((host.querySelector("#pcb-layer") as HTMLSelectElement).value);
+    if (i === null || dt === null || th === null || thu === null || i <= 0 || dt <= 0 || th * thu <= 0) {
       (host.querySelector("#pcb-w") as HTMLInputElement).value = "";
       return;
     }
-    // IPC-2221: A[mils²] = (I/(k·ΔT^b))^(1/c); W = A/T. 外层(外层走线) k=0.048, b=0.44, c=0.725
-    const thickMil = th * 39.3701;
-    const areaMils2 = (i / (0.048 * dt ** 0.44)) ** (1 / 0.725);
+    // IPC-2221: A[mils²] = (I/(k·ΔT^b))^(1/c); W = A/T. 外层走线 k=0.048, 内层 k=0.024, b=0.44, c=0.725
+    // 铜厚 [mm] = 输入的倍数 × 所选 oz 对应厚度(0.035/0.07/0.105 mm)
+    const thickMil = th * thu * 39.3701;
+    const areaMils2 = (i / (k * dt ** 0.44)) ** (1 / 0.725);
     const widthMil = areaMils2 / thickMil;
     const widthMm = widthMil * 0.0254;
     (host.querySelector("#pcb-w") as HTMLInputElement).value = fmt(widthMm) + " mm";
@@ -1442,15 +1599,15 @@ const TOOLS: ToolDef[] = [
   { id: "parallel-series-cap", icon: "≋", title: "串联和并联电容器计算器", desc: "多个电容器的串联/并联总容量", build: buildParallelSeriesCapacitor },
   { id: "parallel-series-res", icon: "⌁", title: "并联和串联电阻器计算器", desc: "多个电阻器的串联/并联总电阻", build: buildParallelSeriesResistor },
   { id: "reactance", icon: "Ω", title: "电抗计算器", desc: "计算感抗 XL、容抗 XC 与导纳", build: buildReactance },
-  { id: "smd-resistor", icon: "🔖", title: "SMD 电阻器代码计算器", desc: "三位代码与 EIA-96 代码解读", build: buildSmdResistor },
+  { id: "smd-resistor", icon: "🔖", title: "SMD 电阻器代码计算器", desc: "三位/四位代码与 EIA-96 代码解读", build: buildSmdResistor },
   { id: "smd-capacitor", icon: "🔖", title: "SMD 电容器代码计算器", desc: "三位电容代码换算", build: buildSmdCapacitor },
-  { id: "color-code", icon: "🌈", title: "电阻器色码计算器", desc: "四环电阻色环值计算", build: buildColorCode },
+  { id: "color-code", icon: "🌈", title: "电阻器色码计算器", desc: "四/五/六环电阻色环值计算", build: buildColorCode },
   { id: "thermistor", icon: "🌡", title: "热敏电阻计算器", desc: "NTC B 值温度换算", build: buildThermistor },
   { id: "time-constant", icon: "⏳", title: "时间常数计算器", desc: "RC 电路时间常数 τ 计算", build: buildTimeConstant },
   { id: "three-phase", icon: "〰", title: "三相功率计算器", desc: "三相交流系统的视在/有功/无功功率", build: buildThreePhase },
   { id: "frequency-wavelength", icon: "📡", title: "频率波长换算", desc: "频率与真空波长互转", build: buildFrequencyWavelength },
   { id: "wire-gauge", icon: "🧵", title: "线径换算器", desc: "AWG 与英寸/毫米/圆密耳换算", build: buildWireGauge },
-  { id: "trace-impedance", icon: "🛤", title: "走线阻抗计算器", desc: "微带线 PCB 走线阻抗近似计算", build: buildTraceImpedance },
+  { id: "trace-impedance", icon: "🛤", title: "走线阻抗计算器", desc: "微带线/带状线等 7 种结构特性阻抗与线宽互算（含嵌入与耦合型）", build: buildTraceImpedance },
   { id: "pcb-trace-width", icon: "📐", title: "PCB 印制线宽度计算器", desc: "基于 IPC-2221 的载流线宽估算", build: buildPcbTraceWidth },
   { id: "length", icon: "📏", title: "长度换算", desc: "毫米/厘米/米/英寸/英尺/码/英里互转", build: (h) => buildUnitConverter(h, UNITS.length, "mm", "in", "mm") },
   { id: "weight", icon: "⚖", title: "重量换算", desc: "毫克/克/千克/吨/盎司/磅互转", build: (h) => buildUnitConverter(h, UNITS.weight, "g", "oz", "g") },

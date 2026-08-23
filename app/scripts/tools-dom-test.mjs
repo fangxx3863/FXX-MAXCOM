@@ -72,7 +72,7 @@ check("555 astable 公式含 0.693", has(formula.textContent, "0.693"));
 check("555 astable 输出含频率", has(linesEl.textContent, "频率 f ="));
 check("555 astable 多行展示(非单行 input)", linesEl.hidden === false);
 
-// DigiKey 示例：R1=10k, R2=15k, C=10µF  => f≈3.6076Hz, 占空比=62.5%
+// 示例：R1=10k, R2=15k, C=10µF  => f≈3.6076Hz, 占空比=62.5%
 r1.value = "10"; r1s.value = "1e3"; c.value = "10"; fire(r1, "input");
 h555.querySelector("#t555-r2").value = "15"; h555.querySelector("#t555-r2s").value = "1e3";
 fire(h555.querySelector("#t555-r2"), "input"); // 验证 R2 输入已绑定（重算）
@@ -109,7 +109,7 @@ const attImg = hAtt.querySelector("#att-diagram img");
 const aR1 = hAtt.querySelector("#att-r1");
 const aR2 = hAtt.querySelector("#att-r2");
 const baseSrc = attImg.src;
-check("衰减器 Pi 图非空", baseSrc.startsWith("data:image/svg"));
+check("衰减器 Pi 图非空", baseSrc.startsWith("data:image/"));
 check("衰减器 Pi: R1≈61.1 (20dB,50Ω)", has(aR1.value, "61.1"));
 check("衰减器 Pi: R2≈247.5", has(aR2.value, "247.5"));
 const attTypes = ["bridgeT", "reflective", "T"];

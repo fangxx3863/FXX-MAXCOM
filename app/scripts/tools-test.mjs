@@ -32,7 +32,7 @@ const near = (want, tol = 1e-6) => (got) => typeof got === "number" && Math.abs(
 // ── 555 定时器 ──
 check("mono555 10kΩ+1000µF => 11s", M.mono555(10000, 0.001), near(11));
 check("mono555 100Ω+10µF => 1.1ms", M.mono555(100, 10e-6), near(0.0011));
-// DigiKey 示例：R1=10k, R2=15k, C=10µF（非稳态）
+// 示例：R1=10k, R2=15k, C=10µF（非稳态）
 const a = M.astable555(10000, 15000, 10e-6);
 check("astable tHigh 0.693*(10k+15k)*10µF", a.tHigh, near(0.17325));
 check("astable tLow 0.693*15k*10µF", a.tLow, near(0.10395));
@@ -108,6 +108,24 @@ check("seriesCap 2x10µF", M.seriesCap([10e-6, 10e-6]), near(5e-6));
 // ── SMD 电阻三位代码 ──
 check("smd3 102 -> 1kΩ", M.smdResistor3("102"), 1000);
 check("smd3 471 -> 470Ω", M.smdResistor3("471"), 470);
+
+// ── PCB 走线阻抗（mil 制，t=1.4/εr=4.5，参考值）──
+// 参考：W=10 H=10 T=1.4 εr=4.5 → 微带线 66.2166Ω。
+check("trace microstrip W=10,H=10", M.traceImpedance("m", "im", { w: 10, t: 1.4, h: 10, er: 4.5 }).z, near(66.2166, 1e-3));
+check("trace embedded W=10,H=10,HP=5", M.traceImpedance("m-embedded", "im", { w: 10, t: 1.4, h: 10, hp: 5, er: 4.5 }).z, near(33.4922, 1e-3));
+check("trace edge-microstrip W=10,S=10", M.traceImpedance("m-edge", "im", { w: 10, t: 1.4, h: 10, s: 10, er: 4.5 }).z, near(108.0934, 1e-3));
+check("trace stripline W=10,H=10", M.traceImpedance("s", "im", { w: 10, t: 1.4, h: 10, er: 4.5 }).z, near(41.4233, 1e-3));
+check("trace asym W=10,HA=10,HB=20", M.traceImpedance("s-asym", "im", { w: 10, t: 1.4, ha: 10, hb: 20, er: 4.5 }).z, near(48.3272, 1e-3));
+check("trace broadside W=10,HP=10,HT=10", M.traceImpedance("s-broadside", "im", { w: 10, t: 1.4, hp: 10, ht: 10, er: 4.5 }).z, near(48.7788, 1e-3));
+check("trace edge-stripline W=10,S=10", M.traceImpedance("s-edge", "im", { w: 10, t: 1.4, h: 10, s: 10, er: 4.5 }).z, near(75.4322, 1e-3));
+// 反算：给定 Z0=66.216575 求线宽，应回到 W=10 mil（往返一致）
+check("trace microstrip width-inverse W≈10", M.traceImpedance("m", "w", { z: 66.216575, t: 1.4, h: 10, er: 4.5 }).w, near(10, 1e-2));
+// 宽线/高比越界警示（w/h=5 超出 0.1–2.0，附警示但仍给值）
+const wide = M.traceImpedance("m", "im", { w: 50, t: 1.4, h: 10, er: 4.5 });
+check("trace wide-ratio warn set", typeof wide.warn, "string");
+check("trace wide-ratio value finite", Number.isFinite(wide.z), true);
+// 嵌入式：hp 必须小于 h（h/hp>1.2），否则警示
+check("trace embedded hp>=h warn", M.traceImpedance("m-embedded", "im", { w: 10, t: 1.4, h: 10, hp: 10, er: 4.5 }).warn !== undefined, true);
 
 // ── 格式化 ──
 check("fmt trim zeros", M.fmt(100.00000001, 3), "100");

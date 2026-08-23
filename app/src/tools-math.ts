@@ -140,6 +140,10 @@ export function rcTau(r: number, c: number): number {
 export function ledResistor(vs: number, vf: number, ifA: number): number {
   return (vs - vf) / ifA;
 }
+// LED 电阻功率: P = (Vs - Vf) · If
+export function ledPower(vs: number, vf: number, ifA: number): number {
+  return (vs - vf) * ifA;
+}
 
 // ── 滤波器截止频率 ──
 export type FilterType = "rc" | "rl" | "lc";
@@ -206,4 +210,96 @@ export function parallelCap(values: (number | null)[]): number | null {
   const vs = finiteNums(values);
   if (!vs) return null;
   return vs.reduce((a, b) => a + b, 0);
+}
+
+// ── PCB 走线阻抗（单位一律 mil 基数）──
+// 各拓扑公式（mil 制）。线宽/高度比超出 0.1–2.0 时
+// 87/60 近似失效，仍返回数值并附警示。
+export type TraceTopo =
+  | "m"          // 微带线
+  | "m-embedded" // 嵌入式微带线
+  | "m-edge"     // 边缘耦合微带线
+  | "s"          // 带状线
+  | "s-asym"     // 非对称带状线
+  | "s-broadside"// 宽边耦合带状线
+  | "s-edge";    // 边缘耦合带状线
+export type TraceDir = "im" | "w"; // im: 按线宽算阻抗; w: 按阻抗算线宽
+
+export interface TraceInput {
+  er: number;       // 介电常数
+  w?: number;       // 线宽 (mil)
+  t?: number;       // 铜厚 (mil)
+  h?: number;       // 高度 (mil)
+  s?: number;       // 线间距 (mil)
+  hp?: number;      // 覆盖层高度/到地高度 (mil)
+  ht?: number;      // 两走线间距 (mil)
+  ha?: number;      // 上侧高度 (mil)
+  hb?: number;      // 下侧高度 (mil)
+  z?: number;       // 阻抗 (Ω)
+}
+
+export interface TraceResult {
+  z?: number;   // im 方向输出阻抗 (Ω)
+  w?: number;   // w 方向输出线宽 (mil, 显示前由 DOM 层除以单位系数)
+  warn?: string;
+}
+
+export function traceImpedance(topo: TraceTopo, dir: TraceDir, x: TraceInput): TraceResult {
+  const range = (w: number, h: number): string | undefined => {
+    const r = w / h;
+    return r < 0.1 || r > 2.0 ? "线宽/高度比超出 0.1–2.0，结果仅供粗估" : undefined;
+  };
+  switch (topo) {
+    case "m": {
+      const t = x.t!, h = x.h!, er = x.er;
+      if (dir === "w") {
+        const w = (5.98 * h / Math.exp(x.z! * Math.sqrt(er + 1.41) / 87) - t) / 0.8;
+        return { w, warn: range(w, h) };
+      }
+      const w = x.w!;
+      const z = 87 / Math.sqrt(er + 1.41) * Math.log((5.98 * h) / (0.8 * w + t));
+      return { z, warn: range(w, h) };
+    }
+    case "m-embedded": {
+      const t = x.t!, h = x.h!, hp = x.hp!, w = x.w!, er = x.er;
+      const erp = er * (1 - Math.exp((-1.55 * h) / hp));
+      const z = (60 / Math.sqrt(erp)) * Math.log((5.98 * hp) / (0.8 * w + t));
+      return { z, warn: h / hp <= 1.2 ? "覆盖层高度 hp 必须小于基板高度 h（要求 h/hp > 1.2）" : undefined };
+    }
+    case "m-edge": {
+      const t = x.t!, h = x.h!, s = x.s!, er = x.er;
+      if (dir === "w") {
+        const zo = x.z! / 2 / (1 - 0.48 / Math.exp((0.96 * s) / h));
+        const w = (5.98 * h / Math.exp((zo / 87) * Math.sqrt(er + 1.41)) - t) / 0.8;
+        return { w, warn: range(w, h) };
+      }
+      const w = x.w!;
+      const zo0 = 87 / Math.sqrt(er + 1.41) * Math.log((5.98 * h) / (0.8 * w + t));
+      const zd = 2 * zo0 * (1 - 0.48 / Math.exp((0.96 * s) / h));
+      return { z: zd, warn: range(w, h) };
+    }
+    case "s": {
+      const t = x.t!, h = x.h!, w = x.w!, er = x.er;
+      const z = (60 / Math.sqrt(er)) * Math.log((1.9 * (2 * h + t)) / (0.8 * w + t));
+      return { z, warn: range(w, h) };
+    }
+    case "s-asym": {
+      const t = x.t!, ha = x.ha!, hb = x.hb!, w = x.w!, er = x.er;
+      const h = Math.min(ha, hb), h1 = Math.max(ha, hb);
+      const z = (80 / Math.sqrt(er)) * Math.log((1.9 * (2 * h + t)) / (0.8 * w + t)) * (1 - h / (4 * h1));
+      return { z, warn: range(w, h) };
+    }
+    case "s-broadside": {
+      const t = x.t!, hp = x.hp!, ht = x.ht!, w = x.w!, er = x.er;
+      const z = (80 / Math.sqrt(er)) * Math.log((1.9 * (2 * hp + t)) / (0.8 * w + t)) * (1 - hp / (4 * (hp + ht + t)));
+      return { z, warn: range(w, hp) };
+    }
+    case "s-edge": {
+      const t = x.t!, h = x.h!, s = x.s!, w = x.w!, er = x.er;
+      const zo0 = (60 / Math.sqrt(er)) * Math.log((1.9 * (2 * h + t)) / (0.8 * w + t));
+      const zd = 2 * zo0 * (1 - 0.347 / Math.exp((2.9 * s) / (2 * h + t)));
+      return { z: zd, warn: range(w, h) };
+    }
+  }
+  return { warn: "不支持的拓扑" };
 }
