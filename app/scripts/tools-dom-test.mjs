@@ -57,6 +57,7 @@ const r1 = h555.querySelector("#t555-r1");
 const r1s = h555.querySelector("#t555-r1s");
 const c = h555.querySelector("#t555-c");
 const outEl = h555.querySelector("#t555-out");
+const linesEl = h555.querySelector("#t555-lines");
 const formula = h555.querySelector("#t555-formula");
 
 // 初始单稳态：100Ω + 10µF => 1.1ms，无 R2 字段
@@ -68,14 +69,21 @@ check("555 mono 公式含 1.1", has(formula.textContent, "1.1"));
 h555.querySelector('[data-mode="astable"]').click();
 check("555 astable: 插入 R2 字段", !!h555.querySelector("#t555-r2"));
 check("555 astable 公式含 0.693", has(formula.textContent, "0.693"));
-check("555 astable 输出含 f=", has(outEl.value, "f="));
+check("555 astable 输出含频率", has(linesEl.textContent, "频率 f ="));
+check("555 astable 多行展示(非单行 input)", linesEl.hidden === false);
 
-// DigiKey 示例：R1=10k, R2=15k, C=10µF  => f=1/(tH+tL)≈3.6076Hz, 占空比=62.5%
+// DigiKey 示例：R1=10k, R2=15k, C=10µF  => f≈3.6076Hz, 占空比=62.5%
 r1.value = "10"; r1s.value = "1e3"; c.value = "10"; fire(r1, "input");
 h555.querySelector("#t555-r2").value = "15"; h555.querySelector("#t555-r2s").value = "1e3";
 fire(h555.querySelector("#t555-r2"), "input"); // 验证 R2 输入已绑定（重算）
-check("555 astable f≈3.6076", has(outEl.value, "f=3.607"));
-check("555 astable 占空比=62.5", has(outEl.value, "占空比=62.5"));
+check("555 astable f≈3.6076", has(linesEl.textContent, "f = 3.607"));
+check("555 astable 占空比=62.5", has(linesEl.textContent, "占空比 = 62.5"));
+
+// 单位切换回归：非稳态时间单位跟随选择，不再写死 ms
+const osel = h555.querySelector("#t555-os");
+osel.value = "1"; fire(osel, "change");
+check("555 astable 切 s 后时间单位跟随", !has(linesEl.textContent, " ms") && has(linesEl.textContent, " s"));
+osel.value = "1e-3"; fire(osel, "change"); // 恢复 ms，避免影响后续 mono 断言
 
 // 回到单稳态：R2 字段被移除，输出恢复（先把 R1 复位为 100Ω）
 r1.value = "100"; r1s.value = "1"; c.value = "10"; fire(r1, "input");
@@ -89,7 +97,7 @@ check("555 往返: 再进非稳态 R2 重建", !!h555.querySelector("#t555-r2"))
 r1.value = "10"; r1s.value = "1e3"; c.value = "10"; fire(r1, "input");
 h555.querySelector("#t555-r2").value = "15"; h555.querySelector("#t555-r2s").value = "1e3";
 fire(h555.querySelector("#t555-r2"), "input");
-check("555 往返: R2 事件仍绑定 f≈3.607", has(outEl.value, "f=3.607"));
+check("555 往返: R2 事件仍绑定 f≈3.607", has(linesEl.textContent, "f = 3.607"));
 h555.querySelector('[data-mode="mono"]').click();
 check("555 往返: 再回单稳态 R2 移除", !h555.querySelector("#t555-r2"));
 r1.value = "100"; r1s.value = "1"; c.value = "10"; fire(r1, "input");

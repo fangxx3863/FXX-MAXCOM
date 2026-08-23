@@ -214,7 +214,7 @@ function build555(host: HTMLElement): ToolController {
       <div class="tool-grid" id="t555-grid">
         <div class="tool-field"><label>R₁ 电阻值</label><div class="tool-inline"><input id="t555-r1" class="proto-in" type="number" min="0" value="100" /><select id="t555-r1s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3">kΩ</option><option value="1e6">MΩ</option></select></div></div>
         <div class="tool-field"><label>C₁ 电容值</label><div class="tool-inline"><input id="t555-c" class="proto-in" type="number" min="0" value="10" /><select id="t555-cs" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1e-3">mF</option><option value="1">F</option></select></div></div>
-        <div class="tool-field" id="t555-out-box"><label>输出脉冲持续时间</label><div class="tool-inline"><input id="t555-out" class="tool-output proto-in" readonly placeholder="—" /><select id="t555-os" class="tool-sel proto-in"><option value="1e-3" selected>ms</option><option value="1">s</option><option value="60">min</option></select></div></div>
+        <div class="tool-field" id="t555-out-box"><label>输出脉冲持续时间</label><div class="tool-inline"><input id="t555-out" class="tool-output proto-in" readonly placeholder="—" /><select id="t555-os" class="tool-sel proto-in"><option value="1e-3" selected>ms</option><option value="1">s</option><option value="60">min</option></select></div><div class="tool-resultline" id="t555-lines" hidden></div></div>
       </div>
       <div class="tool-formula" id="t555-formula"></div>
     </div>`;
@@ -229,6 +229,7 @@ function build555(host: HTMLElement): ToolController {
   const formula = host.querySelector<HTMLElement>("#t555-formula")!;
   const grid = host.querySelector<HTMLElement>("#t555-grid")!;
   const outBox = host.querySelector<HTMLElement>("#t555-out-box")!;
+  const lines = host.querySelector<HTMLElement>("#t555-lines")!;
 
   let mode = "mono";
   img.src = toolDiagramVariant("555", mode);
@@ -265,7 +266,14 @@ function build555(host: HTMLElement): ToolController {
     formula.innerHTML = math(
       `t_H = 0.693(R_1{+}R_2)C_1,\\quad t_L = 0.693\\,R_2 C_1,\\quad f=\\dfrac{1.44}{(R_1{+}2R_2)C_1}`,
     );
-    out.value = `f=${fmt(a.freq)} Hz  t_H=${fmt(a.tHigh / om)} ms  t_L=${fmt(a.tLow / om)} ms  占空比=${fmt(a.duty * 100, 4)}%`;
+    // 非稳态是多值结果（频率/高电平/低电平/占空比），塞进单行 input 会被截断；
+    // 且时间单位须跟随所选单位，不能写死 ms。改用可换行的 resultline 展示。
+    const unit = os.selectedOptions[0].textContent;
+    lines.textContent =
+      `频率 f = ${fmt(a.freq)} Hz\n` +
+      `高电平 t_H = ${fmt(a.tHigh / om)} ${unit}\n` +
+      `低电平 t_L = ${fmt(a.tLow / om)} ${unit}\n` +
+      `占空比 = ${fmt(a.duty * 100, 4)} %`;
   };
 
   const setMode = (m: string) => {
@@ -284,6 +292,9 @@ function build555(host: HTMLElement): ToolController {
         grid.insertBefore(r2Field, outBox);
       }
       outBox.querySelector("label")!.textContent = "输出特性";
+      out.style.display = "none"; // 非稳态用多行 resultline 展示，隐藏单值输入框
+      os.style.display = "";     // 时间单位选择保留生效（作用于 t_H / t_L）
+      lines.hidden = false;
     } else {
       if (r2Field) {
         r2Field.remove();
@@ -292,6 +303,9 @@ function build555(host: HTMLElement): ToolController {
         r2Unit = null;
       }
       outBox.querySelector("label")!.textContent = "输出脉冲持续时间";
+      out.style.display = "";
+      os.style.display = "";
+      lines.hidden = true;
     }
     update();
   };

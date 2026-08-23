@@ -908,7 +908,7 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .tool-output { color: var(--accent) !important; }
 .tool-resultline {
   min-height: 18px; color: var(--fg-dim); font-size: 13px;
-  word-break: break-all; font-variant-numeric: tabular-nums;
+  word-break: break-all; font-variant-numeric: tabular-nums; white-space: pre-line;
 }
 .tool-formula {
   padding: 10px 12px; background: var(--bg3); border-radius: 8px;
