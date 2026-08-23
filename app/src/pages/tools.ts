@@ -705,19 +705,24 @@ function buildOhm(host: HTMLElement): ToolController {
         <div class="tool-field"><label>电流</label><div class="tool-inline"><input id="ohm-i" class="proto-in" type="number" value="0.1" /><select id="ohm-iu" class="tool-sel proto-in"><option value="1" selected>A</option><option value="0.001">mA</option><option value="1e-6">µA</option></select></div></div>
         <div class="tool-field"><label>电阻</label><div class="tool-inline"><input id="ohm-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
       </div>
+      <div class="tool-resultline" id="ohm-line"></div>
       <div class="tool-formula">${math("R = V/I,\\quad P = V \\times I")}</div>
     </div>`;
   const update = () => {
     const v = num((host.querySelector("#ohm-v") as HTMLInputElement).value);
     const i = num((host.querySelector("#ohm-i") as HTMLInputElement).value);
     const iu = Number((host.querySelector("#ohm-iu") as HTMLSelectElement).value);
+    const iOut = host.querySelector<HTMLInputElement>("#ohm-r")!;
+    const line = host.querySelector<HTMLElement>("#ohm-line")!;
     if (v === null || i === null || i * iu === 0) {
-      (host.querySelector("#ohm-r") as HTMLInputElement).value = "";
+      iOut.value = "";
+      line.textContent = "";
       return;
     }
     const o = ohmLaw(v, i * iu);
-    const iOut = host.querySelector<HTMLInputElement>("#ohm-r")!;
-    iOut.value = `${fmt(o.r)} Ω (P = ${fmt(o.p)} W)`;
+    // 功率 P 是独立结果，不应塞进带 Ω 后缀的电阻输入框（会被截断且单位重复）
+    iOut.value = fmt(o.r);
+    line.textContent = `功率 P = ${fmt(o.p)} W`;
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));

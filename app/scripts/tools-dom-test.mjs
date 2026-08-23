@@ -152,5 +152,13 @@ check("码盘 255 oct=377", oct.value === "377");
 check("码盘 255 bin=11111111", bin.value === "11111111");
 check("码盘 255 bit7=1", bitOn(7));
 
+// ── 欧姆定律：功率独立展示，不再塞进带 Ω 后缀的电阻框 ──
+const hOhm = hostOf("ohm");
+const ohmR = hOhm.querySelector("#ohm-r");
+const ohmLine = hOhm.querySelector("#ohm-line");
+check("欧姆 R=50 (5V/0.1A)", ohmR.value === "50");
+check("欧姆 电阻框不含功率", !has(ohmR.value, "P"));
+check("欧姆 功率在 resultline P=0.5W", has(ohmLine.textContent, "P = 0.5 W"));
+
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);
 process.exit(fail ? 1 : 0);
