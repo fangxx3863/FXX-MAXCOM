@@ -24,6 +24,10 @@ function math(src: string): string {
   return katex.renderToString(src, { throwOnError: false, displayMode: false });
 }
 
+// 目录卡片与详情页标题/说明走 i18n：键为 tools.<id>.title / tools.<id>.desc
+const tTitle = (id: string): string => t(`tools.${id}.title`);
+const tDesc = (id: string): string => t(`tools.${id}.desc`);
+
 
 // ── 类型 ──
 export interface ToolController {
@@ -186,7 +190,7 @@ function buildUnitConverter(
           <div class="tool-inline"><input class="tool-output proto-in" readonly placeholder="—" /><select class="tool-sel proto-in">${optionsHtml(units, toId)}</select></div>
         </div>
       </div>
-      <div class="tool-resultline">${t("tools.formula")}: × / ÷ 单位制</div>
+      <div class="tool-resultline">${t("tools.formula")}: ${t("tools.unitConverterNote")}</div>
     </div>`;
   const input = host.querySelector<HTMLInputElement>(".tool-input")!;
   const output = host.querySelector<HTMLInputElement>(".tool-output")!;
@@ -216,14 +220,14 @@ function build555(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-tabs">
-        <button class="tool-tab active" data-mode="mono">单稳态 (单触发)</button>
-        <button class="tool-tab" data-mode="astable">非稳态 (自由运行)</button>
+        <button class="tool-tab active" data-mode="mono">${t("tools.555.mono")}</button>
+        <button class="tool-tab" data-mode="astable">${t("tools.555.astable")}</button>
       </div>
-      <div class="tools-diagram" id="t555-diagram"><img class="tool-diagram" alt="555 电路原理图" /></div>
+      <div class="tools-diagram" id="t555-diagram"><img class="tool-diagram" alt="${t("tools.555.diagramAlt")}" /></div>
       <div class="tool-grid" id="t555-grid">
-        <div class="tool-field"><label>R₁ 电阻值</label><div class="tool-inline"><input id="t555-r1" class="proto-in" type="number" min="0" value="100" /><select id="t555-r1s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3">kΩ</option><option value="1e6">MΩ</option></select></div></div>
-        <div class="tool-field"><label>C₁ 电容值</label><div class="tool-inline"><input id="t555-c" class="proto-in" type="number" min="0" value="10" /><select id="t555-cs" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1e-3">mF</option><option value="1">F</option></select></div></div>
-        <div class="tool-field" id="t555-out-box"><label>输出脉冲持续时间</label><div class="tool-inline"><input id="t555-out" class="tool-output proto-in" readonly placeholder="—" /><select id="t555-os" class="tool-sel proto-in"><option value="1e-3" selected>ms</option><option value="1">s</option><option value="60">min</option></select></div><div class="tool-resultline" id="t555-lines" hidden></div></div>
+        <div class="tool-field"><label>${t("tools.555.r1")}</label><div class="tool-inline"><input id="t555-r1" class="proto-in" type="number" min="0" value="100" /><select id="t555-r1s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3">kΩ</option><option value="1e6">MΩ</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.555.c1")}</label><div class="tool-inline"><input id="t555-c" class="proto-in" type="number" min="0" value="10" /><select id="t555-cs" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1e-3">mF</option><option value="1">F</option></select></div></div>
+        <div class="tool-field" id="t555-out-box"><label>${t("tools.555.outPulse")}</label><div class="tool-inline"><input id="t555-out" class="tool-output proto-in" readonly placeholder="—" /><select id="t555-os" class="tool-sel proto-in"><option value="1e-3" selected>ms</option><option value="1">s</option><option value="60">min</option></select></div><div class="tool-resultline" id="t555-lines" hidden></div></div>
       </div>
       <div class="tool-formula" id="t555-formula"></div>
     </div>`;
@@ -279,10 +283,10 @@ function build555(host: HTMLElement): ToolController {
     // 且时间单位须跟随所选单位，不能写死 ms。改用可换行的 resultline 展示。
     const unit = os.selectedOptions[0].textContent;
     lines.textContent =
-      `频率 f = ${fmt(a.freq)} Hz\n` +
-      `高电平 t_H = ${fmt(a.tHigh / om)} ${unit}\n` +
-      `低电平 t_L = ${fmt(a.tLow / om)} ${unit}\n` +
-      `占空比 = ${fmt(a.duty * 100, 4)} %`;
+      `${t("tools.555.freq")} ${fmt(a.freq)} Hz\n` +
+      `${t("tools.555.tHigh")} ${fmt(a.tHigh / om)} ${unit}\n` +
+      `${t("tools.555.tLow")} ${fmt(a.tLow / om)} ${unit}\n` +
+      `${t("tools.555.duty")} ${fmt(a.duty * 100, 4)} %`;
   };
 
   const setMode = (m: string) => {
@@ -292,7 +296,7 @@ function build555(host: HTMLElement): ToolController {
       if (!r2Field) {
         r2Field = document.createElement("div");
         r2Field.className = "tool-field";
-        r2Field.innerHTML = `<label>R₂ 电阻值</label><div class="tool-inline"><input id="t555-r2" class="proto-in" type="number" min="0" value="47" /><select id="t555-r2s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>`;
+        r2Field.innerHTML = `<label>${t("tools.555.r2")}</label><div class="tool-inline"><input id="t555-r2" class="proto-in" type="number" min="0" value="47" /><select id="t555-r2s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>`;
         r2Input = r2Field.querySelector<HTMLInputElement>("#t555-r2")!;
         r2Unit = r2Field.querySelector<HTMLSelectElement>("#t555-r2s")!;
         // 新建的 R2 输入/单位必须绑定事件，否则改 R2 不重算
@@ -300,7 +304,7 @@ function build555(host: HTMLElement): ToolController {
         r2Unit.addEventListener("change", update);
         grid.insertBefore(r2Field, outBox);
       }
-      outBox.querySelector("label")!.textContent = "输出特性";
+      outBox.querySelector("label")!.textContent = t("tools.555.outProps");
       out.style.display = "none"; // 非稳态用多行 resultline 展示，隐藏单值输入框
       os.style.display = "";     // 时间单位选择保留生效（作用于 t_H / t_L）
       lines.hidden = false;
@@ -311,7 +315,7 @@ function build555(host: HTMLElement): ToolController {
         r2Input = null;
         r2Unit = null;
       }
-      outBox.querySelector("label")!.textContent = "输出脉冲持续时间";
+      outBox.querySelector("label")!.textContent = t("tools.555.outPulse");
       out.style.display = "";
       os.style.display = "";
       lines.hidden = true;
@@ -335,9 +339,9 @@ function buildBatteryLife(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>电池容量</label><div class="tool-inline"><input id="bt-cap" class="proto-in" type="number" min="0" value="1000" /><select id="bt-capu" class="tool-sel proto-in"><option value="1" selected>mAh</option><option value="1000">Ah</option><option value="0.001">µAh</option></select></div></div>
-        <div class="tool-field"><label>设备功耗</label><div class="tool-inline"><input id="bt-cur" class="proto-in" type="number" min="0" value="100" /><select id="bt-curu" class="tool-sel proto-in"><option value="1" selected>mA</option><option value="1000">A</option><option value="0.001">µA</option></select></div></div>
-        <div class="tool-field"><label>电池续航时间</label><div class="tool-inline"><input id="bt-out" class="tool-output proto-in" readonly placeholder="—" /><select id="bt-outu" class="tool-sel proto-in"><option value="1" selected>小时</option><option value="1/24">天</option><option value="1/8760">年</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.battery.capacity")}</label><div class="tool-inline"><input id="bt-cap" class="proto-in" type="number" min="0" value="1000" /><select id="bt-capu" class="tool-sel proto-in"><option value="1" selected>mAh</option><option value="1000">Ah</option><option value="0.001">µAh</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.battery.power")}</label><div class="tool-inline"><input id="bt-cur" class="proto-in" type="number" min="0" value="100" /><select id="bt-curu" class="tool-sel proto-in"><option value="1" selected>mA</option><option value="1000">A</option><option value="0.001">µA</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.battery.runTime")}</label><div class="tool-inline"><input id="bt-out" class="tool-output proto-in" readonly placeholder="—" /><select id="bt-outu" class="tool-sel proto-in"><option value="1" selected>${t("tools.battery.hour")}</option><option value="1/24">${t("tools.battery.day")}</option><option value="1/8760">${t("tools.battery.year")}</option></select></div></div>
       </div>
       <div class="tool-formula">${math("Battery\\ Life = \\dfrac{Battery\\ Capacity}{Load\\ Current}")}</div>
     </div>`;
@@ -365,11 +369,11 @@ function buildCapacitanceConversion(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>皮法</label><div class="tool-inline"><input id="cap-pf" class="proto-in" type="number" min="0" placeholder="pF" /></div></div>
-        <div class="tool-field"><label>纳法</label><div class="tool-inline"><input id="cap-nf" class="proto-in" type="number" min="0" placeholder="nF" /></div></div>
-        <div class="tool-field"><label>微法</label><div class="tool-inline"><input id="cap-uf" class="proto-in" type="number" min="0" placeholder="µF" /></div></div>
-        <div class="tool-field"><label>法拉</label><div class="tool-inline"><input id="cap-f" class="proto-in" type="number" min="0" placeholder="F" /></div></div>
-        <div class="tool-field"><label>三位代码</label><div class="tool-inline"><input id="cap-code" class="proto-in" type="text" value="104" placeholder="如 104" /></div></div>
+        <div class="tool-field"><label>${t("tools.cap.picofarad")}</label><div class="tool-inline"><input id="cap-pf" class="proto-in" type="number" min="0" placeholder="pF" /></div></div>
+        <div class="tool-field"><label>${t("tools.cap.nanofarad")}</label><div class="tool-inline"><input id="cap-nf" class="proto-in" type="number" min="0" placeholder="nF" /></div></div>
+        <div class="tool-field"><label>${t("tools.cap.microfarad")}</label><div class="tool-inline"><input id="cap-uf" class="proto-in" type="number" min="0" placeholder="µF" /></div></div>
+        <div class="tool-field"><label>${t("tools.cap.farad")}</label><div class="tool-inline"><input id="cap-f" class="proto-in" type="number" min="0" placeholder="F" /></div></div>
+        <div class="tool-field"><label>${t("tools.cap.threeDigit")}</label><div class="tool-inline"><input id="cap-code" class="proto-in" type="text" value="104" placeholder="${t("tools.cap.codePlaceholder")}" /></div></div>
       </div>
       <div class="tool-resultline" id="cap-result"></div>
     </div>`;
@@ -427,14 +431,14 @@ function buildCapacitorDischarge(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>电容器容值</label><div class="tool-inline"><input id="capd-c" class="proto-in" type="number" min="0" value="100" /><select id="capd-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1">F</option></select></div></div>
-        <div class="tool-field"><label>初始充电电压</label><div class="tool-inline"><input id="capd-v0" class="proto-in" type="number" min="0" value="100" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>安全阈值电压</label><div class="tool-inline"><input id="capd-vs" class="proto-in" type="number" min="0" value="1" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>电阻值</label><div class="tool-inline"><input id="capd-r" class="proto-in" type="number" min="0" value="100" /><select id="capd-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
-        <div class="tool-field"><label>到达安全电压所需的时间</label><div class="tool-inline"><input id="capd-t" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
-        <div class="tool-field"><label>初始功率</label><div class="tool-inline"><input id="capd-p" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
-        <div class="tool-field"><label>时间常数 τ</label><div class="tool-inline"><input id="capd-tau" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
-        <div class="tool-field"><label>释放的能量</label><div class="tool-inline"><input id="capd-e" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">J</span></div></div>
+        <div class="tool-field"><label>${t("tools.capd.capacitance")}</label><div class="tool-inline"><input id="capd-c" class="proto-in" type="number" min="0" value="100" /><select id="capd-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1">F</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.capd.v0")}</label><div class="tool-inline"><input id="capd-v0" class="proto-in" type="number" min="0" value="100" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.capd.vSafe")}</label><div class="tool-inline"><input id="capd-vs" class="proto-in" type="number" min="0" value="1" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.capd.resistance")}</label><div class="tool-inline"><input id="capd-r" class="proto-in" type="number" min="0" value="100" /><select id="capd-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.capd.timeToSafe")}</label><div class="tool-inline"><input id="capd-t" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
+        <div class="tool-field"><label>${t("tools.capd.initPower")}</label><div class="tool-inline"><input id="capd-p" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
+        <div class="tool-field"><label>${t("tools.capd.tau")}</label><div class="tool-inline"><input id="capd-tau" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
+        <div class="tool-field"><label>${t("tools.capd.energy")}</label><div class="tool-inline"><input id="capd-e" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">J</span></div></div>
       </div>
       <div class="tool-formula">${math("t = R C \\ln(V_0 / V_s)")}</div>
     </div>`;
@@ -470,7 +474,7 @@ function buildCapacitorDischarge(host: HTMLElement): ToolController {
 function buildCurrentDivider(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-field"><label>电流源</label><div class="tool-inline"><input id="cd-total" class="proto-in" type="number" min="0" value="1" /><select id="cd-totalu" class="tool-sel proto-in"><option value="1" selected>A</option><option value="0.001">mA</option><option value="1e-6">µA</option></select></div></div>
+      <div class="tool-field"><label>${t("tools.cd.currentSource")}</label><div class="tool-inline"><input id="cd-total" class="proto-in" type="number" min="0" value="1" /><select id="cd-totalu" class="tool-sel proto-in"><option value="1" selected>A</option><option value="0.001">mA</option><option value="1e-6">µA</option></select></div></div>
       <div id="cd-rows"></div>
       <div class="tool-actions"><button id="cd-add" class="primary">${t("tools.addResistor")}</button><button id="cd-remove" class="ghost">${t("tools.removeResistor")}</button></div>
       <div class="tool-resultline" id="cd-result"></div>
@@ -557,25 +561,25 @@ function buildVoltageDivider(host: HTMLElement): ToolController {
     <div class="tool-panel">
       <div class="tool-tabs">
         <button class="tool-tab active" data-vdtab="calc">${t("tools.calc")}</button>
-        <button class="tool-tab" data-vdtab="fit">分压拟合</button>
+        <button class="tool-tab" data-vdtab="fit">${t("tools.vd.fit")}</button>
       </div>
       <div data-vdpanel="calc">
         <div class="tool-grid">
-          <div class="tool-field"><label>输入电压</label><div class="tool-inline"><input id="vd-vin" class="proto-in" type="number" value="12" /><span class="tool-suffix">V</span></div></div>
+          <div class="tool-field"><label>${t("tools.vd.vin")}</label><div class="tool-inline"><input id="vd-vin" class="proto-in" type="number" value="12" /><span class="tool-suffix">V</span></div></div>
           <div class="tool-field"><label>R1</label><div class="tool-inline"><input id="vd-r1" class="proto-in" type="number" min="0" value="1000" /><select id="vd-r1u" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
           <div class="tool-field"><label>R2</label><div class="tool-inline"><input id="vd-r2" class="proto-in" type="number" min="0" value="1000" /><select id="vd-r2u" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
-          <div class="tool-field"><label>输出电压</label><div class="tool-inline"><input id="vd-vout" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">V</span></div></div>
+          <div class="tool-field"><label>${t("tools.vd.vout")}</label><div class="tool-inline"><input id="vd-vout" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">V</span></div></div>
         </div>
         <div class="tool-formula">${math("V_{out} = V_{in} \\times \\dfrac{R_2}{R_1+R_2}")}</div>
       </div>
       <div data-vdpanel="fit" class="hidden">
         <div class="tool-grid">
-          <div class="tool-field"><label>输入电压</label><div class="tool-inline"><input id="fd-vin" class="proto-in" type="number" value="12" /><span class="tool-suffix">V</span></div></div>
-          <div class="tool-field"><label>期望输出电压</label><div class="tool-inline"><input id="fd-vout" class="proto-in" type="number" value="0.6" /><span class="tool-suffix">V</span></div></div>
-          <div class="tool-field"><label>系列</label><select id="fd-series" class="proto-in"><option value="e24" selected>E24</option><option value="e96">E96</option></select></div>
+          <div class="tool-field"><label>${t("tools.vd.vin")}</label><div class="tool-inline"><input id="fd-vin" class="proto-in" type="number" value="12" /><span class="tool-suffix">V</span></div></div>
+          <div class="tool-field"><label>${t("tools.vd.want")}</label><div class="tool-inline"><input id="fd-vout" class="proto-in" type="number" value="0.6" /><span class="tool-suffix">V</span></div></div>
+          <div class="tool-field"><label>${t("tools.vd.series")}</label><select id="fd-series" class="proto-in"><option value="e24" selected>E24</option><option value="e96">E96</option></select></div>
         </div>
         <table class="tools-fit-table">
-          <thead><tr><th>电阻R1</th><th>电阻R2</th><th>输出电压</th></tr></thead>
+          <thead><tr><th>${t("tools.vd.r1")}</th><th>${t("tools.vd.r2")}</th><th>${t("tools.vd.vout")}</th></tr></thead>
           <tbody id="fd-rows"></tbody>
         </table>
         <div class="tool-resultline" id="fd-count"></div>
@@ -608,7 +612,7 @@ function buildVoltageDivider(host: HTMLElement): ToolController {
     const tbody = host.querySelector<HTMLTableSectionElement>("#fd-rows")!;
     if (vin === null || want === null || vin <= 0 || want <= 0 || want >= vin) {
       tbody.replaceChildren();
-      setTextById(host, "#fd-count", "请确保 0 < Vout < Vin");
+      setTextById(host, "#fd-count", t("tools.vd.fitErr"));
       return;
     }
     const vals = stdValues(series);
@@ -623,7 +627,7 @@ function buildVoltageDivider(host: HTMLElement): ToolController {
     found.sort((a, b) => a.err - b.err || a.r1 - b.r1);
     const top = found.slice(0, 10);
     tbody.replaceChildren(...top.map(resultRow));
-    setTextById(host, "#fd-count", `最接近的 ${top.length} 个结果`);
+    setTextById(host, "#fd-count", t("tools.vd.fitCount", { n: top.length }));
   };
   const setTextById = (root: HTMLElement, sel: string, text: string) => {
     const el = root.querySelector<HTMLElement>(sel);
@@ -648,8 +652,8 @@ function buildDbmWatt(host: HTMLElement): ToolController {
     <div class="tool-panel">
       <div class="tool-grid">
         <div class="tool-field"><label>dBm</label><div class="tool-inline"><input id="dbm" class="proto-in" type="number" value="0" /><span class="tool-suffix">dBm</span></div></div>
-        <div class="tool-field"><label>瓦特</label><div class="tool-inline"><input id="dbm-w" class="proto-in" type="number" value="0.001" /><span class="tool-suffix">W</span></div></div>
-        <div class="tool-field"><label>毫瓦</label><div class="tool-inline"><input id="dbm-mw" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mW</span></div></div>
+        <div class="tool-field"><label>${t("tools.dbm.watt")}</label><div class="tool-inline"><input id="dbm-w" class="proto-in" type="number" value="0.001" /><span class="tool-suffix">W</span></div></div>
+        <div class="tool-field"><label>${t("tools.dbm.milliwatt")}</label><div class="tool-inline"><input id="dbm-mw" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mW</span></div></div>
       </div>
       <div class="tool-formula">${math("P_{dBm} = 10 \\log_{10}(P/1mW)")}</div>
     </div>`;
@@ -681,11 +685,11 @@ function buildLedResistor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>电源电压</label><div class="tool-inline"><input id="led-vs" class="proto-in" type="number" value="5" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>LED 正向压降</label><div class="tool-inline"><input id="led-vf" class="proto-in" type="number" value="2" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>LED 电流</label><div class="tool-inline"><input id="led-if" class="proto-in" type="number" value="20" /><select id="led-ifu" class="tool-sel proto-in"><option value="0.001" selected>mA</option><option value="1">A</option></select></div></div>
-        <div class="tool-field"><label>串联电阻</label><div class="tool-inline"><input id="led-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
-        <div class="tool-field"><label>电阻功率</label><div class="tool-inline"><input id="led-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
+        <div class="tool-field"><label>${t("tools.led.vs")}</label><div class="tool-inline"><input id="led-vs" class="proto-in" type="number" value="5" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.led.vf")}</label><div class="tool-inline"><input id="led-vf" class="proto-in" type="number" value="2" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.led.if")}</label><div class="tool-inline"><input id="led-if" class="proto-in" type="number" value="20" /><select id="led-ifu" class="tool-sel proto-in"><option value="0.001" selected>mA</option><option value="1">A</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.led.r")}</label><div class="tool-inline"><input id="led-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.led.watt")}</label><div class="tool-inline"><input id="led-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
       </div>
       <div class="tool-formula">${math("R = \\dfrac{V_s - V_f}{I_f}")}</div>
     </div>`;
@@ -713,9 +717,9 @@ function buildOhm(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>电压</label><div class="tool-inline"><input id="ohm-v" class="proto-in" type="number" value="5" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>电流</label><div class="tool-inline"><input id="ohm-i" class="proto-in" type="number" value="0.1" /><select id="ohm-iu" class="tool-sel proto-in"><option value="1" selected>A</option><option value="0.001">mA</option><option value="1e-6">µA</option></select></div></div>
-        <div class="tool-field"><label>电阻</label><div class="tool-inline"><input id="ohm-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.ohm.v")}</label><div class="tool-inline"><input id="ohm-v" class="proto-in" type="number" value="5" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.ohm.i")}</label><div class="tool-inline"><input id="ohm-i" class="proto-in" type="number" value="0.1" /><select id="ohm-iu" class="tool-sel proto-in"><option value="1" selected>A</option><option value="0.001">mA</option><option value="1e-6">µA</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.ohm.r")}</label><div class="tool-inline"><input id="ohm-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
       </div>
       <div class="tool-resultline" id="ohm-line"></div>
       <div class="tool-formula">${math("R = V/I,\\quad P = V \\times I")}</div>
@@ -734,7 +738,7 @@ function buildOhm(host: HTMLElement): ToolController {
     const o = ohmLaw(v, i * iu);
     // 功率 P 是独立结果，不应塞进带 Ω 后缀的电阻输入框（会被截断且单位重复）
     iOut.value = fmt(o.r);
-    line.textContent = `功率 P = ${fmt(o.p)} W`;
+    line.textContent = t("tools.ohm.power", { p: fmt(o.p) });
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
@@ -746,14 +750,14 @@ function buildOhm(host: HTMLElement): ToolController {
 function buildFilter(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tools-diagram" id="flt-diagram"><img class="tool-diagram" alt="滤波器电路图" /></div>
+      <div class="tools-diagram" id="flt-diagram"><img class="tool-diagram" alt="${esc(t("tools.filter.diagramAlt"))}" /></div>
       <div class="tool-grid">
-        <div class="tool-field"><label>滤波类型</label><select id="flt-type" class="proto-in"><option value="rc" selected>RC</option><option value="rl">RL</option><option value="lc">LC</option></select></div>
-        <div class="tool-field"><label>通带</label><select id="flt-band" class="proto-in"><option value="lp" selected>低通 (LP)</option><option value="hp">高通 (HP)</option></select></div>
-        <div class="tool-field"><label>电阻</label><div class="tool-inline"><input id="flt-r" class="proto-in" type="number" min="0" value="1000" /><select id="flt-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
-        <div class="tool-field"><label>电容</label><div class="tool-inline"><input id="flt-c" class="proto-in" type="number" min="0" value="100" /><select id="flt-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
-        <div class="tool-field"><label>电感</label><div class="tool-inline"><input id="flt-l" class="proto-in" type="number" min="0" value="10" /><select id="flt-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
-        <div class="tool-field"><label>-3dB 截止频率</label><div class="tool-inline"><input id="flt-f" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Hz</span></div></div>
+        <div class="tool-field"><label>${t("tools.filter.type")}</label><select id="flt-type" class="proto-in"><option value="rc" selected>RC</option><option value="rl">RL</option><option value="lc">LC</option></select></div>
+        <div class="tool-field"><label>${t("tools.filter.band")}</label><select id="flt-band" class="proto-in"><option value="lp" selected>${t("tools.filter.lp")}</option><option value="hp">${t("tools.filter.hp")}</option></select></div>
+        <div class="tool-field"><label>${t("tools.filter.r")}</label><div class="tool-inline"><input id="flt-r" class="proto-in" type="number" min="0" value="1000" /><select id="flt-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.filter.c")}</label><div class="tool-inline"><input id="flt-c" class="proto-in" type="number" min="0" value="100" /><select id="flt-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.filter.l")}</label><div class="tool-inline"><input id="flt-l" class="proto-in" type="number" min="0" value="10" /><select id="flt-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.filter.fc")}</label><div class="tool-inline"><input id="flt-f" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Hz</span></div></div>
       </div>
       <div class="tool-formula" id="flt-formula"></div>
     </div>`;
@@ -763,21 +767,21 @@ function buildFilter(host: HTMLElement): ToolController {
   const diagram = host.querySelector<HTMLElement>("#flt-diagram")!;
   const diagImg = diagram.querySelector<HTMLImageElement>("img")!;
   const update = () => {
-    const t = type.value;
-    const src = toolDiagramVariant("filter", `${t}_${band.value}`);
+    const ftype = type.value;
+    const src = toolDiagramVariant("filter", `${ftype}_${band.value}`);
     if (src) { diagImg.src = src; diagram.style.display = ""; }
     else { diagram.style.display = "none"; }
-    const bandLabel = band.value === "hp" ? "高通" : "低通";
+    const bandLabel = band.value === "hp" ? t("tools.filter.bandHp") : t("tools.filter.bandLp");
     const r = num((host.querySelector("#flt-r") as HTMLInputElement).value);
     const c = num((host.querySelector("#flt-c") as HTMLInputElement).value);
     const l = num((host.querySelector("#flt-l") as HTMLInputElement).value);
     const ru = Number((host.querySelector("#flt-ru") as HTMLSelectElement).value);
     const cu = Number((host.querySelector("#flt-cu") as HTMLSelectElement).value);
     const lu = Number((host.querySelector("#flt-lu") as HTMLSelectElement).value);
-    const f = filterFc(t as "rc" | "rl" | "lc", r === null ? null : r * ru, c === null ? null : c * cu, l === null ? null : l * lu);
+    const f = filterFc(ftype as "rc" | "rl" | "lc", r === null ? null : r * ru, c === null ? null : c * cu, l === null ? null : l * lu);
     const bandSpan = `<span class="tool-band">${esc(bandLabel)}</span> `;
-    if (t === "rc") formula.innerHTML = bandSpan + math("f_c = \\dfrac{1}{2\\pi RC}");
-    else if (t === "rl") formula.innerHTML = bandSpan + math("f_c = \\dfrac{R}{2\\pi L}");
+    if (ftype === "rc") formula.innerHTML = bandSpan + math("f_c = \\dfrac{1}{2\\pi RC}");
+    else if (ftype === "rl") formula.innerHTML = bandSpan + math("f_c = \\dfrac{R}{2\\pi L}");
     else formula.innerHTML = bandSpan + math("f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}");
     (host.querySelector("#flt-f") as HTMLInputElement).value = f === null ? "" : fmt(f) + " Hz";
   };
@@ -798,13 +802,13 @@ function buildNumberBase(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>十进制</label><div class="tool-inline"><input id="nb-d" class="proto-in" type="text" value="42" /></div></div>
-        <div class="tool-field"><label>十六进制</label><div class="tool-inline"><input id="nb-h" class="proto-in" type="text" value="2A" /></div></div>
-        <div class="tool-field"><label>八进制</label><div class="tool-inline"><input id="nb-o" class="proto-in" type="text" value="52" /></div></div>
-        <div class="tool-field"><label>二进制</label><div class="tool-inline"><input id="nb-b" class="proto-in" type="text" value="101010" /></div></div>
+        <div class="tool-field"><label>${t("tools.nb.dec")}</label><div class="tool-inline"><input id="nb-d" class="proto-in" type="text" value="42" /></div></div>
+        <div class="tool-field"><label>${t("tools.nb.hex")}</label><div class="tool-inline"><input id="nb-h" class="proto-in" type="text" value="2A" /></div></div>
+        <div class="tool-field"><label>${t("tools.nb.oct")}</label><div class="tool-inline"><input id="nb-o" class="proto-in" type="text" value="52" /></div></div>
+        <div class="tool-field"><label>${t("tools.nb.bin")}</label><div class="tool-inline"><input id="nb-b" class="proto-in" type="text" value="101010" /></div></div>
       </div>
       <div class="nb-bithead">
-        <label>位宽</label>
+        <label>${t("tools.nb.bitsize")}</label>
         <select id="nb-wordsize" class="tool-sel proto-in">${WORD_SIZES.map((w) => `<option value="${w.id}"${w.id === 16 ? " selected" : ""}>${w.label}</option>`).join("")}</select>
       </div>
       <div class="nb-bitgrid" id="nb-bitgrid"></div>
@@ -883,12 +887,12 @@ function buildNumberBase(host: HTMLElement): ToolController {
 function buildParallelSeriesCapacitor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-field"><label>电容值</label><div class="tool-inline"><input id="cap-c1" class="proto-in" type="number" min="0" value="10" /><select class="tool-sel proto-in" id="cap-u"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
+      <div class="tool-field"><label>${t("tools.pscap.value")}</label><div class="tool-inline"><input id="cap-c1" class="proto-in" type="number" min="0" value="10" /><select class="tool-sel proto-in" id="cap-u"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
       <div id="cap-rows"></div>
-      <div class="tool-actions"><button id="cap-add" class="primary">添加电容器</button><button id="cap-remove" class="ghost">移除电容器</button></div>
+      <div class="tool-actions"><button id="cap-add" class="primary">${t("tools.addCapacitor")}</button><button id="cap-remove" class="ghost">${t("tools.removeCapacitor")}</button></div>
       <div class="tool-grid">
-        <div class="tool-field"><label>并联总电容</label><div class="tool-inline"><input id="cap-par" class="tool-output proto-in" readonly placeholder="—" /></div></div>
-        <div class="tool-field"><label>串联总电容</label><div class="tool-inline"><input id="cap-ser" class="tool-output proto-in" readonly placeholder="—" /></div></div>
+        <div class="tool-field"><label>${t("tools.pscap.par")}</label><div class="tool-inline"><input id="cap-par" class="tool-output proto-in" readonly placeholder="—" /></div></div>
+        <div class="tool-field"><label>${t("tools.pscap.ser")}</label><div class="tool-inline"><input id="cap-ser" class="tool-output proto-in" readonly placeholder="—" /></div></div>
       </div>
     </div>`;
   const rows = host.querySelector<HTMLElement>("#cap-rows")!;
@@ -930,11 +934,11 @@ function buildSmdResistor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-tabs">
-        <button class="tool-tab active" data-mode="3">3 位 EIA</button>
-        <button class="tool-tab" data-mode="4">4 位 EIA</button>
-        <button class="tool-tab" data-mode="96">EIA-96</button>
+        <button class="tool-tab active" data-mode="3">${t("tools.smdr.tab3")}</button>
+        <button class="tool-tab" data-mode="4">${t("tools.smdr.tab4")}</button>
+        <button class="tool-tab" data-mode="96">${t("tools.smdr.tab96")}</button>
       </div>
-      <div class="tool-field"><label>SMD 电阻代码</label><div class="tool-inline"><input id="smdr-code" class="proto-in" type="text" value="103" placeholder="如 103 / 1003 / 01Y" /></div></div>
+      <div class="tool-field"><label>${t("tools.smdr.code")}</label><div class="tool-inline"><input id="smdr-code" class="proto-in" type="text" value="103" placeholder="${t("tools.smdr.placeholder")}" /></div></div>
       <div class="tool-resultline" id="smdr-result"></div>
     </div>`;
   const code = host.querySelector<HTMLInputElement>("#smdr-code")!;
@@ -989,10 +993,10 @@ function buildSmdCapacitor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-tabs">
-        <button class="tool-tab active" data-mode="3">3 位 EIA</button>
-        <button class="tool-tab" data-mode="4">4 位 EIA</button>
+        <button class="tool-tab active" data-mode="3">${t("tools.smdc.tab3")}</button>
+        <button class="tool-tab" data-mode="4">${t("tools.smdc.tab4")}</button>
       </div>
-      <div class="tool-field"><label>SMD 电容代码</label><div class="tool-inline"><input id="smdc-code" class="proto-in" type="text" value="104" placeholder="如 104 / 1004" /></div></div>
+      <div class="tool-field"><label>${t("tools.smdc.code")}</label><div class="tool-inline"><input id="smdc-code" class="proto-in" type="text" value="104" placeholder="${t("tools.smdc.placeholder")}" /></div></div>
       <div class="tool-resultline" id="smdc-result"></div>
     </div>`;
   const code = host.querySelector<HTMLInputElement>("#smdc-code")!;
@@ -1026,22 +1030,23 @@ function buildSmdCapacitor(host: HTMLElement): ToolController {
 
 // ── 电阻色环 ──
 function buildColorCode(host: HTMLElement): ToolController {
-  const colors: [string, number, string][] = [["黑",0,""],["棕",1,"±1%"],["红",2,"±2%"],["橙",3,""],["黄",4,""],["绿",5,"±0.5%"],["蓝",6,"±0.25%"],["紫",7,"±0.1%"],["灰",8,""],["白",9,""],["金",-1,"±5%"],["银",-2,"±10%"]];
+  const colors: [string, number, string][] = [["black",0,""],["brown",1,"±1%"],["red",2,"±2%"],["orange",3,""],["yellow",4,""],["green",5,"±0.5%"],["blue",6,"±0.25%"],["violet",7,"±0.1%"],["gray",8,""],["white",9,""],["gold",-1,"±5%"],["silver",-2,"±10%"]];
   const digits = colors.slice(0, 10);
-  const tempcoef: [string, number][] = [["棕",100],["红",50],["橙",15],["黄",25],["蓝",10],["紫",5],["灰",1]];
-  const opt = (arr: [string, number, string][], sel: number) => arr.map((c, i) => `<option value="${i}"${i === sel ? " selected" : ""}>${c[0]}</option>`).join("");
-  const oid = (arr: [string, number][], sel: number) => arr.map((c, i) => `<option value="${i}"${i === sel ? " selected" : ""}>${c[0]}</option>`).join("");
+  const tempcoef: [string, number][] = [["brown",100],["red",50],["orange",15],["yellow",25],["blue",10],["violet",5],["gray",1]];
+  const colorName = (k: string): string => t(`tools.cc.colors.${k}`);
+  const opt = (arr: [string, number, string][], sel: number) => arr.map((c, i) => `<option value="${i}"${i === sel ? " selected" : ""}>${esc(colorName(c[0]))}</option>`).join("");
+  const oid = (arr: [string, number][], sel: number) => arr.map((c, i) => `<option value="${i}"${i === sel ? " selected" : ""}>${esc(colorName(c[0]))}</option>`).join("");
   let cur = 4;
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>色环数</label><select id="cc-band" class="tool-sel proto-in"><option value="4" selected>4 环</option><option value="5">5 环</option><option value="6">6 环</option></select></div>
-        <div class="tool-field"><label>第 1 位</label><select id="cc-a" class="proto-in">${opt(digits,1)}</select></div>
-        <div class="tool-field"><label>第 2 位</label><select id="cc-b" class="proto-in">${opt(digits,0)}</select></div>
-        <div class="tool-field" id="cc-d3f"><label>第 3 位</label><select id="cc-d3" class="proto-in">${opt(digits,0)}</select></div>
-        <div class="tool-field"><label>倍率环</label><select id="cc-m" class="proto-in">${opt(colors,2)}</select></div>
-        <div class="tool-field"><label>误差环</label><select id="cc-t" class="proto-in">${opt(colors,10)}</select></div>
-        <div class="tool-field" id="cc-tcf"><label>温度系数</label><select id="cc-tc" class="proto-in">${oid(tempcoef,0)}</select></div>
+        <div class="tool-field"><label>${t("tools.cc.band")}</label><select id="cc-band" class="tool-sel proto-in"><option value="4" selected>4 环</option><option value="5">5 环</option><option value="6">6 环</option></select></div>
+        <div class="tool-field"><label>${t("tools.cc.d1")}</label><select id="cc-a" class="proto-in">${opt(digits,1)}</select></div>
+        <div class="tool-field"><label>${t("tools.cc.d2")}</label><select id="cc-b" class="proto-in">${opt(digits,0)}</select></div>
+        <div class="tool-field" id="cc-d3f"><label>${t("tools.cc.d3")}</label><select id="cc-d3" class="proto-in">${opt(digits,0)}</select></div>
+        <div class="tool-field"><label>${t("tools.cc.mult")}</label><select id="cc-m" class="proto-in">${opt(colors,2)}</select></div>
+        <div class="tool-field"><label>${t("tools.cc.tol")}</label><select id="cc-t" class="proto-in">${opt(colors,10)}</select></div>
+        <div class="tool-field" id="cc-tcf"><label>${t("tools.cc.tc")}</label><select id="cc-tc" class="proto-in">${oid(tempcoef,0)}</select></div>
       </div>
       <div class="tool-resultline" id="cc-result"></div>
     </div>`;
@@ -1067,10 +1072,10 @@ function buildColorCode(host: HTMLElement): ToolController {
     } else {
       value = (d1[1] * 10 + d2[1]) * 10 ** m[1];
     }
-    let msg = `${d1[0]} ${d2[0]} ${sig3}${m[0]} ${tol[0]} = ${fmt(value)} Ω ${tol[2]}`;
+    let msg = `${colorName(d1[0])} ${colorName(d2[0])} ${sig3}${colorName(m[0])} ${colorName(tol[0])} = ${fmt(value)} Ω ${tol[2]}`;
     if (cur >= 6) {
       const tc = tempcoef[g("#cc-tc")];
-      msg += `（${tc[0]} ${tc[1]} ppm/K）`;
+      msg += `（${colorName(tc[0])} ${tc[1]} ppm/K）`;
     }
     res.textContent = msg;
   };
@@ -1088,11 +1093,11 @@ function buildThermistor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>标称电阻 R₀</label><div class="tool-inline"><input id="th-r0" class="proto-in" type="number" min="0" value="10000" /><span class="tool-suffix">Ω</span></div></div>
-        <div class="tool-field"><label>标称温度 T₀</label><div class="tool-inline"><input id="th-t0" class="proto-in" type="number" value="25" /><span class="tool-suffix">°C</span></div></div>
-        <div class="tool-field"><label>当前电阻 R</label><div class="tool-inline"><input id="th-r" class="proto-in" type="number" min="0" value="10000" /><span class="tool-suffix">Ω</span></div></div>
-        <div class="tool-field"><label>B 值</label><div class="tool-inline"><input id="th-b" class="proto-in" type="number" min="0" value="3950" /><span class="tool-suffix">K</span></div></div>
-        <div class="tool-field"><label>当前温度</label><div class="tool-inline"><input id="th-t" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">°C</span></div></div>
+        <div class="tool-field"><label>${t("tools.th.r0")}</label><div class="tool-inline"><input id="th-r0" class="proto-in" type="number" min="0" value="10000" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.th.t0")}</label><div class="tool-inline"><input id="th-t0" class="proto-in" type="number" value="25" /><span class="tool-suffix">°C</span></div></div>
+        <div class="tool-field"><label>${t("tools.th.r")}</label><div class="tool-inline"><input id="th-r" class="proto-in" type="number" min="0" value="10000" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.th.b")}</label><div class="tool-inline"><input id="th-b" class="proto-in" type="number" min="0" value="3950" /><span class="tool-suffix">K</span></div></div>
+        <div class="tool-field"><label>${t("tools.th.t")}</label><div class="tool-inline"><input id="th-t" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">°C</span></div></div>
       </div>
       <div class="tool-formula">${math("T = \\dfrac{1}{1/T_0 + \\ln(R/R_0)/B} - 273.15")}</div>
     </div>`;
@@ -1118,11 +1123,11 @@ function buildTimeConstant(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>电阻</label><div class="tool-inline"><input id="tc-r" class="proto-in" type="number" min="0" value="1000" /><select id="tc-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
-        <div class="tool-field"><label>电容</label><div class="tool-inline"><input id="tc-c" class="proto-in" type="number" min="0" value="10" /><select id="tc-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
-        <div class="tool-field"><label>电压</label><div class="tool-inline"><input id="tc-v" class="proto-in" type="number" min="0" value="12" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>时间常数 τ</label><div class="tool-inline"><input id="tc-out" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
-        <div class="tool-field"><label>电容储能</label><div class="tool-inline"><input id="tc-e" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">J</span></div></div>
+        <div class="tool-field"><label>${t("tools.tc.r")}</label><div class="tool-inline"><input id="tc-r" class="proto-in" type="number" min="0" value="1000" /><select id="tc-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.tc.c")}</label><div class="tool-inline"><input id="tc-c" class="proto-in" type="number" min="0" value="10" /><select id="tc-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.tc.v")}</label><div class="tool-inline"><input id="tc-v" class="proto-in" type="number" min="0" value="12" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.tc.tau")}</label><div class="tool-inline"><input id="tc-out" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
+        <div class="tool-field"><label>${t("tools.tc.energy")}</label><div class="tool-inline"><input id="tc-e" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">J</span></div></div>
       </div>
       <div class="tool-formula">${math("\\tau = R \\times C,\\quad E = \\dfrac{1}{2}CV^2")}</div>
     </div>`;
@@ -1150,17 +1155,17 @@ function buildTimeConstant(host: HTMLElement): ToolController {
 function buildThreePhase(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tools-diagram" id="tp-diagram"><img class="tool-diagram" alt="三相电路图" /></div>
+      <div class="tools-diagram" id="tp-diagram"><img class="tool-diagram" alt="${esc(t("tools.tp.diagramAlt"))}" /></div>
       <div class="tool-grid">
-        <div class="tool-field"><label>接法</label><select id="tp-conn" class="proto-in"><option value="y" selected>星形 (Y)</option><option value="delta">三角 (Δ)</option></select></div>
-        <div class="tool-field"><label>线电压</label><div class="tool-inline"><input id="tp-v" class="proto-in" type="number" value="380" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>线电流</label><div class="tool-inline"><input id="tp-i" class="proto-in" type="number" value="10" /><span class="tool-suffix">A</span></div></div>
-        <div class="tool-field"><label>功率因数</label><div class="tool-inline"><input id="tp-pf" class="proto-in" type="number" step="0.01" value="0.8" /></div></div>
-        <div class="tool-field"><label>视在功率</label><div class="tool-inline"><input id="tp-s" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">VA</span></div></div>
-        <div class="tool-field"><label>有功功率</label><div class="tool-inline"><input id="tp-p" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
-        <div class="tool-field"><label>无功功率</label><div class="tool-inline"><input id="tp-q" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">var</span></div></div>
-        <div class="tool-field"><label>相电压</label><div class="tool-inline"><input id="tp-vph" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>相电流</label><div class="tool-inline"><input id="tp-iph" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">A</span></div></div>
+        <div class="tool-field"><label>${t("tools.tp.conn")}</label><select id="tp-conn" class="proto-in"><option value="y" selected>${t("tools.tp.y")}</option><option value="delta">${t("tools.tp.delta")}</option></select></div>
+        <div class="tool-field"><label>${t("tools.tp.v")}</label><div class="tool-inline"><input id="tp-v" class="proto-in" type="number" value="380" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.tp.i")}</label><div class="tool-inline"><input id="tp-i" class="proto-in" type="number" value="10" /><span class="tool-suffix">A</span></div></div>
+        <div class="tool-field"><label>${t("tools.tp.pf")}</label><div class="tool-inline"><input id="tp-pf" class="proto-in" type="number" step="0.01" value="0.8" /></div></div>
+        <div class="tool-field"><label>${t("tools.tp.s")}</label><div class="tool-inline"><input id="tp-s" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">VA</span></div></div>
+        <div class="tool-field"><label>${t("tools.tp.p")}</label><div class="tool-inline"><input id="tp-p" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
+        <div class="tool-field"><label>${t("tools.tp.q")}</label><div class="tool-inline"><input id="tp-q" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">var</span></div></div>
+        <div class="tool-field"><label>${t("tools.tp.vph")}</label><div class="tool-inline"><input id="tp-vph" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.tp.iph")}</label><div class="tool-inline"><input id="tp-iph" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">A</span></div></div>
       </div>
       <div class="tool-formula">${math("S = \\sqrt{3} V I,\\quad P = S \\cos\\varphi,\\quad Q = S \\sin\\varphi")}</div>
     </div>`;
@@ -1204,8 +1209,8 @@ function buildFrequencyWavelength(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>频率</label><div class="tool-inline"><input id="fw-f" class="proto-in" type="number" value="100" /><select id="fw-fu" class="tool-sel proto-in"><option value="1">Hz</option><option value="1e3" selected>kHz</option><option value="1e6">MHz</option><option value="1e9">GHz</option></select></div></div>
-        <div class="tool-field"><label>波长（真空）</label><div class="tool-inline"><input id="fw-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">m</span></div></div>
+        <div class="tool-field"><label>${t("tools.fw.freq")}</label><div class="tool-inline"><input id="fw-f" class="proto-in" type="number" value="100" /><select id="fw-fu" class="tool-sel proto-in"><option value="1">Hz</option><option value="1e3" selected>kHz</option><option value="1e6">MHz</option><option value="1e9">GHz</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.fw.wavelength")}</label><div class="tool-inline"><input id="fw-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">m</span></div></div>
       </div>
       <div class="tool-formula">${math("\\lambda = c/f")}</div>
     </div>`;
@@ -1230,9 +1235,9 @@ function buildWireGauge(host: HTMLElement): ToolController {
     <div class="tool-panel">
       <div class="tool-grid">
         <div class="tool-field"><label>AWG</label><div class="tool-inline"><input id="wg-awg" class="proto-in" type="number" min="0" max="40" value="24" /></div></div>
-        <div class="tool-field"><label>直径（英寸）</label><div class="tool-inline"><input id="wg-in" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">in</span></div></div>
-        <div class="tool-field"><label>直径（毫米）</label><div class="tool-inline"><input id="wg-mm" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
-        <div class="tool-field"><label>圆密耳</label><div class="tool-inline"><input id="wg-cm" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">CM</span></div></div>
+        <div class="tool-field"><label>${t("tools.wg.diameterIn")}</label><div class="tool-inline"><input id="wg-in" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">in</span></div></div>
+        <div class="tool-field"><label>${t("tools.wg.diameterMm")}</label><div class="tool-inline"><input id="wg-mm" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
+        <div class="tool-field"><label>${t("tools.wg.circularMil")}</label><div class="tool-inline"><input id="wg-cm" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">CM</span></div></div>
       </div>
       <div class="tool-formula">${math("d(mm) = 0.127 \\times 92^{(36-AWG)/39}")}</div>
     </div>`;
@@ -1280,26 +1285,26 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
   };
   const LEN_U = '<option value="39.3" selected>mm</option><option value="1">mil</option><option value="393">cm</option><option value="0.0393">µm</option><option value="1000">inch</option>';
   const THICK_U = '<option value="39.3" selected>mm</option><option value="1">mil</option><option value="1.379">oz</option><option value="0.0393">µm</option><option value="1000">inch</option>';
-  const typeOpts = ([["m", "微带线"], ["m-embedded", "嵌入式微带线"], ["m-edge", "边缘耦合微带线"], ["s", "带状线"], ["s-asym", "非对称带状线"], ["s-broadside", "宽边耦合带状线"], ["s-edge", "边缘耦合带状线"]] as [TraceTopo, string][]).map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  const typeOpts = (["m", "m-embedded", "m-edge", "s", "s-asym", "s-broadside", "s-edge"] as TraceTopo[]).map((v) => `<option value="${v}">${t(`tools.ti.topos.${v}`)}</option>`).join("");
 
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tools-diagram" id="ti-diagram"><img class="tool-diagram" alt="走线阻抗示意图" /></div>
+      <div class="tools-diagram" id="ti-diagram"><img class="tool-diagram" alt="${esc(t("tools.ti.diagramAlt"))}" /></div>
       <div class="tool-grid">
-        <div class="tool-field"><label>结构</label><select id="ti-type" class="proto-in">${typeOpts}</select></div>
-        <div class="tool-field" id="ti-dir-field" style="display:none"><label>计算</label><select id="ti-dir" class="proto-in"><option value="im">按线宽算阻抗</option><option value="w">按阻抗算线宽</option></select></div>
+        <div class="tool-field"><label>${t("tools.ti.type")}</label><select id="ti-type" class="proto-in">${typeOpts}</select></div>
+        <div class="tool-field" id="ti-dir-field" style="display:none"><label>${t("tools.ti.dir")}</label><select id="ti-dir" class="proto-in"><option value="im">${t("tools.ti.dirIm")}</option><option value="w">${t("tools.ti.dirW")}</option></select></div>
       </div>
       <div class="tool-grid" id="ti-fields">
-        <div class="tool-field" id="ti-row-input"><label id="ti-input-label">线宽 W</label><div class="tool-inline"><input id="ti-input" class="proto-in" type="number" value="0.25" /><select id="ti-input-u" class="tool-sel proto-in">${LEN_U}</select><span id="ti-input-sfx" class="tool-suffix" style="display:none">Ω</span></div></div>
-        <div class="tool-field" id="ti-row-t"><label>铜厚 T</label><div class="tool-inline"><input id="ti-t" class="proto-in" type="number" value="0.035" /><select id="ti-t-u" class="tool-sel proto-in">${THICK_U}</select></div></div>
-        <div class="tool-field" id="ti-row-h"><label>介质高度 H</label><div class="tool-inline"><input id="ti-h" class="proto-in" type="number" value="0.2" /><select id="ti-h-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
-        <div class="tool-field" id="ti-row-s" style="display:none"><label>线间距 S</label><div class="tool-inline"><input id="ti-s" class="proto-in" type="number" value="0.25" /><select id="ti-s-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
-        <div class="tool-field" id="ti-row-hp" style="display:none"><label>覆盖/到地高度</label><div class="tool-inline"><input id="ti-hp" class="proto-in" type="number" value="0.15" /><select id="ti-hp-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
-        <div class="tool-field" id="ti-row-ht" style="display:none"><label>两线间距</label><div class="tool-inline"><input id="ti-ht" class="proto-in" type="number" value="0.15" /><select id="ti-ht-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
-        <div class="tool-field" id="ti-row-ha" style="display:none"><label>上侧高度</label><div class="tool-inline"><input id="ti-ha" class="proto-in" type="number" value="0.2" /><select id="ti-ha-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
-        <div class="tool-field" id="ti-row-hb" style="display:none"><label>下侧高度</label><div class="tool-inline"><input id="ti-hb" class="proto-in" type="number" value="0.4" /><select id="ti-hb-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
-        <div class="tool-field"><label>介电常数 εr</label><div class="tool-inline"><input id="ti-er" class="proto-in" type="number" step="0.1" value="4.5" /></div></div>
-        <div class="tool-field" id="ti-row-out"><label id="ti-out-label">特性阻抗</label><div class="tool-inline"><input id="ti-out" class="tool-output proto-in" readonly placeholder="—" /><span id="ti-out-sfx" class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field" id="ti-row-input"><label id="ti-input-label">${t("tools.ti.w")}</label><div class="tool-inline"><input id="ti-input" class="proto-in" type="number" value="0.25" /><select id="ti-input-u" class="tool-sel proto-in">${LEN_U}</select><span id="ti-input-sfx" class="tool-suffix" style="display:none">Ω</span></div></div>
+        <div class="tool-field" id="ti-row-t"><label>${t("tools.ti.t")}</label><div class="tool-inline"><input id="ti-t" class="proto-in" type="number" value="0.035" /><select id="ti-t-u" class="tool-sel proto-in">${THICK_U}</select></div></div>
+        <div class="tool-field" id="ti-row-h"><label>${t("tools.ti.h")}</label><div class="tool-inline"><input id="ti-h" class="proto-in" type="number" value="0.2" /><select id="ti-h-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-s" style="display:none"><label>${t("tools.ti.s")}</label><div class="tool-inline"><input id="ti-s" class="proto-in" type="number" value="0.25" /><select id="ti-s-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-hp" style="display:none"><label>${t("tools.ti.hp")}</label><div class="tool-inline"><input id="ti-hp" class="proto-in" type="number" value="0.15" /><select id="ti-hp-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-ht" style="display:none"><label>${t("tools.ti.ht")}</label><div class="tool-inline"><input id="ti-ht" class="proto-in" type="number" value="0.15" /><select id="ti-ht-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-ha" style="display:none"><label>${t("tools.ti.ha")}</label><div class="tool-inline"><input id="ti-ha" class="proto-in" type="number" value="0.2" /><select id="ti-ha-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field" id="ti-row-hb" style="display:none"><label>${t("tools.ti.hb")}</label><div class="tool-inline"><input id="ti-hb" class="proto-in" type="number" value="0.4" /><select id="ti-hb-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
+        <div class="tool-field"><label>${t("tools.ti.er")}</label><div class="tool-inline"><input id="ti-er" class="proto-in" type="number" step="0.1" value="4.5" /></div></div>
+        <div class="tool-field" id="ti-row-out"><label id="ti-out-label">${t("tools.ti.z")}</label><div class="tool-inline"><input id="ti-out" class="tool-output proto-in" readonly placeholder="—" /><span id="ti-out-sfx" class="tool-suffix">Ω</span></div></div>
       </div>
       <div class="tool-formula" id="ti-formula"></div>
     </div>`;
@@ -1357,10 +1362,10 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
     if (!DIRS[topo].includes(dir)) dirEl.value = "im";
     const im = dirEl.value === "im";
     inputEl.value = im ? "0.25" : "50";
-    inputLabel.textContent = im ? "线宽 W" : "特性阻抗";
+    inputLabel.textContent = im ? t("tools.ti.w") : t("tools.ti.z");
     inputU.style.display = im ? "" : "none";
     inputSfx.style.display = im ? "none" : "";
-    outLabel.textContent = im ? "特性阻抗" : "线宽 W";
+    outLabel.textContent = im ? t("tools.ti.z") : t("tools.ti.w");
     outSfx.textContent = im ? "Ω" : (inputU.options[inputU.selectedIndex]?.textContent || "mm").trim();
     const src = toolDiagramVariant("trace-impedance", topo);
     if (src) { diagImg.src = src; diagram.style.display = ""; } else { diagram.style.display = "none"; }
@@ -1380,11 +1385,11 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>电流</label><div class="tool-inline"><input id="pcb-i" class="proto-in" type="number" min="0" value="1" /><span class="tool-suffix">A</span></div></div>
-        <div class="tool-field"><label>允许温升</label><div class="tool-inline"><input id="pcb-dt" class="proto-in" type="number" min="0" value="10" /><span class="tool-suffix">°C</span></div></div>
-        <div class="tool-field"><label>走线层</label><select id="pcb-layer" class="proto-in"><option value="0.048" selected>外层</option><option value="0.024">内层</option></select></div>
-        <div class="tool-field"><label>铜厚</label><div class="tool-inline"><input id="pcb-th" class="proto-in" type="number" min="0" value="1" /><select id="pcb-thu" class="tool-sel proto-in"><option value="0.035" selected>1 oz (35 µm)</option><option value="0.07">2 oz (70 µm)</option><option value="0.105">3 oz (105 µm)</option></select></div></div>
-        <div class="tool-field"><label>推荐线宽</label><div class="tool-inline"><input id="pcb-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
+        <div class="tool-field"><label>${t("tools.pcb.current")}</label><div class="tool-inline"><input id="pcb-i" class="proto-in" type="number" min="0" value="1" /><span class="tool-suffix">A</span></div></div>
+        <div class="tool-field"><label>${t("tools.pcb.deltaT")}</label><div class="tool-inline"><input id="pcb-dt" class="proto-in" type="number" min="0" value="10" /><span class="tool-suffix">°C</span></div></div>
+        <div class="tool-field"><label>${t("tools.pcb.layer")}</label><select id="pcb-layer" class="proto-in"><option value="0.048" selected>${t("tools.pcb.outer")}</option><option value="0.024">${t("tools.pcb.inner")}</option></select></div>
+        <div class="tool-field"><label>${t("tools.pcb.copper")}</label><div class="tool-inline"><input id="pcb-th" class="proto-in" type="number" min="0" value="1" /><select id="pcb-thu" class="tool-sel proto-in"><option value="0.035" selected>1 oz (35 µm)</option><option value="0.07">2 oz (70 µm)</option><option value="0.105">3 oz (105 µm)</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.pcb.width")}</label><div class="tool-inline"><input id="pcb-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
       </div>
       <div class="tool-formula">${math("A = \\left(\\dfrac{I}{k\\Delta T^{0.44}}\\right)^{1/0.725},\\quad W = \\dfrac{A}{T},\\quad k=0.048")}</div>
     </div>`;
@@ -1417,12 +1422,12 @@ function buildAttenuator(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-tabs">
-        <button class="tool-tab active" data-type="pi">Pi</button>
-        <button class="tool-tab" data-type="bridgeT">桥 T 型</button>
-        <button class="tool-tab" data-type="reflective">反射式</button>
-        <button class="tool-tab" data-type="T">T 型</button>
+        <button class="tool-tab active" data-type="pi">${t("tools.attenuator.pi")}</button>
+        <button class="tool-tab" data-type="bridgeT">${t("tools.attenuator.bridgeT")}</button>
+        <button class="tool-tab" data-type="reflective">${t("tools.attenuator.reflective")}</button>
+        <button class="tool-tab" data-type="T">${t("tools.attenuator.T")}</button>
       </div>
-      <div class="tools-diagram" id="att-diagram"><img class="tool-diagram" alt="衰减器电路图" /></div>
+      <div class="tools-diagram" id="att-diagram"><img class="tool-diagram" alt="${esc(t("tools.attenuator.diagramAlt"))}" /></div>
       <div class="tool-grid">
         <div class="tool-field"><label>${t("tools.attenuator.atten")}</label><div class="tool-inline"><input id="att-db" class="proto-in" type="number" value="20" /></div></div>
         <div class="tool-field"><label>${t("tools.attenuator.impedance")}</label><div class="tool-inline"><input id="att-z" class="proto-in" type="number" value="50" /><span class="tool-suffix">Ω</span></div></div>
@@ -1482,7 +1487,7 @@ function buildAttenuator(host: HTMLElement): ToolController {
 function buildFraction(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-field"><label>小数</label><div class="tool-inline"><input id="frac-in" class="proto-in" type="text" value="0.125" /></div></div>
+      <div class="tool-field"><label>${t("tools.frac.decimal")}</label><div class="tool-inline"><input id="frac-in" class="proto-in" type="text" value="0.125" /></div></div>
       <div class="tool-resultline" id="frac-out"></div>
     </div>`;
   const input = host.querySelector<HTMLInputElement>("#frac-in")!;
@@ -1513,12 +1518,12 @@ function buildFraction(host: HTMLElement): ToolController {
 function buildParallelSeriesResistor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-field"><label>电阻值</label><div class="tool-inline"><input id="res-r1" class="proto-in" type="number" min="0" value="100" /><select class="tool-sel proto-in" id="res-u"><option value="1" selected>Ω</option><option value="1e3">kΩ</option><option value="1e6">MΩ</option></select></div></div>
+      <div class="tool-field"><label>${t("tools.psres.value")}</label><div class="tool-inline"><input id="res-r1" class="proto-in" type="number" min="0" value="100" /><select class="tool-sel proto-in" id="res-u"><option value="1" selected>Ω</option><option value="1e3">kΩ</option><option value="1e6">MΩ</option></select></div></div>
       <div id="res-rows"></div>
-      <div class="tool-actions"><button id="res-add" class="primary">添加电阻器</button><button id="res-remove" class="ghost">移除电阻器</button></div>
+      <div class="tool-actions"><button id="res-add" class="primary">${t("tools.addResistor")}</button><button id="res-remove" class="ghost">${t("tools.removeResistor")}</button></div>
       <div class="tool-grid">
-        <div class="tool-field"><label>串联总电阻</label><div class="tool-inline"><input id="res-ser" class="tool-output proto-in" readonly placeholder="—" /></div></div>
-        <div class="tool-field"><label>并联总电阻</label><div class="tool-inline"><input id="res-par" class="tool-output proto-in" readonly placeholder="—" /></div></div>
+        <div class="tool-field"><label>${t("tools.psres.ser")}</label><div class="tool-inline"><input id="res-ser" class="tool-output proto-in" readonly placeholder="—" /></div></div>
+        <div class="tool-field"><label>${t("tools.psres.par")}</label><div class="tool-inline"><input id="res-par" class="tool-output proto-in" readonly placeholder="—" /></div></div>
       </div>
     </div>`;
   const rows = host.querySelector<HTMLElement>("#res-rows")!;
@@ -1560,11 +1565,11 @@ function buildReactance(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>频率</label><div class="tool-inline"><input id="rx-f" class="proto-in" type="number" min="0" value="1000" /><select id="rx-fu" class="tool-sel proto-in"><option value="1">Hz</option><option value="1e3" selected>kHz</option><option value="1e6">MHz</option></select></div></div>
-        <div class="tool-field"><label>电感</label><div class="tool-inline"><input id="rx-l" class="proto-in" type="number" min="0" value="10" /><select id="rx-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
-        <div class="tool-field"><label>电容</label><div class="tool-inline"><input id="rx-c" class="proto-in" type="number" min="0" value="10" /><select id="rx-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
-        <div class="tool-field"><label>感抗 XL</label><div class="tool-inline"><input id="rx-xl" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
-        <div class="tool-field"><label>容抗 XC</label><div class="tool-inline"><input id="rx-xc" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.rx.freq")}</label><div class="tool-inline"><input id="rx-f" class="proto-in" type="number" min="0" value="1000" /><select id="rx-fu" class="tool-sel proto-in"><option value="1">Hz</option><option value="1e3" selected>kHz</option><option value="1e6">MHz</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.rx.l")}</label><div class="tool-inline"><input id="rx-l" class="proto-in" type="number" min="0" value="10" /><select id="rx-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.rx.c")}</label><div class="tool-inline"><input id="rx-c" class="proto-in" type="number" min="0" value="10" /><select id="rx-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.rx.xl")}</label><div class="tool-inline"><input id="rx-xl" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.rx.xc")}</label><div class="tool-inline"><input id="rx-xc" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
       </div>
       <div class="tool-formula">${math("X_L = 2\\pi f L,\\quad X_C = \\dfrac{1}{2\\pi f C}")}</div>
     </div>`;
@@ -1595,13 +1600,13 @@ function buildDbLinear(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>物理量</label><select id="dbl-qty" class="tool-sel proto-in"><option value="v">电压/电流（20·log）</option><option value="p">功率（10·log）</option></select></div>
-        <div class="tool-field"><label>换算方向</label><select id="dbl-dir" class="tool-sel proto-in"><option value="db2lin">dB → 线性</option><option value="lin2db">线性 → dB</option></select></div>
-        <div class="tool-field"><label>参考值</label><div class="tool-inline"><input id="dbl-ref" class="proto-in" type="number" value="1" /><span id="dbl-refu" class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.dbl.qty")}</label><select id="dbl-qty" class="tool-sel proto-in"><option value="v">${t("tools.dbl.voltage")}</option><option value="p">${t("tools.dbl.power")}</option></select></div>
+        <div class="tool-field"><label>${t("tools.dbl.dir")}</label><select id="dbl-dir" class="tool-sel proto-in"><option value="db2lin">${t("tools.dbl.db2lin")}</option><option value="lin2db">${t("tools.dbl.lin2db")}</option></select></div>
+        <div class="tool-field"><label>${t("tools.dbl.reference")}</label><div class="tool-inline"><input id="dbl-ref" class="proto-in" type="number" value="1" /><span id="dbl-refu" class="tool-suffix">V</span></div></div>
       </div>
       <div class="tool-grid">
-        <div class="tool-field"><label id="dbl-inlabel">dB 值</label><div class="tool-inline"><input id="dbl-in" class="proto-in" type="number" value="0" /><span id="dbl-inu" class="tool-suffix">dB</span></div></div>
-        <div class="tool-field"><label id="dbl-outlabel">线性值</label><div class="tool-inline"><input id="dbl-out" class="tool-output proto-in" readonly placeholder="—" /><span id="dbl-outu" class="tool-suffix"></span></div></div>
+        <div class="tool-field"><label id="dbl-inlabel">${t("tools.dbl.dbVal")}</label><div class="tool-inline"><input id="dbl-in" class="proto-in" type="number" value="0" /><span id="dbl-inu" class="tool-suffix">dB</span></div></div>
+        <div class="tool-field"><label id="dbl-outlabel">${t("tools.dbl.linearVal")}</label><div class="tool-inline"><input id="dbl-out" class="tool-output proto-in" readonly placeholder="—" /><span id="dbl-outu" class="tool-suffix"></span></div></div>
       </div>
       <div class="tool-formula" id="dbl-formula"></div>
     </div>`;
@@ -1633,11 +1638,11 @@ function buildDbLinear(host: HTMLElement): ToolController {
     const power = qtyEl.value === "p";
     refuEl.textContent = power ? "W" : "V";
     if (dirEl.value === "db2lin") {
-      inLabel.textContent = "dB 值"; inuEl.textContent = "dB";
-      outLabel.textContent = power ? "功率 P" : "电压 V"; outuEl.textContent = power ? "W" : "V";
+      inLabel.textContent = t("tools.dbl.dbVal"); inuEl.textContent = "dB";
+      outLabel.textContent = power ? t("tools.dbl.powerP") : t("tools.dbl.voltageV"); outuEl.textContent = power ? "W" : "V";
     } else {
-      inLabel.textContent = power ? "功率 P" : "电压 V"; inuEl.textContent = power ? "W" : "V";
-      outLabel.textContent = "dB 值"; outuEl.textContent = "dB";
+      inLabel.textContent = power ? t("tools.dbl.powerP") : t("tools.dbl.voltageV"); inuEl.textContent = power ? "W" : "V";
+      outLabel.textContent = t("tools.dbl.dbVal"); outuEl.textContent = "dB";
     }
     compute();
   };
@@ -1654,11 +1659,11 @@ function buildBandwidth(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>计算方向</label><select id="bw-dir" class="tool-sel proto-in"><option value="tr">上升时间 → 带宽</option><option value="bw">带宽 → 上升时间</option></select></div>
+        <div class="tool-field"><label>${t("tools.bw.dir")}</label><select id="bw-dir" class="tool-sel proto-in"><option value="tr">${t("tools.bw.tr2bw")}</option><option value="bw">${t("tools.bw.bw2tr")}</option></select></div>
       </div>
       <div class="tool-grid">
-        <div class="tool-field"><label id="bw-inlabel">上升时间 tr</label><div class="tool-inline"><input id="bw-in" class="proto-in" type="number" value="1" /><select id="bw-inu" class="tool-sel proto-in">${TIME_U}</select></div></div>
-        <div class="tool-field"><label id="bw-outlabel">带宽 BW</label><div class="tool-inline"><input id="bw-out" class="tool-output proto-in" readonly placeholder="—" /><span id="bw-outu" class="tool-suffix">Hz</span></div></div>
+        <div class="tool-field"><label id="bw-inlabel">${t("tools.bw.tr")}</label><div class="tool-inline"><input id="bw-in" class="proto-in" type="number" value="1" /><select id="bw-inu" class="tool-sel proto-in">${TIME_U}</select></div></div>
+        <div class="tool-field"><label id="bw-outlabel">${t("tools.bw.bw")}</label><div class="tool-inline"><input id="bw-out" class="tool-output proto-in" readonly placeholder="—" /><span id="bw-outu" class="tool-suffix">Hz</span></div></div>
       </div>
       <div class="tool-formula" id="bw-formula"></div>
     </div>`;
@@ -1700,8 +1705,8 @@ function buildBandwidth(host: HTMLElement): ToolController {
     }
   };
   const render = () => {
-    if (dirEl.value === "tr") { inLabel.textContent = "上升时间 tr"; outLabel.textContent = "带宽 BW"; inuEl.innerHTML = TIME_U; outuEl.textContent = "Hz"; }
-    else { inLabel.textContent = "带宽 BW"; outLabel.textContent = "上升时间 tr"; inuEl.innerHTML = FREQ_U; outuEl.textContent = "s"; }
+    if (dirEl.value === "tr") { inLabel.textContent = t("tools.bw.tr"); outLabel.textContent = t("tools.bw.bw"); inuEl.innerHTML = TIME_U; outuEl.textContent = "Hz"; }
+    else { inLabel.textContent = t("tools.bw.bw"); outLabel.textContent = t("tools.bw.tr"); inuEl.innerHTML = FREQ_U; outuEl.textContent = "s"; }
     compute();
   };
   dirEl.addEventListener("change", render);
@@ -1715,49 +1720,49 @@ function buildBandwidth(host: HTMLElement): ToolController {
 function buildAudioDb(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-resultline">电平（填入任意一项，其余联动；波形决定峰值因数）</div>
+      <div class="tool-resultline">${t("tools.adb.hintLevel")}</div>
       <div class="tool-grid">
-        <div class="tool-field"><label>参考阻抗 Z</label><div class="tool-inline"><input id="adb-z" class="proto-in" type="number" value="600" /><span class="tool-suffix">Ω</span></div></div>
-        <div class="tool-field"><label>波形</label><select id="adb-wave" class="tool-sel proto-in"><option value="sine">正弦</option><option value="square">方波</option><option value="triangle">三角</option></select></div>
+        <div class="tool-field"><label>${t("tools.adb.z")}</label><div class="tool-inline"><input id="adb-z" class="proto-in" type="number" value="600" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.wave")}</label><select id="adb-wave" class="tool-sel proto-in"><option value="sine">${t("tools.adb.sine")}</option><option value="square">${t("tools.adb.square")}</option><option value="triangle">${t("tools.adb.triangle")}</option></select></div>
       </div>
       <div class="tool-grid">
-        <div class="tool-field"><label>峰值 Vp</label><div class="tool-inline"><input id="adb-vpk" class="proto-in" type="number" value="1" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>峰峰值 Vpp</label><div class="tool-inline"><input id="adb-vpp" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">V</span></div></div>
-        <div class="tool-field"><label>有效值 Vrms</label><div class="tool-inline"><input id="adb-vrms" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.vpk")}</label><div class="tool-inline"><input id="adb-vpk" class="proto-in" type="number" value="1" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.vpp")}</label><div class="tool-inline"><input id="adb-vpp" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.vrms")}</label><div class="tool-inline"><input id="adb-vrms" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">V</span></div></div>
       </div>
       <div class="tool-grid">
-        <div class="tool-field"><label>功率</label><div class="tool-inline"><input id="adb-pm" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">mW</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.power")}</label><div class="tool-inline"><input id="adb-pm" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">mW</span></div></div>
         <div class="tool-field"><label>dBm</label><div class="tool-inline"><input id="adb-dbm" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBm</span></div></div>
         <div class="tool-field"><label>dBu</label><div class="tool-inline"><input id="adb-dbu" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBu</span></div></div>
         <div class="tool-field"><label>dBV</label><div class="tool-inline"><input id="adb-dbv" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBV</span></div></div>
       </div>
-      <div class="tool-resultline">电压增益（填入任意一项，其余联动；Np 为奈培）</div>
+      <div class="tool-resultline">${t("tools.adb.hintGain")}</div>
       <div class="tool-grid">
-        <div class="tool-field"><label>增益 V/V</label><div class="tool-inline"><input id="adb-gain" class="proto-in" type="number" value="10" /><span class="tool-suffix">V/V</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.gain")}</label><div class="tool-inline"><input id="adb-gain" class="proto-in" type="number" value="10" /><span class="tool-suffix">V/V</span></div></div>
         <div class="tool-field"><label>dB</label><div class="tool-inline"><input id="adb-gaindb" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dB</span></div></div>
         <div class="tool-field"><label>Np</label><div class="tool-inline"><input id="adb-gainnp" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">Np</span></div></div>
       </div>
-      <div class="tool-resultline">声源（声功率与距离无关，填入一项另一项联动）</div>
+      <div class="tool-resultline">${t("tools.adb.hintSource")}</div>
       <div class="tool-grid">
-        <div class="tool-field"><label>声源声功率级 Lw</label><div class="tool-inline"><input id="adb-lw" class="proto-in" type="number" value="120" /><span class="tool-suffix">dB</span></div></div>
-        <div class="tool-field"><label>声源声功率 P_ac</label><div class="tool-inline"><input id="adb-pac" class="proto-in" type="number" value="1" /><span class="tool-suffix">W</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.lw")}</label><div class="tool-inline"><input id="adb-lw" class="proto-in" type="number" value="120" /><span class="tool-suffix">dB</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.pac")}</label><div class="tool-inline"><input id="adb-pac" class="proto-in" type="number" value="1" /><span class="tool-suffix">W</span></div></div>
       </div>
-      <div class="tool-resultline">传播几何（决定距离衰减）</div>
+      <div class="tool-resultline">${t("tools.adb.hintGeo")}</div>
       <div class="tool-grid">
-        <div class="tool-field"><label>距离 r</label><div class="tool-inline"><input id="adb-r" class="proto-in" type="number" value="1" /><span class="tool-suffix">m</span></div></div>
-        <div class="tool-field"><label>指向性因子 Q</label><select id="adb-q" class="tool-sel proto-in"><option value="1">球面 Q=1</option><option value="2">半球 Q=2</option><option value="4">四分之一球 Q=4</option><option value="8">八分之一球 Q=8</option></select></div>
+        <div class="tool-field"><label>${t("tools.adb.r")}</label><div class="tool-inline"><input id="adb-r" class="proto-in" type="number" value="1" /><span class="tool-suffix">m</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.q")}</label><select id="adb-q" class="tool-sel proto-in"><option value="1">${t("tools.adb.q1")}</option><option value="2">${t("tools.adb.q2")}</option><option value="4">${t("tools.adb.q4")}</option><option value="8">${t("tools.adb.q8")}</option></select></div>
       </div>
-      <div class="tool-resultline">测量点（随距离变化：声压 p∝1/r，声强 I∝1/r²，每翻倍 −6dB）</div>
+      <div class="tool-resultline">${t("tools.adb.hintMeasure")}</div>
       <div class="tool-grid">
-        <div class="tool-field"><label>声压级 dBSPL</label><div class="tool-inline"><input id="adb-spl" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBSPL</span></div></div>
-        <div class="tool-field"><label>声强级 dB SIL</label><div class="tool-inline"><input id="adb-sil" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dB</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.spl")}</label><div class="tool-inline"><input id="adb-spl" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBSPL</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.sil")}</label><div class="tool-inline"><input id="adb-sil" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dB</span></div></div>
       </div>
       <div class="tool-grid">
-        <div class="tool-field"><label>声强 I</label><div class="tool-inline"><input id="adb-i" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">W/m²</span></div></div>
-        <div class="tool-field"><label>声压 p</label><div class="tool-inline"><input id="adb-pa" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">Pa</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.i")}</label><div class="tool-inline"><input id="adb-i" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">W/m²</span></div></div>
+        <div class="tool-field"><label>${t("tools.adb.pa")}</label><div class="tool-inline"><input id="adb-pa" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">Pa</span></div></div>
       </div>
       <div class="tool-formula" id="adb-formula"></div>
-      <div class="tool-resultline">dBV 基准 1V；dBu 基准 0.775V（1mW/600Ω）；dBm 基准 1mW，转电压依赖阻抗 Z（600Ω 时 dBm=dBu）；正弦 Vpp=2.828·Vrms、Vp=1.414·Vrms。声学：Lw 基准 1e-12W(=1pW)、SPL 基准 20µPa；Lp = Lw − 10·log10(4π·r²/Q)，1W≡120dB，Q=1 于 r=0.2821m 时 Lp=Lw，Q=1/2/4/8 于 1m 处分别低 11/8/5/2dB，距离每翻倍 −6dB；同一点在 Z0=400 时 dB SIL≡dB SPL（参考量选定的恒等，且二者随距离同步变化，均 ∝ 距离），但声强 I=P_ac·Q/(4πr²) 按 1/r²、声压 p=√(400·I) 按 1/r 衰减。</div>
+      <div class="tool-resultline">${t("tools.adb.footnote")}</div>
     </div>`;
   const q = (id: string) => host.querySelector<HTMLInputElement>(id)!;
   const zEl = q("#adb-z");
@@ -1943,7 +1948,7 @@ export class ToolsPage {
       <div class="tools-page">
         <div class="tools-header">
           <h3>${t("tools.catalog")}</h3>
-          <p>嵌入式常用计算工具，数据保存在当前标签页内。</p>
+          <p>${t("tools.catalogSub")}</p>
           <input id="tools-search" class="tools-search" type="search" placeholder="${esc(t("tools.search"))}" autocomplete="off" />
         </div>
         <div class="tools-grid" id="tools-grid"></div>
@@ -1962,8 +1967,8 @@ export class ToolsPage {
     const list = TOOLS.filter(
       (tool) =>
         !q ||
-        tool.title.toLowerCase().includes(q) ||
-        tool.desc.toLowerCase().includes(q) ||
+        tTitle(tool.id).toLowerCase().includes(q) ||
+        tDesc(tool.id).toLowerCase().includes(q) ||
         tool.id.toLowerCase().includes(q),
     );
     grid.innerHTML = list.length
@@ -1971,8 +1976,8 @@ export class ToolsPage {
           .map((tool) => `
             <button class="tool-card" data-tool="${tool.id}">
               <span class="tool-icon">${tool.icon}</span>
-              <span class="tool-title">${esc(tool.title)}</span>
-              <span class="tool-desc">${esc(tool.desc)}</span>
+              <span class="tool-title">${esc(tTitle(tool.id))}</span>
+              <span class="tool-desc">${esc(tDesc(tool.id))}</span>
             </button>`).join("")
       : `<div class="tools-empty">${esc(t("tools.empty"))}</div>`;
     grid.querySelectorAll<HTMLButtonElement>(".tool-card").forEach((btn) =>
@@ -1989,10 +1994,10 @@ export class ToolsPage {
       <div class="tools-page">
         <div class="tools-detail-head">
           <button id="tools-back" class="ghost">← ${t("tools.back")}</button>
-          <div class="tools-title-line"><span class="tool-icon">${def.icon}</span><h3>${esc(def.title)}</h3></div>
-          <p>${esc(def.desc)}</p>
+          <div class="tools-title-line"><span class="tool-icon">${def.icon}</span><h3>${esc(tTitle(def.id))}</h3></div>
+          <p>${esc(tDesc(def.id))}</p>
         </div>
-        ${diag ? `<div class="tools-diagram"><img class="tool-diagram" src="${diag}" alt="${esc(def.title)} 原理图" /></div>` : ""}
+        ${diag ? `<div class="tools-diagram"><img class="tool-diagram" src="${diag}" alt="${esc(tTitle(def.id))} ${t("tools.diagramAlt")}" /></div>` : ""}
         <div class="tools-detail-body" id="tools-host"></div>
       </div>`;
     this.q("#tools-back").addEventListener("click", () => this.renderCatalog());
