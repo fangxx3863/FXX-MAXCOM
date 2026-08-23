@@ -115,6 +115,7 @@ jobs:
           mkdir -p dist-artifacts
           find app/src-tauri/target/release/bundle -type f \( -name "*.dmg" \) -exec cp {} dist-artifacts/ \;
       - name: 打印产物清单
+        shell: bash
         run: ls -la dist-artifacts
       - uses: actions/upload-artifact@v4
         with:

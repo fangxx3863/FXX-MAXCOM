@@ -5,6 +5,13 @@ edition = "2021"
 license = "MIT"
 description = "MAXCOM 桌面外壳：Tauri 薄胶水层"
 
+# Tauri 移动端（Android/iOS）必须把外壳打成共享库/静态库：Android 构建需要
+# lib<name>.so（cdylib）作为 native library artifact，不然 `tauri android build`
+# 报 "Library artifact not found ... libmaxcom.so"。桌面端 build 仍输出 maxcom 二进制。
+[lib]
+name = "maxcom"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 # 独立于根 workspace（Tauri 惯例，自带 lockfile）
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
