@@ -633,6 +633,30 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .set-field input:focus, .set-field select:focus { border-color: var(--accent); }
 .set-note { color: var(--fg-dim); font-size: 11.5px; opacity: 0.75; margin-top: 8px; }
 
+/* 关于（作者）卡片 */
+.set-about-row { display: flex; align-items: center; gap: 12px; padding: 8px 0 4px; }
+.set-about-avatar {
+  flex: none; width: 42px; height: 42px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 22px;
+  background: var(--bg3); border: 1px solid var(--border);
+}
+.set-about-meta { min-width: 0; }
+.set-about-name {
+  font-size: 14px; font-weight: 600; color: var(--fg);
+  display: flex; align-items: center; gap: 8px;
+}
+.set-about-badge {
+  font-size: 10px; font-weight: 500; padding: 1px 7px; border-radius: 999px;
+  color: var(--accent); border: 1px solid var(--accent); opacity: 0.9;
+}
+.set-about-note { color: var(--fg-dim); font-size: 11.5px; margin-top: 3px; }
+.set-about-link {
+  display: inline-flex; align-items: center; gap: 4px; max-width: 170px;
+  color: var(--accent); text-decoration: none; font-size: 12px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.set-about-link:hover { text-decoration: underline; }
+
 /* 面板 ✕ 关闭钮 */
 .icon-btn { padding: 3px 9px; color: var(--fg-dim); }
 .icon-btn:hover { color: var(--err); border-color: var(--err); }
