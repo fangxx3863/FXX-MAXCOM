@@ -365,6 +365,32 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 #ch-metrics th:first-child, #ch-metrics td:first-child { text-align: left; }
 .ch-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
 
+/* ── 烧录页 ── */
+#page-flash { padding: 18px 22px; overflow-y: auto; }
+.flash-body { max-width: 720px; width: 100%; margin: 0 auto; }
+.flash-body h3 { margin: 0 0 12px; color: var(--fg-dim); font-weight: 500; }
+.flash-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px 18px; display: flex; flex-direction: column; gap: 12px;
+}
+.flash-field { display: flex; align-items: center; gap: 8px; }
+.flash-field > .set-label { width: 76px; flex: none; color: var(--fg-dim); white-space: nowrap; }
+.flash-dd { min-width: 0; }
+#flash-file-path {
+  flex: 1; min-width: 0; background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; outline: none;
+}
+#flash-file-path:focus { border-color: var(--accent); }
+#flash-bin-base {
+  flex: 1; background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; outline: none;
+}
+.flash-options { display: flex; gap: 18px; padding: 4px 0; }
+.flash-actions { display: flex; gap: 10px; }
+.flash-status {
+  min-height: 20px; margin: 0; color: var(--ok); font-size: 13px; word-break: break-all;
+}
+
 /* ── 状态栏 ── */
 #statusbar {
   display: flex; gap: 18px; align-items: center;

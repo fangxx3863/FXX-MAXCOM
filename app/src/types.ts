@@ -12,6 +12,18 @@ export type ConnConfig =
   | { type: "telnet"; host: string; port: number }
   | { type: "rtt"; probe_selector: string; chip: string; up_channel: number; down_channel: number; rtt_address?: number | null };
 
+export interface FlashConfig {
+  probe_selector: string;
+  chip: string;
+  path: string;
+  /** "auto" 或 "elf" / "hex" / "bin" / "uf2" */
+  format?: string;
+  /** BIN 基址（仅 format=bin 时有效） */
+  bin_base_address?: number | null;
+  verify?: boolean;
+  reset?: boolean;
+}
+
 export interface ProbeInfo {
   selector: string;
   identifier: string;

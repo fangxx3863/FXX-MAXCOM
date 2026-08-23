@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 const html = readFileSync("index.html", "utf8");
 const htmlIds = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
 
-const files = ["src/main.ts", "src/pages/rules.ts"];
+const files = ["src/main.ts", "src/pages/rules.ts", "src/pages/flash.ts"];
 const refs = new Set();
 for (const f of files) {
   const src = readFileSync(f, "utf8");

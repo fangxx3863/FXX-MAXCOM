@@ -10,10 +10,11 @@ import { TerminalPage } from "./pages/terminal";
 import { LogViewPage } from "./pages/logview";
 import { PlotPage, Y_PRESETS, type PlotLayout, type ViewMode } from "./pages/plot";
 import { StatsPage } from "./pages/stats";
+import { FlashPage, type FlashRunConfig } from "./pages/flash";
 import { RulesPanel, type RulesSnapshot } from "./pages/rules";
 
-type PageId = "terminal" | "logview" | "plot" | "stats" | "settings";
-const PAGES: readonly PageId[] = ["terminal", "logview", "plot", "stats", "settings"];
+type PageId = "terminal" | "logview" | "plot" | "stats" | "flash" | "settings";
+const PAGES: readonly PageId[] = ["terminal", "logview", "plot", "stats", "flash", "settings"];
 
 interface MsRow {
   enabled: boolean;
@@ -222,6 +223,7 @@ class SessionApp {
   logViewPage!: LogViewPage;
   plotPage!: PlotPage;
   statsPage!: StatsPage;
+  flashPage!: FlashPage;
   rulesPanel!: RulesPanel;
 
   connTypeDd!: DropdownHandle;
@@ -560,6 +562,24 @@ class SessionApp {
       .catch((e) => alert(`连接失败: ${e}`));
   }
 
+  /** 烧录页“一键运行”：把探针/芯片信息带回顶栏 RTT 配置并自动连接 */
+  private connectRttAfterFlash(cfg: FlashRunConfig) {
+    this.connTypeDd.setValue("rtt");
+    this.connKind = "rtt";
+    // 顶栏探针列表可能尚未加载（异步），用 pendingProbe 保证 refreshProbes 完成后回填
+    this.pendingProbe = cfg.probe_selector;
+    this.probeDd.setValue(cfg.probe_selector);
+    this.chipDd.setValue(cfg.chip);
+    (this.q("#rtt-up") as HTMLInputElement).value = String(cfg.up_channel);
+    (this.q("#rtt-down") as HTMLInputElement).value = String(cfg.down_channel);
+    (this.q("#rtt-addr") as HTMLInputElement).value = cfg.rtt_address == null ? "" : String(cfg.rtt_address);
+    this.syncConnTypeUI();
+    void (async () => {
+      if (this.connected) await this.api.disconnect();
+      this.toggleConnect();
+    })().catch((e) => this.setHint(`切换 RTT 失败: ${e}`));
+  }
+
   /** 连接状态事件（引擎推送，经全局路由进入） */
   applyConnState(s: ConnState) {
     this.connected = s.connected;
@@ -602,6 +622,19 @@ class SessionApp {
     });
     this.plotPage = new PlotPage(this.q("#plot-holder"), this.q("#plot-controls"), this.q("#plot-chbar"));
     this.statsPage = new StatsPage(this.q("#page-stats"));
+    this.flashPage = new FlashPage(
+      this.q("#page-flash"),
+      CHIP_PRESETS,
+      (cfg) => this.connectRttAfterFlash(cfg),
+      () => ({
+        up_channel: Math.max(0, Number((this.q("#rtt-up") as HTMLInputElement).value) || 0),
+        down_channel: Math.max(0, Number((this.q("#rtt-down") as HTMLInputElement).value) || 0),
+        rtt_address: (() => {
+          const raw = (this.q("#rtt-addr") as HTMLInputElement).value.trim();
+          return raw ? (Number(raw) || null) : null;
+        })(),
+      }),
+    );
     // 规则面板：初始规则来自标签快照；变更即推本会话引擎，值级持久化交给轮询
     this.rulesPanel = new RulesPanel(this.el, this.api, rules0, () => {});
 
@@ -617,6 +650,7 @@ class SessionApp {
       b.classList.toggle("active", b.dataset.page === id),
     );
     if (id === "plot") this.plotPage.onShow(); // 隐藏期间量不到尺寸，显示后按真实容器重建
+    if (id === "flash") void this.flashPage.refreshProbes();
     // 强制重新合成一层，清掉 WebView 页面切换后的右缘残影
     requestAnimationFrame(() => {
       const el = this.q<HTMLElement>("#pages");

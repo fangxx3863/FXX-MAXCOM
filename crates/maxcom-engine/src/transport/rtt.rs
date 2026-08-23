@@ -40,15 +40,10 @@ struct RttState {
     rtt: Rtt,
 }
 
-pub fn open(
-    probe_selector: &str,
-    chip: &str,
-    up_channel: usize,
-    down_channel: usize,
-    rtt_address: Option<u64>,
-) -> io::Result<ConnPair> {
+/// 按选择器打开调试探针并附着到目标芯片（RTT 与烧录共用）。
+pub(crate) fn attach_session(probe_selector: &str, chip: &str) -> io::Result<Session> {
     if chip.trim().is_empty() {
-        return Err(io::Error::other("RTT 目标芯片为空"));
+        return Err(io::Error::other("目标芯片为空"));
     }
 
     let probe = if probe_selector.trim().is_empty() {
@@ -70,9 +65,23 @@ pub fn open(
             .map_err(|e| io::Error::other(format!("打开探针失败: {e}")))?
     };
 
-    let mut session = probe
+    probe
         .attach(chip, Permissions::default())
-        .map_err(|e| io::Error::other(format!("附着芯片 {chip} 失败: {e}")))?;
+        .map_err(|e| io::Error::other(format!("附着芯片 {chip} 失败: {e}")))
+}
+
+pub fn open(
+    probe_selector: &str,
+    chip: &str,
+    up_channel: usize,
+    down_channel: usize,
+    rtt_address: Option<u64>,
+) -> io::Result<ConnPair> {
+    if chip.trim().is_empty() {
+        return Err(io::Error::other("RTT 目标芯片为空"));
+    }
+
+    let mut session = attach_session(probe_selector, chip)?;
 
     let mut rtt = match rtt_address {
         Some(addr) => {

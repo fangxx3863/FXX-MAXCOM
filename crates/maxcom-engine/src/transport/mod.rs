@@ -5,6 +5,8 @@
 //! TCP/UDP 用 std，全平台可测。
 
 #[cfg(feature = "rtt")]
+pub mod flashing;
+#[cfg(feature = "rtt")]
 pub mod rtt;
 #[cfg(feature = "serial")]
 pub mod serial;
@@ -121,6 +123,8 @@ pub struct PortInfo {
     pub description: String,
 }
 
+#[cfg(feature = "rtt")]
+pub use flashing::FlashConfig;
 #[cfg(feature = "rtt")]
 pub use rtt::ProbeInfo;
 

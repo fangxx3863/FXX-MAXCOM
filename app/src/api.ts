@@ -5,7 +5,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
-  ConnConfig, ConnState, DataFormat, EntriesBatch, PlotSnapshotDto,
+  ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, PlotSnapshotDto,
   PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import { getMock, mockOnRaw, mockOnEntries, mockOnState } from "./mock";
@@ -97,6 +97,31 @@ export async function saveTextFile(path: string, contents: string): Promise<numb
 export async function listProbes(): Promise<ProbeInfo[]> {
   if (!IS_TAURI) return [];
   return await invoke<ProbeInfo[]>("list_probes");
+}
+
+/** 烧录固件（会话无关；浏览器演示模式返回模拟成功） */
+export async function flashFirmware(config: FlashConfig): Promise<string> {
+  if (!IS_TAURI) {
+    await new Promise((r) => setTimeout(r, 400));
+    if (!config.path.trim()) throw "未选择固件文件";
+    return `烧录完成（演示）: ${config.chip}`;
+  }
+  return await invoke<string>("flash_firmware", { config });
+}
+
+/** 选择固件文件：Tauri 走系统文件对话框；浏览器返回 null（由调用方用 file input 降级） */
+export async function pickFirmwarePath(): Promise<string | null> {
+  if (!IS_TAURI) return null;
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const picked = await open({
+    multiple: false,
+    directory: false,
+    filters: [
+      { name: "固件", extensions: ["elf", "hex", "ihx", "bin", "uf2", "out", "axf"] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  });
+  return typeof picked === "string" ? picked : null;
 }
 
 // ── 全局事件（负载带 session 标签；每类事件只订阅一次，main.ts 按标签路由）──

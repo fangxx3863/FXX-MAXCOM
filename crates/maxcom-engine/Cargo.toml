@@ -16,7 +16,7 @@ telnet = "0.2"
 russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 bytes = "1"
-probe-rs = { version = "0.32", default-features = false, features = ["builtin-targets"], optional = true }
+probe-rs = { version = "0.32", default-features = false, features = ["builtin-targets", "builtin-formats"], optional = true }
 
 [features]
 default = ["serial"]

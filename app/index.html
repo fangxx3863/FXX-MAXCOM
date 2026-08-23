@@ -75,6 +75,7 @@
         <button data-page="logview" class="active" title="传统收发">📄<span>收发</span></button>
         <button data-page="plot" title="数据绘图">📈<span>绘图</span></button>
         <button data-page="stats" title="统计仪表盘">📊<span>统计</span></button>
+        <button data-page="flash" title="烧录">🔥<span>烧录</span></button>
         <button data-page="settings" title="设置">⚙️<span>设置</span></button>
       </nav>
       <main id="pages">
@@ -183,6 +184,46 @@
           <div id="stat-cards" class="cards"></div>
           <h3>通道指标（来自绘图引擎）</h3>
           <table id="ch-metrics"><thead><tr></tr></thead><tbody></tbody></table>
+        </section>
+        <section id="page-flash" class="page hidden">
+          <div class="flash-body">
+            <h3>固件烧录</h3>
+            <div class="flash-card">
+              <div class="flash-field">
+                <span class="set-label">探针</span>
+                <div id="flash-probe-dd" class="flash-dd"></div>
+                <button id="flash-refresh-probes" title="刷新探针列表">⟳</button>
+              </div>
+              <div class="flash-field">
+                <span class="set-label">芯片</span>
+                <div id="flash-chip-dd" class="flash-dd"></div>
+              </div>
+              <div class="flash-field">
+                <span class="set-label">固件</span>
+                <input id="flash-file-path" type="text" readonly placeholder="选择 .elf / .hex / .bin / .uf2 固件" />
+                <button id="flash-browse">浏览…</button>
+                <input id="flash-file-input" type="file" class="hidden"
+                  accept=".elf,.hex,.ihx,.bin,.uf2,.out,.axf" />
+              </div>
+              <div class="flash-field">
+                <span class="set-label">格式</span>
+                <div id="flash-format-dd" class="flash-dd"></div>
+              </div>
+              <div class="flash-field">
+                <span class="set-label">BIN 基址</span>
+                <input id="flash-bin-base" type="text" placeholder="留空=目标默认起始地址" />
+              </div>
+              <div class="flash-options">
+                <label class="chk"><input id="flash-verify" type="checkbox" checked />烧录后校验</label>
+                <label class="chk"><input id="flash-reset" type="checkbox" checked />烧录后复位</label>
+              </div>
+              <div class="flash-actions">
+                <button id="flash-do" class="primary">烧录</button>
+                <button id="flash-do-run">烧录并打开 RTT</button>
+              </div>
+              <p id="flash-status" class="flash-status"></p>
+            </div>
+          </div>
         </section>
         <section id="page-settings" class="page hidden">
           <div class="settings-body">
