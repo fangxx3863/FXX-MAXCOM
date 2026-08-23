@@ -136,30 +136,32 @@ function svg555Mono(): string {
 
 // ── 555 非稳态 ──
 function svg555Astable(): string {
-  const w = 470, h = 320;
+  const w = 545, h = 320;
   let s = svgHead(w, h);
   const vtop = 34;
   s += wire(`M 70 ${vtop} H 345`) + vcc(345, vtop) + lbl(340, vtop - 20, "Vcc", 12, "end");
-  // R1：Vcc → N1(170,90)
+  // R1：Vcc → nodeA(170,90) = R1/R2 交点
   s += wire(`M 170 ${vtop} V 48`) + resV(170, 48, 42) + lbl(156, 78, "R1", 11, "end");
-  s += dot(170, 90) + wire(`M 170 90 H 190`); // → 引脚7
-  // R2：N1 → N2(170,150)
-  s += resV(170, 92, 48) + lbl(156, 122, "R2", 11, "end");
-  s += wire(`M 170 142 V 150`) + dot(170, 150);
-  // 引脚2 与 引脚6 合并到 N2
-  s += wire(`M 170 150 H 190`); // 引脚2
-  s += wire(`M 190 120 H 150 V 150`); // 引脚6 经 U 下到引脚2 行
-  // C1：N2 → 地
-  s += wire(`M 170 150 V 168`) + capV(170, 168) + wire(`M 170 172 V 196`) + gnd(170, 196) + lbl(156, 190, "C1", 11, "end");
-  // C2：引脚5 → 地
+  s += dot(170, 90) + wire(`M 170 90 H 190`); // → 引脚7 DISCHARGE
+  // R2：nodeA → R2 底(170,116)；R2 底到 C1 之间是纯导线 nodeB
+  s += resV(170, 90, 26) + lbl(156, 108, "R2", 11, "end");
+  s += wire(`M 170 116 V 168`);
+  // 引脚6 / 引脚2 都在 nodeB 这段纯导线上（不在电阻体内）
+  s += dot(170, 120) + wire(`M 170 120 H 190`); // → 引脚6 THRESHOLD
+  s += dot(170, 150) + wire(`M 170 150 H 190`); // → 引脚2 TRIGGER
+  // C1：nodeB → 地
+  s += capV(170, 172) + wire(`M 170 176 V 196`) + gnd(170, 196) + lbl(156, 190, "C1", 11, "end");
+  // C2：引脚5 CTRL V → 地
   s += wire(`M 190 180 H 60`) + dot(60, 180) + wire(`M 60 180 V 200`) + capV(60, 200) + wire(`M 60 204 V 228`) + gnd(60, 228) + lbl(44, 200, "C2", 11, "end");
   // 引脚8 / 4 → Vcc
   s += wire(`M 290 56 V ${vtop}`) + dot(290, vtop);
   s += wire(`M 345 56 V ${vtop}`) + dot(345, vtop);
   // 引脚1 → 地
   s += wire(`M 320 250 V 272`) + gnd(320, 272) + lbl(320, 294, "GND", 9.5, "middle");
-  // OUT
-  s += wire(`M 400 132 H 420`) + term(438, 132) + lbl(432, 124, "OUT", 11, "end");
+  // OUT → 方波示意（t_H 高电平 / t_L 低电平）
+  s += wire(`M 400 132 H 415`) + term(430, 132);
+  s += `<path d="M 440 132 V 116 H 458 V 148 H 476 V 116 H 494 V 148 H 512 V 132" fill="none" stroke="#c62828" stroke-width="2"/>`;
+  s += lbl(447, 108, "t_H", 10, "start") + lbl(447, 164, "t_L", 10, "start");
   s += ic555();
   s += `</svg>`;
   return s;

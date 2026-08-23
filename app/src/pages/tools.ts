@@ -272,6 +272,9 @@ function build555(host: HTMLElement): ToolController {
     if (m === "astable") {
       if (!host.querySelector("#t555-r2")) {
         grid.insertBefore(r2Field, outBox);
+        // 动态插入的 R2 输入/单位也要绑定事件，否则改 R2 不重算
+        host.querySelector("#t555-r2")!.addEventListener("input", update);
+        host.querySelector("#t555-r2s")!.addEventListener("change", update);
       }
       outBox.querySelector("label")!.textContent = "输出特性";
     } else {
@@ -1517,3 +1520,6 @@ export class ToolsPage {
     if (id && TOOLS.some((x) => x.id === id)) this.open(id);
   }
 }
+
+// 供 tools-dom-test.mjs 以真实 DOM 驱动各工具构建器（不影响页面）
+export { TOOLS };
