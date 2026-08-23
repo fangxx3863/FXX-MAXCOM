@@ -1,6 +1,14 @@
 // 工具页：左侧栏「工具」入口。以卡片目录 + 详情页方式提供嵌入式常用计算器。
 // 每个工具注册一个 ToolDef（标题/图标/说明/构建器）。构建器返回 ToolController，负责自己的 DOM 与事件。
 import { t } from "../i18n";
+import katex from "katex";
+import "katex/dist/katex.min.css";
+import { toolDiagram } from "../tools-diagrams";
+
+function math(src: string): string {
+  return katex.renderToString(src, { throwOnError: false, displayMode: false });
+}
+
 
 // ── 类型 ──
 export interface ToolController {
@@ -33,6 +41,26 @@ function fmt(v: number, digits = 6): string {
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// 电阻/电容的可读单位格式化（避免一大串 0）
+function fmtOhm(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  if (v >= 1e6) return `${fmt(v / 1e6)} MΩ`;
+  if (v >= 1e3) return `${fmt(v / 1e3)} kΩ`;
+  if (v >= 1) return `${fmt(v)} Ω`;
+  if (v >= 1e-3) return `${fmt(v * 1e3)} mΩ`;
+  if (v >= 1e-6) return `${fmt(v * 1e6)} µΩ`;
+  return `${fmt(v)} Ω`;
+}
+
+function fmtCap(pf: number): string {
+  if (!Number.isFinite(pf)) return "—";
+  if (pf >= 1e12) return `${fmt(pf / 1e12)} F`;
+  if (pf >= 1e9) return `${fmt(pf / 1e9)} mF`;
+  if (pf >= 1e6) return `${fmt(pf / 1e6)} µF`;
+  if (pf >= 1e3) return `${fmt(pf / 1e3)} nF`;
+  return `${fmt(pf)} pF`;
 }
 
 // ── 通用单位换算器 ──
@@ -177,7 +205,7 @@ function build555(host: HTMLElement): ToolController {
         <div class="tool-field"><label>C₁ 电容值</label><div class="tool-inline"><input id="t555-c" class="proto-in" type="number" min="0" value="10" /><select id="t555-cs" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option><option value="1e-3">mF</option><option value="1">F</option></select></div></div>
         <div class="tool-field"><label>输出脉冲持续时间</label><div class="tool-inline"><input id="t555-out" class="tool-output proto-in" readonly placeholder="—" /><select id="t555-os" class="tool-sel proto-in"><option value="1e-3" selected>ms</option><option value="1">s</option><option value="60">min</option></select></div></div>
       </div>
-      <div class="tool-formula">$T = 1.1 \\times R_1 \\times C_1$</div>
+      <div class="tool-formula">${math("T = 1.1 \\times R_1 \\times C_1")}</div>
     </div>`;
   const update = () => {
     const r = num((host.querySelector("#t555-r") as HTMLInputElement).value);
@@ -194,6 +222,7 @@ function build555(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -206,7 +235,7 @@ function buildBatteryLife(host: HTMLElement): ToolController {
         <div class="tool-field"><label>设备功耗</label><div class="tool-inline"><input id="bt-cur" class="proto-in" type="number" min="0" value="100" /><select id="bt-curu" class="tool-sel proto-in"><option value="1" selected>mA</option><option value="1000">A</option><option value="0.001">µA</option></select></div></div>
         <div class="tool-field"><label>电池续航时间</label><div class="tool-inline"><input id="bt-out" class="tool-output proto-in" readonly placeholder="—" /><select id="bt-outu" class="tool-sel proto-in"><option value="1" selected>小时</option><option value="1/24">天</option><option value="1/8760">年</option></select></div></div>
       </div>
-      <div class="tool-formula">$Battery\\ Life = \\dfrac{Battery\\ Capacity}{Load\\ Current}$</div>
+      <div class="tool-formula">${math("Battery\\ Life = \\dfrac{Battery\\ Capacity}{Load\\ Current}")}</div>
     </div>`;
   const update = () => {
     const cap = num((host.querySelector("#bt-cap") as HTMLInputElement).value);
@@ -223,6 +252,7 @@ function buildBatteryLife(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -235,7 +265,7 @@ function buildCapacitanceConversion(host: HTMLElement): ToolController {
         <div class="tool-field"><label>纳法</label><div class="tool-inline"><input id="cap-nf" class="proto-in" type="number" min="0" placeholder="nF" /></div></div>
         <div class="tool-field"><label>微法</label><div class="tool-inline"><input id="cap-uf" class="proto-in" type="number" min="0" placeholder="µF" /></div></div>
         <div class="tool-field"><label>法拉</label><div class="tool-inline"><input id="cap-f" class="proto-in" type="number" min="0" placeholder="F" /></div></div>
-        <div class="tool-field"><label>三位代码</label><div class="tool-inline"><input id="cap-code" class="proto-in" type="text" placeholder="如 104" /></div></div>
+        <div class="tool-field"><label>三位代码</label><div class="tool-inline"><input id="cap-code" class="proto-in" type="text" value="104" placeholder="如 104" /></div></div>
       </div>
       <div class="tool-resultline" id="cap-result"></div>
     </div>`;
@@ -255,7 +285,7 @@ function buildCapacitanceConversion(host: HTMLElement): ToolController {
     nf.value = fmt(vpf / 1e3);
     uf.value = fmt(vpf / 1e6);
     f.value = fmt(vpf / 1e12);
-    result.textContent = `${fmt(vpf)} pF = ${fmt(vpf / 1e3)} nF = ${fmt(vpf / 1e6)} µF = ${fmt(vpf / 1e12)} F`;
+    result.textContent = `${fmtCap(vpf)} = ${fmt(vpf)} pF / ${fmt(vpf / 1e3)} nF / ${fmt(vpf / 1e6)} µF / ${fmt(vpf / 1e12)} F`;
   };
   const updateFrom = (src: HTMLInputElement, div: number) => () => {
     const v = num(src.value);
@@ -286,6 +316,7 @@ function buildCapacitanceConversion(host: HTMLElement): ToolController {
   uf.addEventListener("input", onUf);
   f.addEventListener("input", onF);
   code.addEventListener("input", onCode);
+  onCode();
   return {};
 }
 
@@ -303,7 +334,7 @@ function buildCapacitorDischarge(host: HTMLElement): ToolController {
         <div class="tool-field"><label>时间常数 τ</label><div class="tool-inline"><input id="capd-tau" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
         <div class="tool-field"><label>释放的能量</label><div class="tool-inline"><input id="capd-e" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">J</span></div></div>
       </div>
-      <div class="tool-formula">$t = R C \\ln(V_0 / V_s)$</div>
+      <div class="tool-formula">${math("t = R C \\ln(V_0 / V_s)")}</div>
     </div>`;
   const update = () => {
     const c = num((host.querySelector("#capd-c") as HTMLInputElement).value);
@@ -330,6 +361,7 @@ function buildCapacitorDischarge(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -390,6 +422,7 @@ function buildCurrentDivider(host: HTMLElement): ToolController {
   host.querySelector("#cd-remove")!.addEventListener("click", remove);
   host.querySelector("#cd-total")!.addEventListener("input", update);
   host.querySelector("#cd-totalu")!.addEventListener("change", update);
+  update();
   return {};
 }
 
@@ -432,7 +465,7 @@ function buildVoltageDivider(host: HTMLElement): ToolController {
           <div class="tool-field"><label>R2</label><div class="tool-inline"><input id="vd-r2" class="proto-in" type="number" min="0" value="1000" /><select id="vd-r2u" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
           <div class="tool-field"><label>输出电压</label><div class="tool-inline"><input id="vd-vout" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">V</span></div></div>
         </div>
-        <div class="tool-formula">$V_{out} = V_{in} \\times \\dfrac{R_2}{R_1+R_2}$</div>
+        <div class="tool-formula">${math("V_{out} = V_{in} \\times \\dfrac{R_2}{R_1+R_2}")}</div>
       </div>
       <div data-vdpanel="fit" class="hidden">
         <div class="tool-grid">
@@ -517,7 +550,7 @@ function buildDbmWatt(host: HTMLElement): ToolController {
         <div class="tool-field"><label>瓦特</label><div class="tool-inline"><input id="dbm-w" class="proto-in" type="number" value="0.001" /><span class="tool-suffix">W</span></div></div>
         <div class="tool-field"><label>毫瓦</label><div class="tool-inline"><input id="dbm-mw" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mW</span></div></div>
       </div>
-      <div class="tool-formula">$P_{dBm} = 10 \\log_{10}(P/1mW)$</div>
+      <div class="tool-formula">${math("P_{dBm} = 10 \\log_{10}(P/1mW)")}</div>
     </div>`;
   const dbm = host.querySelector<HTMLInputElement>("#dbm")!;
   const watt = host.querySelector<HTMLInputElement>("#dbm-w")!;
@@ -552,7 +585,7 @@ function buildLedResistor(host: HTMLElement): ToolController {
         <div class="tool-field"><label>LED 电流</label><div class="tool-inline"><input id="led-if" class="proto-in" type="number" value="20" /><select id="led-ifu" class="tool-sel proto-in"><option value="1" selected>mA</option><option value="0.001">A</option></select></div></div>
         <div class="tool-field"><label>串联电阻</label><div class="tool-inline"><input id="led-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
       </div>
-      <div class="tool-formula">$R = \\dfrac{V_s - V_f}{I_f}$</div>
+      <div class="tool-formula">${math("R = \\dfrac{V_s - V_f}{I_f}")}</div>
     </div>`;
   const update = () => {
     const vs = num((host.querySelector("#led-vs") as HTMLInputElement).value);
@@ -567,6 +600,7 @@ function buildLedResistor(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -579,7 +613,7 @@ function buildOhm(host: HTMLElement): ToolController {
         <div class="tool-field"><label>电流</label><div class="tool-inline"><input id="ohm-i" class="proto-in" type="number" value="0.1" /><select id="ohm-iu" class="tool-sel proto-in"><option value="1" selected>A</option><option value="0.001">mA</option><option value="1e-6">µA</option></select></div></div>
         <div class="tool-field"><label>电阻</label><div class="tool-inline"><input id="ohm-r" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
       </div>
-      <div class="tool-formula">$R = V/I,\\quad P = V \\times I$</div>
+      <div class="tool-formula">${math("R = V/I,\\quad P = V \\times I")}</div>
     </div>`;
   const update = () => {
     const v = num((host.querySelector("#ohm-v") as HTMLInputElement).value);
@@ -595,6 +629,7 @@ function buildOhm(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -624,18 +659,19 @@ function buildFilter(host: HTMLElement): ToolController {
     let f: number | null = null;
     if (t === "rc") {
       if (r !== null && c !== null && r * ru * c * cu > 0) f = 1 / (2 * Math.PI * r * ru * c * cu);
-      formula.textContent = "$f_c = \\dfrac{1}{2\\pi RC}$";
+      formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi RC}");
     } else if (t === "rl") {
       if (r !== null && l !== null && r * ru > 0 && l * lu > 0) f = (r * ru) / (2 * Math.PI * l * lu);
-      formula.textContent = "$f_c = \\dfrac{R}{2\\pi L}$";
+      formula.innerHTML = math("f_c = \\dfrac{R}{2\\pi L}");
     } else {
       if (l !== null && c !== null && l * lu > 0 && c * cu > 0) f = 1 / (2 * Math.PI * Math.sqrt(l * lu * c * cu));
-      formula.textContent = "$f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}$";
+      formula.innerHTML = math("f_c = \\dfrac{1}{2\\pi\\sqrt{LC}}");
     }
     (host.querySelector("#flt-f") as HTMLInputElement).value = f === null ? "" : fmt(f) + " Hz";
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -674,6 +710,7 @@ function buildNumberBase(host: HTMLElement): ToolController {
   h.addEventListener("input", parseAndSet(h, 16));
   o.addEventListener("input", parseAndSet(o, 8));
   b.addEventListener("input", parseAndSet(b, 2));
+  parseAndSet(d, 10)();
   return {};
 }
 
@@ -719,6 +756,7 @@ function buildParallelSeriesCapacitor(host: HTMLElement): ToolController {
   input.addEventListener("input", update);
   rows.addEventListener("input", update);
   rows.addEventListener("change", update);
+  update();
   return {};
 }
 
@@ -726,33 +764,58 @@ function buildParallelSeriesCapacitor(host: HTMLElement): ToolController {
 function buildSmdResistor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-field"><label>SMD 电阻代码</label><div class="tool-inline"><input id="smdr-code" class="proto-in" type="text" value="103" placeholder="如 103 / 472 / 01Y" /></div></div>
+      <div class="tool-tabs">
+        <button class="tool-tab active" data-mode="3">3 位 EIA</button>
+        <button class="tool-tab" data-mode="4">4 位 EIA</button>
+        <button class="tool-tab" data-mode="96">EIA-96</button>
+      </div>
+      <div class="tool-field"><label>SMD 电阻代码</label><div class="tool-inline"><input id="smdr-code" class="proto-in" type="text" value="103" placeholder="如 103 / 1003 / 01Y" /></div></div>
       <div class="tool-resultline" id="smdr-result"></div>
     </div>`;
   const code = host.querySelector<HTMLInputElement>("#smdr-code")!;
   const res = host.querySelector<HTMLElement>("#smdr-result")!;
+  const mode = () => host.querySelector<HTMLButtonElement>(".tool-tab.active")!.dataset.mode!;
+  const E96_MULT: Record<string, number> = { Y: -2, Z: -1, R: 0, S: 1, T: 2, U: 3, V: 4, W: 5, X: 6, A: 7, B: 8, C: 9, D: 10, E: 11, F: 12 };
+  const e96 = [100,102,105,107,110,113,115,118,121,124,127,130,133,137,140,143,147,150,154,158,162,165,169,174,178,182,187,191,196,200,205,210,215,221,226,232,237,243,249,255,261,267,274,280,287,294,301,309,316,324,332,340,348,357,365,374,383,392,402,412,422,432,442,453,464,475,487,499,511,523,536,549,562,576,590,604,619,634,649,665,681,698,715,732,750,768,787,806,825,845,866,887,909,931,953,976];
   const update = () => {
     const s = code.value.trim().toUpperCase();
-    const m3 = s.match(/^(\d{3})$/);
-    if (m3) {
-      const v = Number(m3[1].slice(0, 2)) * 10 ** Number(m3[1][2]);
-      res.textContent = `${s} = ${fmt(v)} Ω (${fmt(v)} Ω)`;
+    const rdec = s.match(/^(\d*)R(\d*)$/);
+    if (rdec) {
+      const v = Number(`${rdec[1] || "0"}.${rdec[2] || "0"}`);
+      res.textContent = Number.isFinite(v) ? `${s} = ${fmtOhm(v)}` : "—";
       return;
     }
-    const eia = s.match(/^(\d{2})([YZRST])$/);
-    if (!eia) {
-      res.textContent = "—";
+    const m = mode();
+    if (m === "3") {
+      const g = s.match(/^(\d{3})$/);
+      if (!g) { res.textContent = "—"; return; }
+      const v = Number(g[1].slice(0, 2)) * 10 ** Number(g[1][2]);
+      res.textContent = `${s} = ${fmtOhm(v)}`;
       return;
     }
-    const table: Record<string, number> = { R: 0, S: 1, T: 2, Z: 3, Y: 4 };
-    const code2 = Number(eia[1]);
-    const mult = table[eia[2]!] ?? 0;
-    const e96 = [100,102,105,107,110,113,115,118,121,124,127,130,133,137,140,143,147,150,154,158,162,165,169,174,178,182,187,191,196,200,205,210,215,221,226,232,237,243,249,255,261,267,274,280,287,294,301,309,316,324,332,340,348,357,365,374,383,392,402,412,422,432,442,453,464,475,487,499,511,523,536,549,562,576,590,604,619,634,649,665,681,698,715,732,750,768,787,806,825,845,866,887,909,931,953,976];
-    const base = e96[code2] ?? NaN;
+    if (m === "4") {
+      const g = s.match(/^(\d{4})$/);
+      if (!g) { res.textContent = "—"; return; }
+      const v = Number(g[1].slice(0, 3)) * 10 ** Number(g[1][3]);
+      res.textContent = `${s} = ${fmtOhm(v)}`;
+      return;
+    }
+    const g = s.match(/^(\d{2})([A-Z])$/);
+    if (!g) { res.textContent = "—"; return; }
+    const base = e96[Number(g[1]) - 1] ?? NaN;
+    const mult = E96_MULT[g[2]!] ?? NaN;
     const v = base * 10 ** mult;
-    res.textContent = Number.isFinite(v) ? `${s} = ${fmt(v)} Ω` : "—";
+    res.textContent = Number.isFinite(v) ? `${s} = ${fmtOhm(v)}` : "—";
   };
+  host.querySelectorAll<HTMLButtonElement>(".tool-tab").forEach((b) =>
+    b.addEventListener("click", () => {
+      host.querySelectorAll(".tool-tab").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      update();
+    }),
+  );
   code.addEventListener("input", update);
+  update();
   return {};
 }
 
@@ -760,22 +823,39 @@ function buildSmdResistor(host: HTMLElement): ToolController {
 function buildSmdCapacitor(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
-      <div class="tool-field"><label>SMD 电容代码</label><div class="tool-inline"><input id="smdc-code" class="proto-in" type="text" value="104" placeholder="如 104 / 225" /></div></div>
+      <div class="tool-tabs">
+        <button class="tool-tab active" data-mode="3">3 位 EIA</button>
+        <button class="tool-tab" data-mode="4">4 位 EIA</button>
+      </div>
+      <div class="tool-field"><label>SMD 电容代码</label><div class="tool-inline"><input id="smdc-code" class="proto-in" type="text" value="104" placeholder="如 104 / 1004" /></div></div>
       <div class="tool-resultline" id="smdc-result"></div>
     </div>`;
   const code = host.querySelector<HTMLInputElement>("#smdc-code")!;
   const res = host.querySelector<HTMLElement>("#smdc-result")!;
   const update = () => {
-    const s = code.value.trim();
-    const m = s.match(/^(\d{3})$/);
-    if (m) {
-      const pf = Number(m[1].slice(0, 2)) * 10 ** Number(m[1][2]);
-      res.textContent = `${s} = ${fmt(pf)} pF = ${fmt(pf / 1000)} nF = ${fmt(pf / 1e6)} µF`;
+    const s = code.value.trim().toUpperCase();
+    const rdec = s.match(/^(\d*)R(\d*)$/);
+    if (rdec) {
+      const v = Number(`${rdec[1] || "0"}.${rdec[2] || "0"}`);
+      res.textContent = Number.isFinite(v) ? `${s} = ${fmtCap(v)}` : "—";
       return;
     }
-    res.textContent = "—";
+    const g = s.match(/^(\d{3,4})$/);
+    if (!g) { res.textContent = "—"; return; }
+    const digits = g[1];
+    const sig = Number(digits.slice(0, digits.length - 1));
+    const pf = sig * 10 ** Number(digits[digits.length - 1]);
+    res.textContent = `${s} = ${fmtCap(pf)} (${fmt(pf)} pF)`;
   };
+  host.querySelectorAll<HTMLButtonElement>(".tool-tab").forEach((b) =>
+    b.addEventListener("click", () => {
+      host.querySelectorAll(".tool-tab").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      update();
+    }),
+  );
   code.addEventListener("input", update);
+  update();
   return {};
 }
 
@@ -818,7 +898,7 @@ function buildThermistor(host: HTMLElement): ToolController {
         <div class="tool-field"><label>B 值</label><div class="tool-inline"><input id="th-b" class="proto-in" type="number" min="0" value="3950" /><span class="tool-suffix">K</span></div></div>
         <div class="tool-field"><label>当前温度</label><div class="tool-inline"><input id="th-t" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">°C</span></div></div>
       </div>
-      <div class="tool-formula">$T = \\dfrac{1}{1/T_0 + \\ln(R/R_0)/B} - 273.15$</div>
+      <div class="tool-formula">${math("T = \\dfrac{1}{1/T_0 + \\ln(R/R_0)/B} - 273.15")}</div>
     </div>`;
   const update = () => {
     const r0 = num((host.querySelector("#th-r0") as HTMLInputElement).value);
@@ -833,6 +913,7 @@ function buildThermistor(host: HTMLElement): ToolController {
     (host.querySelector("#th-t") as HTMLInputElement).value = fmt(tk - 273.15);
   };
   host.querySelectorAll("input").forEach((el) => el.addEventListener("input", update));
+  update();
   return {};
 }
 
@@ -847,7 +928,7 @@ function buildTimeConstant(host: HTMLElement): ToolController {
         <div class="tool-field"><label>时间常数 τ</label><div class="tool-inline"><input id="tc-out" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">s</span></div></div>
         <div class="tool-field"><label>电容储能</label><div class="tool-inline"><input id="tc-e" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">J</span></div></div>
       </div>
-      <div class="tool-formula">$\\tau = R \\times C,\\quad E = \\dfrac{1}{2}CV^2$</div>
+      <div class="tool-formula">${math("\\tau = R \\times C,\\quad E = \\dfrac{1}{2}CV^2")}</div>
     </div>`;
   const update = () => {
     const r = num((host.querySelector("#tc-r") as HTMLInputElement).value);
@@ -865,6 +946,7 @@ function buildTimeConstant(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -880,7 +962,7 @@ function buildThreePhase(host: HTMLElement): ToolController {
         <div class="tool-field"><label>有功功率</label><div class="tool-inline"><input id="tp-p" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">W</span></div></div>
         <div class="tool-field"><label>无功功率</label><div class="tool-inline"><input id="tp-q" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">var</span></div></div>
       </div>
-      <div class="tool-formula">$S = \\sqrt{3} V I,\\quad P = S \\cos\\varphi,\\quad Q = S \\sin\\varphi$</div>
+      <div class="tool-formula">${math("S = \\sqrt{3} V I,\\quad P = S \\cos\\varphi,\\quad Q = S \\sin\\varphi")}</div>
     </div>`;
   const update = () => {
     const v = num((host.querySelector("#tp-v") as HTMLInputElement).value);
@@ -900,6 +982,7 @@ function buildThreePhase(host: HTMLElement): ToolController {
     (host.querySelector("#tp-q") as HTMLInputElement).value = fmt(q);
   };
   host.querySelectorAll("input").forEach((el) => el.addEventListener("input", update));
+  update();
   return {};
 }
 
@@ -911,7 +994,7 @@ function buildFrequencyWavelength(host: HTMLElement): ToolController {
         <div class="tool-field"><label>频率</label><div class="tool-inline"><input id="fw-f" class="proto-in" type="number" value="100" /><select id="fw-fu" class="tool-sel proto-in"><option value="1">Hz</option><option value="1e3" selected>kHz</option><option value="1e6">MHz</option><option value="1e9">GHz</option></select></div></div>
         <div class="tool-field"><label>波长（真空）</label><div class="tool-inline"><input id="fw-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">m</span></div></div>
       </div>
-      <div class="tool-formula">$\\lambda = c/f$</div>
+      <div class="tool-formula">${math("\\lambda = c/f")}</div>
     </div>`;
   const update = () => {
     const f = num((host.querySelector("#fw-f") as HTMLInputElement).value);
@@ -924,6 +1007,7 @@ function buildFrequencyWavelength(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -937,7 +1021,7 @@ function buildWireGauge(host: HTMLElement): ToolController {
         <div class="tool-field"><label>直径（毫米）</label><div class="tool-inline"><input id="wg-mm" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
         <div class="tool-field"><label>圆密耳</label><div class="tool-inline"><input id="wg-cm" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">CM</span></div></div>
       </div>
-      <div class="tool-formula">$d(mm) = 0.127 \\times 92^{(36-AWG)/39}$</div>
+      <div class="tool-formula">${math("d(mm) = 0.127 \\times 92^{(36-AWG)/39}")}</div>
     </div>`;
   const update = () => {
     const awg = num((host.querySelector("#wg-awg") as HTMLInputElement).value);
@@ -953,6 +1037,7 @@ function buildWireGauge(host: HTMLElement): ToolController {
     (host.querySelector("#wg-cm") as HTMLInputElement).value = fmt((dmm / 25.4 * 1000) ** 2);
   };
   host.querySelector("#wg-awg")!.addEventListener("input", update);
+  update();
   return {};
 }
 
@@ -967,7 +1052,7 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
         <div class="tool-field"><label>介电常数 εr</label><div class="tool-inline"><input id="ti-e" class="proto-in" type="number" step="0.1" value="4.5" /></div></div>
         <div class="tool-field"><label>特性阻抗</label><div class="tool-inline"><input id="ti-z" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
       </div>
-      <div class="tool-formula">$Z_0 \\approx \\dfrac{87}{\\sqrt{\\epsilon_r+1.41}} \\ln\\left(\\dfrac{5.98H}{0.8W+T}\\right)$</div>
+      <div class="tool-formula">${math("Z_0 \\approx \\dfrac{87}{\\sqrt{\\epsilon_r+1.41}} \\ln\\left(\\dfrac{5.98H}{0.8W+T}\\right)")}</div>
     </div>`;
   const update = () => {
     const w = num((host.querySelector("#ti-w") as HTMLInputElement).value);
@@ -982,6 +1067,7 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
     (host.querySelector("#ti-z") as HTMLInputElement).value = fmt(z);
   };
   host.querySelectorAll("input").forEach((el) => el.addEventListener("input", update));
+  update();
   return {};
 }
 
@@ -995,7 +1081,7 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
         <div class="tool-field"><label>铜厚</label><div class="tool-inline"><input id="pcb-th" class="proto-in" type="number" min="0" value="1" /><select id="pcb-thu" class="tool-sel proto-in"><option value="0.035" selected>1 oz (35 µm)</option><option value="0.07">2 oz (70 µm)</option><option value="0.105">3 oz (105 µm)</option></select></div></div>
         <div class="tool-field"><label>推荐线宽</label><div class="tool-inline"><input id="pcb-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
       </div>
-      <div class="tool-formula">$W = I^{0.725} / (0.44 \\times \\Delta T^{0.44} \\times T_{cu}^{0.725}) \\times 0.0254$</div>
+      <div class="tool-formula">${math("A = \\left(\\dfrac{I}{k\\Delta T^{0.44}}\\right)^{1/0.725},\\quad W = \\dfrac{A}{T},\\quad k=0.048")}</div>
     </div>`;
   const update = () => {
     const i = num((host.querySelector("#pcb-i") as HTMLInputElement).value);
@@ -1005,15 +1091,16 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
       (host.querySelector("#pcb-w") as HTMLInputElement).value = "";
       return;
     }
-    // IPC-2221: area[mils^2] = I/(k * dT^b); external k=0.048 b=0.44 c=0.725 (I in A, thickness in mils)
+    // IPC-2221: A[mils²] = (I/(k·ΔT^b))^(1/c); W = A/T. 外层(外层走线) k=0.048, b=0.44, c=0.725
     const thickMil = th * 39.3701;
-    const areaMils2 = i / (0.048 * dt ** 0.44);
-    const widthMil = areaMils2 / (thickMil ** 0.725);
+    const areaMils2 = (i / (0.048 * dt ** 0.44)) ** (1 / 0.725);
+    const widthMil = areaMils2 / thickMil;
     const widthMm = widthMil * 0.0254;
     (host.querySelector("#pcb-w") as HTMLInputElement).value = fmt(widthMm) + " mm";
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -1055,25 +1142,25 @@ function buildAttenuator(host: HTMLElement): ToolController {
       const r2V = z / 2 * (k ** 2 - 1) / k;
       r1.value = fmt(r1V);
       r2.value = fmt(r2V);
-      formula.textContent = "$R_1 = Z_0 \\dfrac{K+1}{K-1},\\quad R_2 = \\dfrac{Z_0}{2}\\dfrac{K^2-1}{K},\\quad K=10^{A_{dB}/20}$";
+      formula.innerHTML = math("R_1 = Z_0 \\dfrac{K+1}{K-1},\\quad R_2 = \\dfrac{Z_0}{2}\\dfrac{K^2-1}{K},\\quad K=10^{A_{dB}/20}");
     } else if (type === "bridgeT") {
       const r1V = z * (k - 1);
       const r2V = z / (k - 1) * 1;
       r1.value = fmt(r1V);
       r2.value = fmt(r2V);
-      formula.textContent = "$R_1 = Z_0(K-1),\\quad R_2 = \\dfrac{Z_0}{K-1}$";
+      formula.innerHTML = math("R_1 = Z_0(K-1),\\quad R_2 = \\dfrac{Z_0}{K-1}");
     } else if (type === "reflective") {
       const high = z * (k + 1) / (k - 1);
       const low = z * (k - 1) / (k + 1);
       r1.value = `${fmt(high)} / ${fmt(low)}`;
       r2.value = "";
-      formula.textContent = "$R_{hi}=Z_0\\dfrac{K+1}{K-1},\\quad R_{lo}=Z_0\\dfrac{K-1}{K+1}$";
+      formula.innerHTML = math("R_{hi}=Z_0\\dfrac{K+1}{K-1},\\quad R_{lo}=Z_0\\dfrac{K-1}{K+1}");
     } else {
       const r1V = z * (k - 1) / (k + 1);
       const r2V = 2 * z * k / (k ** 2 - 1);
       r1.value = fmt(r1V);
       r2.value = fmt(r2V);
-      formula.textContent = "$R_1=Z_0\\dfrac{K-1}{K+1},\\quad R_2=2Z_0\\dfrac{K}{K^2-1}$";
+      formula.innerHTML = math("R_1=Z_0\\dfrac{K-1}{K+1},\\quad R_2=2Z_0\\dfrac{K}{K^2-1}");
     }
   };
   tabs.forEach((b) => b.addEventListener("click", () => {
@@ -1115,6 +1202,7 @@ function buildFraction(host: HTMLElement): ToolController {
     out.textContent = `${fmt(bestN, 6)}/${fmt(bestD, 6)} ≈ ${fmt(bestN / bestD, 6)}`;
   };
   input.addEventListener("input", update);
+  update();
   return {};
 }
 
@@ -1160,6 +1248,7 @@ function buildParallelSeriesResistor(host: HTMLElement): ToolController {
   host.querySelector("#res-u")!.addEventListener("change", update);
   rows.addEventListener("input", update);
   rows.addEventListener("change", update);
+  update();
   return {};
 }
 
@@ -1174,7 +1263,7 @@ function buildReactance(host: HTMLElement): ToolController {
         <div class="tool-field"><label>感抗 XL</label><div class="tool-inline"><input id="rx-xl" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
         <div class="tool-field"><label>容抗 XC</label><div class="tool-inline"><input id="rx-xc" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
       </div>
-      <div class="tool-formula">$X_L = 2\\pi f L,\\quad X_C = \\dfrac{1}{2\\pi f C}$</div>
+      <div class="tool-formula">${math("X_L = 2\\pi f L,\\quad X_C = \\dfrac{1}{2\\pi f C}")}</div>
     </div>`;
   const update = () => {
     const f = num((host.querySelector("#rx-f") as HTMLInputElement).value);
@@ -1193,6 +1282,7 @@ function buildReactance(host: HTMLElement): ToolController {
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
+  update();
   return {};
 }
 
@@ -1239,6 +1329,7 @@ const TOOLS: ToolDef[] = [
 export class ToolsPage {
   private root: HTMLElement;
   private activeId = "";
+  private search = "";
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -1251,22 +1342,44 @@ export class ToolsPage {
 
   private renderCatalog(): void {
     this.activeId = "";
+    this.search = "";
     this.root.innerHTML = `
       <div class="tools-page">
         <div class="tools-header">
           <h3>${t("tools.catalog")}</h3>
           <p>嵌入式常用计算工具，数据保存在当前标签页内。</p>
+          <input id="tools-search" class="tools-search" type="search" placeholder="${esc(t("tools.search"))}" autocomplete="off" />
         </div>
-        <div class="tools-grid">
-          ${TOOLS.map((tool) => `
+        <div class="tools-grid" id="tools-grid"></div>
+      </div>`;
+    this.renderGrid();
+    this.q<HTMLInputElement>("#tools-search").addEventListener("input", (e) => {
+      this.search = (e.target as HTMLInputElement).value.trim().toLowerCase();
+      this.renderGrid();
+    });
+  }
+
+  private renderGrid(): void {
+    const grid = this.root.querySelector<HTMLElement>("#tools-grid");
+    if (!grid) return;
+    const q = this.search;
+    const list = TOOLS.filter(
+      (tool) =>
+        !q ||
+        tool.title.toLowerCase().includes(q) ||
+        tool.desc.toLowerCase().includes(q) ||
+        tool.id.toLowerCase().includes(q),
+    );
+    grid.innerHTML = list.length
+      ? list
+          .map((tool) => `
             <button class="tool-card" data-tool="${tool.id}">
               <span class="tool-icon">${tool.icon}</span>
               <span class="tool-title">${esc(tool.title)}</span>
               <span class="tool-desc">${esc(tool.desc)}</span>
-            </button>`).join("")}
-        </div>
-      </div>`;
-    this.root.querySelectorAll<HTMLButtonElement>(".tool-card").forEach((btn) =>
+            </button>`).join("")
+      : `<div class="tools-empty">${esc(t("tools.empty"))}</div>`;
+    grid.querySelectorAll<HTMLButtonElement>(".tool-card").forEach((btn) =>
       btn.addEventListener("click", () => this.open(btn.dataset.tool!)),
     );
   }
@@ -1275,6 +1388,7 @@ export class ToolsPage {
     const def = TOOLS.find((x) => x.id === id);
     if (!def) return;
     this.activeId = id;
+    const diag = toolDiagram(id);
     this.root.innerHTML = `
       <div class="tools-page">
         <div class="tools-detail-head">
@@ -1282,6 +1396,7 @@ export class ToolsPage {
           <div class="tools-title-line"><span class="tool-icon">${def.icon}</span><h3>${esc(def.title)}</h3></div>
           <p>${esc(def.desc)}</p>
         </div>
+        ${diag ? `<div class="tools-diagram"><img class="tool-diagram" src="${diag}" alt="${esc(def.title)} 原理图" /></div>` : ""}
         <div class="tools-detail-body" id="tools-host"></div>
       </div>`;
     this.q("#tools-back").addEventListener("click", () => this.renderCatalog());
