@@ -12,8 +12,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 crossbeam-channel = "0.5"
-ssh2 = "0.9"
 telnet = "0.2"
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+bytes = "1"
 
 [features]
 default = ["serial"]
