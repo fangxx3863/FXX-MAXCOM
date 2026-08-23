@@ -65,6 +65,66 @@ function plotAxes(): uPlot.Axis[] {
   ];
 }
 
+/** 图表导出样式：theme=跟随主题；paper=论文风格（白底仿 LaTeX） */
+export type ChartStyle = "theme" | "paper";
+
+interface ExportPalette {
+  bg: string;
+  track: string;
+  border: string;
+  fg: string;
+  dim: string;
+  fontTitle: string;
+  fontLabel: string;
+  fontMono: string;
+}
+
+const FONT_SANS_TITLE = '700 13px "Segoe UI", "Microsoft YaHei", sans-serif';
+const FONT_SANS_LABEL = '12px "Segoe UI", "Microsoft YaHei", sans-serif';
+const FONT_SANS_MONO = '600 12px Consolas, "Cascadia Mono", monospace';
+const FONT_SERIF_TITLE = '700 13px "Times New Roman", "Cambria Math", Georgia, serif';
+const FONT_SERIF_LABEL = '12px "Times New Roman", Georgia, serif';
+const FONT_SERIF_MONO = '600 12px "Times New Roman", "Cambria Math", Georgia, serif';
+
+function getChartStyle(): ChartStyle {
+  try {
+    const raw = localStorage.getItem("maxcom.settings");
+    if (raw) {
+      const st = JSON.parse(raw) as { chartStyle?: ChartStyle };
+      if (st.chartStyle === "paper") return "paper";
+    }
+  } catch {
+    /* ignore */
+  }
+  return "theme";
+}
+
+/** 导出图像色板：跟随主题（读当前 CSS 变量）或论文风格（白底灰字衬线） */
+function getExportPalette(): ExportPalette {
+  if (getChartStyle() === "paper") {
+    return {
+      bg: "#ffffff",
+      track: "#f2f2f2",
+      border: "#c9c9c9",
+      fg: "#000000",
+      dim: "#555555",
+      fontTitle: FONT_SERIF_TITLE,
+      fontLabel: FONT_SERIF_LABEL,
+      fontMono: FONT_SERIF_MONO,
+    };
+  }
+  return {
+    bg: cssVar("--bg2") || "#1b1e24",
+    track: cssVar("--bg3") || "#23272f",
+    border: cssVar("--border") || "#2c313a",
+    fg: cssVar("--fg") || "#dce0e8",
+    dim: cssVar("--fg-dim") || "#8b919c",
+    fontTitle: FONT_SANS_TITLE,
+    fontLabel: FONT_SANS_LABEL,
+    fontMono: FONT_SANS_MONO,
+  };
+}
+
 /** 子图最小列宽（与 styles.css 中 grid 回退值保持一致） */
 const PLOT_MIN_COL = 340;
 /** uPlot 标题(.u-title)实测高度：title 渲染在 canvas 之外，不占 opts.height */
@@ -594,13 +654,7 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
 }
 
 /** 同屏(子图)模式：把格子右侧柱状表(.bar-side)按实际渲染合成到 PNG 上 */
-function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect: DOMRect): void {
-  const cs = getComputedStyle(document.documentElement);
-  const bg2 = cs.getPropertyValue("--bg2").trim() || "#1b1e24";
-  const bg3 = cs.getPropertyValue("--bg3").trim() || "#23272f";
-  const border = cs.getPropertyValue("--border").trim() || "#2a2f37";
-  const fg = cs.getPropertyValue("--fg").trim() || "#dce0e8";
-  const fgDim = cs.getPropertyValue("--fg-dim").trim() || "#8b919c";
+function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect: DOMRect, pal: ExportPalette): void {
   const pad = 10;
   side.querySelectorAll<HTMLElement>(".bar-meter").forEach((m) => {
     if (m.classList.contains("hidden")) return;
@@ -609,12 +663,12 @@ function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect:
     const mx = mr.left - cellRect.left;
     const my = mr.top - cellRect.top;
     roundRectPath(ctx, mx, my, mr.width, mr.height, 8);
-    ctx.fillStyle = bg2;
+    ctx.fillStyle = pal.bg;
     ctx.fill();
-    ctx.strokeStyle = border;
+    ctx.strokeStyle = pal.border;
     ctx.lineWidth = 1;
     ctx.stroke();
-    // 头部：色标 + 通道名
+    // 头部：色标 + 通道名（长标题按表体宽度截断「…」防溢出）
     const head = m.querySelector<HTMLElement>(".bar-head");
     let hy = my + pad;
     if (head) {
@@ -623,11 +677,20 @@ function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect:
       const label = head.textContent?.trim() ?? "";
       ctx.fillStyle = sw;
       ctx.fillRect(mx + pad, hy, 9, 9);
-      ctx.fillStyle = fgDim;
-      ctx.font = '11px "Segoe UI", "Microsoft YaHei", sans-serif';
+      ctx.fillStyle = pal.dim;
+      ctx.font = pal.fontLabel;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(label, mx + pad + 15, hy + 5);
+      const headLeft = mx + pad;
+      const headRight = mx + mr.width - pad;
+      const labelX = headLeft + 15; // 色标 9 + 间距 6
+      const maxW = Math.max(0, headRight - labelX);
+      let text = label;
+      if (ctx.measureText(text).width > maxW) {
+        while (text.length && ctx.measureText(text + "…").width > maxW) text = text.slice(0, -1);
+        text += "…";
+      }
+      ctx.fillText(text, labelX, hy + 5);
       hy += 9 + 6;
     }
     // 轨道 + 填充条 + 当前值
@@ -639,9 +702,9 @@ function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect:
       const tw = tr.width;
       const th = tr.height;
       roundRectPath(ctx, tx, ty, tw, th, 5);
-      ctx.fillStyle = bg3;
+      ctx.fillStyle = pal.track;
       ctx.fill();
-      ctx.strokeStyle = border;
+      ctx.strokeStyle = pal.border;
       ctx.stroke();
       const fill = track.querySelector<HTMLElement>(".bar-fill");
       if (fill) {
@@ -655,8 +718,8 @@ function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect:
       }
       const val = track.querySelector<HTMLElement>(".bar-val");
       if (val) {
-        ctx.fillStyle = fg;
-        ctx.font = '600 12px Consolas, "Cascadia Mono", monospace';
+        ctx.fillStyle = pal.fg;
+        ctx.font = pal.fontMono;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(val.textContent ?? "", tx + tw / 2, ty + th / 2);
@@ -669,8 +732,8 @@ function drawBarSide(ctx: CanvasRenderingContext2D, side: HTMLElement, cellRect:
       const rr = range.getBoundingClientRect();
       const rcX = rr.left - cellRect.left;
       const rcY = rr.top - cellRect.top + rr.height / 2;
-      ctx.fillStyle = fgDim;
-      ctx.font = '10px Consolas, "Cascadia Mono", monospace';
+      ctx.fillStyle = pal.dim;
+      ctx.font = pal.fontMono;
       ctx.textBaseline = "middle";
       ctx.textAlign = "left";
       ctx.fillText(range.querySelector<HTMLElement>(".lo")?.textContent ?? "", rcX, rcY);
@@ -692,13 +755,14 @@ async function composePng(
   cv.width = Math.round(rect.width);
   cv.height = Math.round(rect.height);
   const ctx = cv.getContext("2d")!;
-  ctx.fillStyle = "#14161a"; // 与主题底色一致
+  const pal = getExportPalette();
+  ctx.fillStyle = pal.bg; // 与主题底色一致（paper 为白）
   ctx.fillRect(0, 0, cv.width, cv.height);
   // 标题（uPlot 标题是 DOM，画布外 → 手动画）
   const title = cell.querySelector<HTMLElement>(".u-title")?.textContent ?? "";
   if (title) {
-    ctx.fillStyle = "#dce0e8";
-    ctx.font = '700 13px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.fillStyle = pal.fg;
+    ctx.font = pal.fontTitle;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
     ctx.fillText(title, cv.width / 2, 6);
@@ -710,7 +774,7 @@ async function composePng(
     ctx.drawImage(c, r.left - rect.left, r.top - rect.top, r.width, r.height);
   });
   // 同屏(子图)模式：格子右侧的柱状表是 DOM（非 canvas），需按实际渲染手动合到图上
-  cell.querySelectorAll<HTMLElement>(".bar-side").forEach((side) => drawBarSide(ctx, side, rect));
+  cell.querySelectorAll<HTMLElement>(".bar-side").forEach((side) => drawBarSide(ctx, side, rect, pal));
   // 图例：叠加模式的 DOM 表格不进画布，手动画色标+标签在顶部一行
   ctx.textBaseline = "middle";
   let lx = 12;
@@ -721,8 +785,8 @@ async function composePng(
     ctx.moveTo(lx, 14);
     ctx.lineTo(lx + 16, 14);
     ctx.stroke();
-    ctx.fillStyle = "#8b919c";
-    ctx.font = '12px "Segoe UI", "Microsoft YaHei", sans-serif';
+    ctx.fillStyle = pal.dim;
+    ctx.font = pal.fontLabel;
     ctx.fillText(s.label, lx + 21, 14.5);
     lx += 21 + ctx.measureText(s.label).width + 18;
     if (lx > cv.width - 60) break; // 放不下就截断

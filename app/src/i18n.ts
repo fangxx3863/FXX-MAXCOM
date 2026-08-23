@@ -279,6 +279,11 @@ const zh: Dict = {
   "settings.langCard": "🌐 语言",
   "settings.lang": "界面语言",
   "settings.langNote": "切换语言将刷新界面（标签页与设置会保留）。",
+  "settings.chartCard": "📊 图表导出",
+  "settings.chartStyle": "导出样式",
+  "settings.chartStyleNote": "控制右键复制/导出的图表图像风格。",
+  "chartstyle.theme": "跟随主题",
+  "chartstyle.paper": "论文风格（白底）",
   "lang.zh": "中文",
   "lang.en": "English",
 
@@ -590,6 +595,11 @@ const en: Dict = {
   "settings.langCard": "🌐 Language",
   "settings.lang": "Interface language",
   "settings.langNote": "Switching language refreshes the UI (tabs and settings are preserved).",
+  "settings.chartCard": "📊 Chart export",
+  "settings.chartStyle": "Export style",
+  "settings.chartStyleNote": "Controls the style of the right-click copied/exported chart image.",
+  "chartstyle.theme": "Follow theme",
+  "chartstyle.paper": "Paper (white bg)",
   "lang.zh": "中文",
   "lang.en": "English",
 

@@ -31,12 +31,15 @@ interface AppSettings {
   logFamily: string;
   termSize: number;
   theme: string;
+  /** 图表导出样式：theme=跟随主题；paper=论文风格（白底仿 LaTeX） */
+  chartStyle: string;
 }
 const DEFAULT_SETTINGS: AppSettings = {
   logSize: 12.5,
   logFamily: 'Consolas, "Cascadia Mono", monospace',
   termSize: 14,
   theme: "dark",
+  chartStyle: "theme",
 };
 const SETTINGS_KEY = "maxcom.settings";
 const THEME_PRESETS: Record<string, string> = {
@@ -1325,6 +1328,8 @@ class SessionApp {
     (this.q("#set-term-size") as HTMLInputElement).value = String(st.termSize);
     const themeSel = this.q<HTMLSelectElement>("#set-theme");
     if (themeSel) themeSel.value = st.theme;
+    const chartStyleSel = this.q<HTMLSelectElement>("#set-chart-style");
+    if (chartStyleSel) chartStyleSel.value = st.chartStyle;
   }
 
   wireSettings() {
@@ -1340,6 +1345,10 @@ class SessionApp {
       saveSettings({ ...currentSettings, termSize: Number(termSizeInput.value) || DEFAULT_SETTINGS.termSize }),
     );
     themeSel.addEventListener("change", () => saveSettings({ ...currentSettings, theme: themeSel.value }));
+    const chartStyleSel = this.q<HTMLSelectElement>("#set-chart-style");
+    chartStyleSel.addEventListener("change", () =>
+      saveSettings({ ...currentSettings, chartStyle: chartStyleSel.value }),
+    );
     this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
     // 界面语言：全局共享，切换后整页重载（标签页/设置保留）
     const langSel = this.q<HTMLSelectElement>("#set-lang");
