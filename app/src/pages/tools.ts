@@ -232,10 +232,12 @@ function build555(host: HTMLElement): ToolController {
 
   let mode = "mono";
   img.src = toolDiagramVariant("555", mode);
-  // 非稳态额外需要 R2：动态插入一个字段
-  const r2Field = document.createElement("div");
-  r2Field.className = "tool-field";
-  r2Field.innerHTML = `<label>R₂ 电阻值</label><div class="tool-inline"><input id="t555-r2" class="proto-in" type="number" min="0" value="47" /><select id="t555-r2s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>`;
+  // 非稳态额外需要 R2：字段按需创建；切回单稳态时整体移除，再来时重新创建。
+  // 之前的实现复用一个 r2Field，切回单稳态只删掉它内部的 R2 输入子节点、留下残缺节点，
+  // 再次进入非稳态时 `#t555-r2` 已是 null → addEventListener 抛错，页面切不回去。
+  let r2Field: HTMLElement | null = null;
+  let r2Input: HTMLInputElement | null = null;
+  let r2Unit: HTMLSelectElement | null = null;
 
   const update = () => {
     const r1v = num(r1.value);
@@ -253,8 +255,8 @@ function build555(host: HTMLElement): ToolController {
       return;
     }
     // 非稳态
-    const r2v = num((host.querySelector("#t555-r2") as HTMLInputElement).value);
-    const r2m = Number((host.querySelector("#t555-r2s") as HTMLSelectElement).value);
+    const r2v = num(r2Input!.value);
+    const r2m = Number(r2Unit!.value);
     const R2 = r2v === null ? null : r2v * r2m;
     if (R1 === null || R2 === null || C === null || R1 <= 0 || R2 <= 0 || C <= 0) {
       out.value = ""; return;
@@ -270,15 +272,25 @@ function build555(host: HTMLElement): ToolController {
     mode = m;
     img.src = toolDiagramVariant("555", m);
     if (m === "astable") {
-      if (!host.querySelector("#t555-r2")) {
+      if (!r2Field) {
+        r2Field = document.createElement("div");
+        r2Field.className = "tool-field";
+        r2Field.innerHTML = `<label>R₂ 电阻值</label><div class="tool-inline"><input id="t555-r2" class="proto-in" type="number" min="0" value="47" /><select id="t555-r2s" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>`;
+        r2Input = r2Field.querySelector<HTMLInputElement>("#t555-r2")!;
+        r2Unit = r2Field.querySelector<HTMLSelectElement>("#t555-r2s")!;
+        // 新建的 R2 输入/单位必须绑定事件，否则改 R2 不重算
+        r2Input.addEventListener("input", update);
+        r2Unit.addEventListener("change", update);
         grid.insertBefore(r2Field, outBox);
-        // 动态插入的 R2 输入/单位也要绑定事件，否则改 R2 不重算
-        host.querySelector("#t555-r2")!.addEventListener("input", update);
-        host.querySelector("#t555-r2s")!.addEventListener("change", update);
       }
       outBox.querySelector("label")!.textContent = "输出特性";
     } else {
-      host.querySelector("#t555-r2")?.remove();
+      if (r2Field) {
+        r2Field.remove();
+        r2Field = null;
+        r2Input = null;
+        r2Unit = null;
+      }
       outBox.querySelector("label")!.textContent = "输出脉冲持续时间";
     }
     update();

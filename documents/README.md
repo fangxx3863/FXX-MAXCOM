@@ -9,12 +9,12 @@
 ## 入口
 - **AI agent**：先读 [`AGENTS.md`](AGENTS.md)
 - **人类**：本文件 → [`00-overview/product-vision.md`](00-overview/product-vision.md)（愿景全景）
-- **初始设想**：见仓库根 [`brainstorming/`](../brainstorming/)（V2 文档，含完整需求与架构演进）
+- **原始需求（最原始存档）**：移入 [`00-overview/`](00-overview/)，见 [`初步设想.md`](00-overview/初步设想.md) 与 [`初步设想V2.md`](00-overview/初步设想V2.md)（V2，含完整需求与架构演进，已标记为项目最原始的需求来源；仅供追溯，不再更新）
 
 ## 目录
 | 目录 | 内容 |
 |---|---|
-| `00-overview/` | 产品愿景全景 + 术语表 |
+| `00-overview/` | 产品愿景全景 + 术语表 + 原始需求存档 |
 | `01-decisions/` | 架构决策记录 ADR（已拍板，编号 0001-0016） |
 | `02-contracts/` | 数据契约（命令条目、Project 文件、过滤规则等，CI 可校验） |
 | `03-modules/` | 各模块：SPEC + 任务卡（含 IMPL 实现骨架） |

@@ -22,7 +22,7 @@ MAXCOM = 一站式串口/网络调试与数据可视化平台。核心能力：
 
 ```
 documents/
-├── 00-overview/      愿景全景 + 术语表       ← 先读 product-vision.md
+├── 00-overview/      愿景全景 + 术语表 + 原始需求存档  ← 先读 product-vision.md
 ├── 01-decisions/     ADR（已拍板，不可翻案）  ← 动手前查相关 ADR
 ├── 02-contracts/     数据契约（可校验）       ← 数据结构以此为准，勿臆造
 ├── 03-modules/       每个模块：SPEC + tasks   ← 你的工作在这里
@@ -30,7 +30,7 @@ documents/
 └── 05-quality/       测试策略 / DoD / 编码规范 / 技术栈锁
 src/                  实现代码（Python 3.13）
 tools/                小工具（脚本、脚手架、测试辅助）
-brainstorming/        初始设想（需求与架构演进的历史源头）
+（原始需求已移入 documents/00-overview/：初步设想.md / 初步设想V2.md，标记为最原始需求存档）
 ```
 
 ## 3. 必读顺序（首次进入）

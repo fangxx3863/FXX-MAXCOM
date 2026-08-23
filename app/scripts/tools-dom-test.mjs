@@ -83,6 +83,18 @@ h555.querySelector('[data-mode="mono"]').click();
 check("555 mono 回退后移除 R2", !h555.querySelector("#t555-r2"));
 check("555 mono 回退输出=1.1ms", outEl.value === "1.1 ms");
 
+// 回归（曾修复 bug）：非稳态 → 单稳态 → 非稳态 多轮往返，R2 字段须反复重建/移除且事件不丢
+h555.querySelector('[data-mode="astable"]').click();
+check("555 往返: 再进非稳态 R2 重建", !!h555.querySelector("#t555-r2"));
+r1.value = "10"; r1s.value = "1e3"; c.value = "10"; fire(r1, "input");
+h555.querySelector("#t555-r2").value = "15"; h555.querySelector("#t555-r2s").value = "1e3";
+fire(h555.querySelector("#t555-r2"), "input");
+check("555 往返: R2 事件仍绑定 f≈3.607", has(outEl.value, "f=3.607"));
+h555.querySelector('[data-mode="mono"]').click();
+check("555 往返: 再回单稳态 R2 移除", !h555.querySelector("#t555-r2"));
+r1.value = "100"; r1s.value = "1"; c.value = "10"; fire(r1, "input");
+check("555 往返: 单稳态输出恢复=1.1ms", outEl.value === "1.1 ms");
+
 // ── 衰减器：四个类型各自不同的电路图 + 计算 ──
 const hAtt = hostOf("attenuator");
 const attImg = hAtt.querySelector("#att-diagram img");
