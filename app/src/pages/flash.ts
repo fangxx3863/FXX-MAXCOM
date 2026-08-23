@@ -58,6 +58,8 @@ export class FlashPage {
     });
     this.chipDd = chipDd;
     this.q<HTMLElement>("#flash-chip-dd").replaceWith(chipDd.el);
+    // 默认即“自动检测”；用 setValue 让输入框显示“自动检测”标签而非原始值 "auto"
+    chipDd.setValue("auto");
     void this.loadChips();
 
     const formatDd = createDropdown({

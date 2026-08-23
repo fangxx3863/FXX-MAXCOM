@@ -403,12 +403,14 @@ class SessionApp {
 
     this.chipDd = createDropdown({
       items: withAuto([]),
-      value: "nrf52840",
+      value: "auto",
       editable: true,
       placeholder: "芯片",
       width: 150,
     });
     this.q("#rtt-chip-dd").replaceWith(this.chipDd.el);
+    // 默认即“自动检测”；用 setValue 让输入框显示“自动检测”标签而非原始值 "auto"
+    this.chipDd.setValue("auto");
     void this.loadChips();
 
     this.syncConnTypeUI();
