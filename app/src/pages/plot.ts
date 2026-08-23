@@ -100,8 +100,8 @@ function getChartStyle(): ChartStyle {
 }
 
 /** 导出图像色板：跟随主题（读当前 CSS 变量）或论文风格（白底灰字衬线） */
-function getExportPalette(): ExportPalette {
-  if (getChartStyle() === "paper") {
+function getExportPalette(style: ChartStyle = getChartStyle()): ExportPalette {
+  if (style === "paper") {
     return {
       bg: "#ffffff",
       track: "#f2f2f2",
@@ -123,6 +123,45 @@ function getExportPalette(): ExportPalette {
     fontLabel: FONT_SANS_LABEL,
     fontMono: FONT_SANS_MONO,
   };
+}
+
+function hexToRgb(hex: string): [number, number, number] | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const v = parseInt(m[1], 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
+/**
+ * paper 模式专用：uPlot 画布会把主题的 --border 颜色烘焙进网格，白底上显得太深。
+ * 这里把落在「网格色 → 白」混合线上的像素（即网格线及其抗锯齿边缘）重映射成浅灰，
+ * 轴刻度文字/彩色曲线不在该混合线上，不受影响。
+ */
+function lightenGridForPaper(ctx: CanvasRenderingContext2D, w: number, h: number, srcHex: string): void {
+  const A = hexToRgb(srcHex);
+  if (!A) return;
+  const B: [number, number, number] = [255, 255, 255]; // 纸底
+  const D: [number, number, number] = hexToRgb("#d9d9d9")!; // 论文浅灰网格
+  const ab: [number, number, number] = [B[0] - A[0], B[1] - A[1], B[2] - A[2]];
+  const len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2] || 1;
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    // 投影到 A→B：t = 点积/长度²
+    let t = ((r - A[0]) * ab[0] + (g - A[1]) * ab[1] + (b - A[2]) * ab[2]) / len2;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    // 到 A→B 线的垂直距离
+    const qx = A[0] + t * ab[0], qy = A[1] + t * ab[1], qz = A[2] + t * ab[2];
+    const dist = Math.hypot(r - qx, g - qy, b - qz);
+    if (dist < 5) {
+      // 在网格混合线上：按 t 在「D→白」间插值，得到浅灰网格
+      d[i] = D[0] + t * (B[0] - D[0]);
+      d[i + 1] = D[1] + t * (B[1] - D[1]);
+      d[i + 2] = D[2] + t * (B[2] - D[2]);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
 }
 
 /** 子图最小列宽（与 styles.css 中 grid 回退值保持一致） */
@@ -755,7 +794,8 @@ async function composePng(
   cv.width = Math.round(rect.width);
   cv.height = Math.round(rect.height);
   const ctx = cv.getContext("2d")!;
-  const pal = getExportPalette();
+  const style = getChartStyle();
+  const pal = getExportPalette(style);
   ctx.fillStyle = pal.bg; // 与主题底色一致（paper 为白）
   ctx.fillRect(0, 0, cv.width, cv.height);
   // 标题（uPlot 标题是 DOM，画布外 → 手动画）
@@ -791,6 +831,8 @@ async function composePng(
     lx += 21 + ctx.measureText(s.label).width + 18;
     if (lx > cv.width - 60) break; // 放不下就截断
   }
+  // paper 模式：把 uPlot 画布上烘焙的深色网格重映射为浅灰，避免白底上太深
+  if (style === "paper") lightenGridForPaper(ctx, cv.width, cv.height, cssVar("--border") || "#2c313a");
   return await new Promise<Blob | null>((res) => cv.toBlob(res, "image/png"));
 }
 
