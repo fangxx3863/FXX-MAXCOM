@@ -6,7 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
-    "type": { "enum": ["serial", "tcp_client", "tcp_server", "udp_client", "udp_server", "winusb", "hid"] },
+    "type": { "enum": ["serial", "tcp_client", "tcp_server", "udp_client", "udp_server", "ssh", "telnet", "winusb", "hid"] },
     "port": { "type": "string", "description": "串口号，如 COM3" },
     "alias": { "type": "string", "description": "自定义别名" },
     "baudrate": { "type": "integer", "minimum": 300 },
@@ -16,6 +16,8 @@
     "flow_control": { "enum": ["none", "software", "hardware"] },
     "host": { "type": "string", "description": "TCP/UDP 主机" },
     "port_no": { "type": "integer", "description": "TCP/UDP 端口" },
+    "username": { "type": "string", "description": "SSH 用户名" },
+    "password": { "type": "string", "description": "SSH 密码（可选，为空时尝试 SSH Agent/常用私钥）" },
     "auto_reconnect": {
       "type": "object",
       "additionalProperties": false,

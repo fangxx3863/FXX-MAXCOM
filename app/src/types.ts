@@ -7,7 +7,9 @@ export type FlowControl = "none" | "software" | "hardware";
 export type ConnConfig =
   | { type: "serial"; port: string; baud: number; data_bits: number; parity: Parity; stop_bits: StopBits; flow_control: FlowControl }
   | { type: "tcp_client"; host: string; port: number }
-  | { type: "udp_client"; host: string; port: number };
+  | { type: "udp_client"; host: string; port: number }
+  | { type: "ssh"; host: string; port: number; username: string; password?: string }
+  | { type: "telnet"; host: string; port: number };
 
 export interface PortInfo {
   device: string;

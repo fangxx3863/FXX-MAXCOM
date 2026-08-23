@@ -1,7 +1,7 @@
 # 传输层模块（transport / TP）
 
 > 状态：接近规格 ｜ 依赖：_foundation
-> 对应 V2 §1.1 + §4.4。串口/TCP/UDP + 发现/枚举/生命周期。单连接 + 多实例（ADR-0016）。
+> 对应 V2 §1.1 + §4.4。串口/TCP/UDP/SSH/Telnet + 发现/枚举/生命周期。单连接 + 多实例（ADR-0016）。
 
 ## 1. 定位
 传输层抽象：`TransportBase` 接口 + 各实现（串口/TCP/UDP，后续 WINUSB/HID）。I/O 线程读取原始字节流发布到事件总线（ADR-0015 的源头）。

@@ -6,7 +6,9 @@
 
 #[cfg(feature = "serial")]
 pub mod serial;
+pub mod ssh;
 pub mod tcp;
+pub mod telnet;
 pub mod udp;
 
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,17 @@ pub enum ConnConfig {
         port: u16,
     },
     UdpClient {
+        host: String,
+        port: u16,
+    },
+    Ssh {
+        host: String,
+        port: u16,
+        username: String,
+        #[serde(default)]
+        password: String,
+    },
+    Telnet {
         host: String,
         port: u16,
     },
@@ -118,6 +131,13 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
     match config {
         ConnConfig::TcpClient { host, port } => tcp::open(host, *port),
         ConnConfig::UdpClient { host, port } => udp::open(host, *port),
+        ConnConfig::Ssh {
+            host,
+            port,
+            username,
+            password,
+        } => ssh::open(host, *port, username, password),
+        ConnConfig::Telnet { host, port } => telnet::open(host, *port),
         #[cfg(feature = "serial")]
         ConnConfig::Serial { .. } => serial::open(config),
         #[cfg(not(feature = "serial"))]
@@ -152,7 +172,10 @@ impl ConnConfig {
                 }
                 Ok(())
             }
-            ConnConfig::TcpClient { host, port } | ConnConfig::UdpClient { host, port } => {
+            ConnConfig::TcpClient { host, port }
+            | ConnConfig::UdpClient { host, port }
+            | ConnConfig::Ssh { host, port, .. }
+            | ConnConfig::Telnet { host, port } => {
                 if host.is_empty() {
                     return Err("主机为空".into());
                 }

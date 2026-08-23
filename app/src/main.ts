@@ -294,6 +294,8 @@ class SessionApp {
         { value: "serial", label: "串口" },
         { value: "tcp_client", label: "TCP 客户端" },
         { value: "udp_client", label: "UDP" },
+        { value: "ssh", label: "SSH" },
+        { value: "telnet", label: "Telnet" },
       ],
       onChange: (v) => {
         this.connKind = v;
@@ -409,12 +411,16 @@ class SessionApp {
 
   private syncConnTypeUI() {
     const isSerial = this.connKind === "serial";
+    const isNetwork = !isSerial;
+    const isSsh = this.connKind === "ssh";
     this.el.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
     this.portDd.el.classList.toggle("hidden", !isSerial);
     this.q("#refresh-ports").classList.toggle("hidden", !isSerial);
     this.baudDd.el.classList.toggle("hidden", !isSerial);
-    this.tcpHostDd.el.classList.toggle("hidden", isSerial);
-    this.q("#tcp-port").classList.toggle("hidden", isSerial);
+    this.tcpHostDd.el.classList.toggle("hidden", !isNetwork);
+    this.q("#tcp-port").classList.toggle("hidden", !isNetwork);
+    this.q("#ssh-user").classList.toggle("hidden", !isSsh);
+    this.q("#ssh-pass").classList.toggle("hidden", !isSsh);
   }
 
   private toggleConnect() {
@@ -442,13 +448,26 @@ class SessionApp {
         return;
       }
     } else {
-      const tcpCfg = {
-        type: this.connKind === "tcp_client" ? ("tcp_client" as const) : ("udp_client" as const),
-        host: this.tcpHostDd.value,
-        port: Number(this.q<HTMLInputElement>("#tcp-port").value) || 8888,
-      };
-      cfg = tcpCfg;
-      saveTcpHost(tcpCfg.host);
+      const host = this.tcpHostDd.value;
+      const port = Number(this.q<HTMLInputElement>("#tcp-port").value) || 8888;
+      if (this.connKind === "ssh") {
+        cfg = {
+          type: "ssh",
+          host,
+          port,
+          username: this.q<HTMLInputElement>("#ssh-user").value.trim(),
+          password: this.q<HTMLInputElement>("#ssh-pass").value,
+        };
+      } else if (this.connKind === "telnet") {
+        cfg = { type: "telnet", host, port };
+      } else {
+        cfg = {
+          type: this.connKind === "tcp_client" ? ("tcp_client" as const) : ("udp_client" as const),
+          host,
+          port,
+        };
+      }
+      saveTcpHost(host);
       for (const s of sessions.values()) s.refreshTcpHostItems();
     }
     void this.api.setAutoReconnect(this.q<HTMLInputElement>("#auto-reconnect").checked);
@@ -1051,6 +1070,8 @@ class SessionApp {
     r["conn.flowctl"] = this.flowctlDd.value;
     r["conn.tcphost"] = this.tcpHostDd.value;
     r["conn.tcpport"] = (this.q("#tcp-port") as HTMLInputElement).value;
+    r["conn.sshuser"] = (this.q("#ssh-user") as HTMLInputElement).value;
+    r["conn.sshpass"] = (this.q("#ssh-pass") as HTMLInputElement).value;
     r["conn.autoreconn"] = this.q<HTMLInputElement>("#auto-reconnect").checked ? "1" : "";
     r["conn.dtr"] = this.dtrOn ? "1" : "";
     r["conn.rts"] = this.rtsOn ? "1" : "";
@@ -1104,6 +1125,8 @@ class SessionApp {
     if (g("conn.flowctl")) this.flowctlDd.setValue(g("conn.flowctl"));
     if (g("conn.tcphost")) this.tcpHostDd.setValue(g("conn.tcphost"));
     if (g("conn.tcpport")) (this.q("#tcp-port") as HTMLInputElement).value = g("conn.tcpport");
+    if (g("conn.sshuser")) (this.q("#ssh-user") as HTMLInputElement).value = g("conn.sshuser");
+    if (g("conn.sshpass")) (this.q("#ssh-pass") as HTMLInputElement).value = g("conn.sshpass");
     if (g("conn.autoreconn")) this.q<HTMLInputElement>("#auto-reconnect").checked = true;
     if (g("conn.dtr")) {
       this.dtrOn = true;
@@ -1232,8 +1255,16 @@ function tabTitle(s: SessionApp): string {
   if (s.customName) return s.customName;
   if (s.connected && s.stateLabel) return s.stateLabel;
   if (s.connKind === "serial" && s.portDd.value) return `${shortPortName(s.portDd.value)} @ ${s.baudDd.value}`;
-  if ((s.connKind === "tcp_client" || s.connKind === "udp_client") && s.tcpHostDd.value) {
-    const proto = s.connKind === "udp_client" ? "UDP" : "TCP";
+  if ((s.connKind === "tcp_client" || s.connKind === "udp_client" || s.connKind === "ssh" || s.connKind === "telnet") && s.tcpHostDd.value) {
+    const proto =
+      s.connKind === "udp_client" ? "UDP"
+        : s.connKind === "ssh" ? "SSH"
+          : s.connKind === "telnet" ? "Telnet"
+            : "TCP";
+    if (s.connKind === "ssh") {
+      const user = (s.el.querySelector<HTMLInputElement>("#ssh-user")?.value || "").trim();
+      return `${proto} ${user ? `${user}@` : ""}${s.tcpHostDd.value}:${(s.el.querySelector<HTMLInputElement>("#tcp-port") as HTMLInputElement).value || "8888"}`;
+    }
     return `${proto} ${s.tcpHostDd.value}:${(s.el.querySelector<HTMLInputElement>("#tcp-port") as HTMLInputElement).value || "8888"}`;
   }
   return `新建 ${s.seqNo}`;

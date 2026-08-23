@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "MAXCOM 传输层（串口/TCP/UDP）+ 会话线程编排"
+description = "MAXCOM 传输层（串口/TCP/UDP/SSH/Telnet）+ 会话线程编排"
 
 [dependencies]
 maxcom-core = { path = "../maxcom-core" }
@@ -12,6 +12,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 crossbeam-channel = "0.5"
+ssh2 = "0.9"
+telnet = "0.2"
 
 [features]
 default = ["serial"]
