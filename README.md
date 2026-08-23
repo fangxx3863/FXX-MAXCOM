@@ -1,3 +1,11 @@
+<div align="center">
+
+[**中文**](#chinese) &nbsp;·&nbsp; [**English**](#english)
+
+</div>
+
+<a id="chinese"></a>
+
 # MAXCOM
 
 > 一站式串口 / 网络调试与数据可视化平台
@@ -80,3 +88,90 @@ FXX-MAXCOM/
 ## 🌟 参与开源
 
 本项目已开源至 [github.com/fangxx3863/FXX-MAXCOM](https://github.com/fangxx3863/FXX-MAXCOM)。欢迎 **Star**、提 **Issue**、提交 **PR**，一起共建一个顺手、开源、可扩展的调试工具。
+
+---
+
+<a id="english"></a>
+
+# MAXCOM
+
+> One-stop serial / network debugging and data visualization platform
+
+MAXCOM is a cross-platform desktop tool for embedded and field debugging, with a **Rust + Tauri 2** core and a **TypeScript + Vite + xterm.js + uPlot** frontend. It brings terminal, send/receive, waveform plotting, stats, firmware flashing, protocol parsing and common engineering calculators together in one window, taking aim at the recurring pain points of tools like VOFA+, SuperCom, SSCOM, SerialPlot and SecureCRT.
+
+![Main interface](screenshoots/main_ui_en.png)
+
+## ✨ Features
+
+- **⌨️ Terminal** — interactive terminal with xterm.js ANSI parsing/rendering and direct keystroke passthrough.
+- **📄 Log View** — classic serial assistant: timestamps (three formats), auto-coloring, line filtering, HEX display, auto-scroll, smart packet framing.
+- **📈 Plot** — uPlot-driven real-time waveform, supports Simple Binary / ASCII parsing.
+- **📊 Stats** — RX / TX / rate and channel-metric dashboard.
+- **🔥 Flash** — probe + chip firmware flashing (.elf / .hex / .bin / .uf2), optional verify / reset after flashing, and flash-and-open RTT.
+- **🧩 Protocol** — plugin-based protocol panel; currently ships with **Modbus RTU** (CAN and others extensible via the protocol registry).
+- **🧰 Tools** — 40+ embedded engineering calculators (hand-drawn circuit diagrams, clickable binary code wheels, KaTeX formula rendering):
+  - Circuit: 555 timer / attenuator (Pi / Bridged-T / Reflex / T) / Ohm's law / LED current limit / voltage divider / current divider / RC time constant / reactance / filter / three-phase power
+  - Components: resistor color code / 3-digit and EIA-96 SMD resistors / SMD capacitors / capacitor conversion / series-parallel R-C / NTC thermistor
+  - High-frequency PCB: trace impedance / conductor width (IPC-2221) / frequency-wavelength / wire gauge AWG
+  - Unit conversion: length / weight / volume / temperature / pressure / energy / power / force / inductance
+- **🌐 Bilingual UI** — Chinese / English interface language toggle that applies instantly and persists.
+- **🎨 Multiple themes** — follow system, light, dark, colorful, plus Midnight / Solarized / OLED / Nord / Dracula presets.
+
+## 🖥 Connections
+
+Serial, TCP client and UDP client (more protocols continually added), with common controls like DTR / RTS / auto-reconnect.
+
+## 🧱 Tech stack
+
+| Layer | Technology |
+|---|---|
+| Desktop shell | Tauri 2 (Rust) |
+| Core engine | Rust workspace (`maxcom-core` pure logic + `maxcom-engine` transport layer) |
+| Frontend | TypeScript + Vite 8 (strict mode) |
+| Terminal | xterm.js |
+| Waveform | uPlot |
+| Formula rendering | KaTeX |
+
+Hard layering rule: **core must not depend on engine; engine must not depend on tauri**. All business logic lives in the Rust pure-logic core (fully unit-tested); the frontend is thin glue that only passes parameters and renders.
+
+## 🚀 Development / Build
+
+```bash
+# Core engine tests (no system dependencies)
+cargo test --workspace
+
+# Frontend
+cd app
+npm install
+npm run dev          # browser demo mode (auto-injects a mock backend), http://localhost:1420
+npm run build        # selector validation + tsc + vite + smoke + pure-logic/DOM regression tests
+
+# Desktop (Windows recommended target; Linux requires webkit2gtk-4.1 dev package)
+npm run tauri dev
+npm run tauri build  # NSIS installer
+```
+
+## 📁 Project structure
+
+```
+FXX-MAXCOM/
+├── crates/
+│   ├── maxcom-core/      # pure logic engine (encoding/framing/filtering/stats/plot parsing), fully unit-tested
+│   └── maxcom-engine/    # transport layer (serial/TCP/UDP) + session thread orchestration
+├── app/
+│   ├── src/              # frontend TypeScript (Vite; xterm.js terminal, uPlot waveform)
+│   ├── src/pages/        # terminal / log view / plot / stats / flash / protocol / tools / settings
+│   ├── src-tauri/        # Tauri thin glue (commands / events)
+│   └── scripts/          # build-time regression tests (selectors/smoke/plot/modbus/tools/DOM)
+├── documents/            # single source of truth for design & decisions (contracts / ADR / SPEC, CI-validated)
+├── AGENT.md              # architecture & layering guide for developers/AI (former README)
+└── screenshoots/         # UI screenshots
+```
+
+## 📄 License
+
+[MIT](LICENSE) © [fangxx3863](https://github.com/fangxx3863)
+
+## 🌟 Contributing
+
+This project is open source at [github.com/fangxx3863/FXX-MAXCOM](https://github.com/fangxx3863/FXX-MAXCOM). We welcome **Stars**, **Issues** and **PRs** — let's build a handy, open, extensible debugging tool together.
