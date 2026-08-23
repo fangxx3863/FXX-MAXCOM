@@ -204,7 +204,7 @@ export class PlotPage {
     this.buildChBar();
     // 同屏 + 子图 + 通道数不多时，柱状表直接放到对应波形右侧；
     // 超多通道仍走顶部独立条，避免挤在一起。
-    this.sideBars = this.viewMode === "both" && this.layout === "subplots" && n >= 2 && n <= 6;
+    this.sideBars = this.viewMode === "both" && this.layout === "subplots" && n >= 1 && n <= 6;
     this.syncVisibility();
     // 先建波形（拿到格子），再把柱状嵌到右侧；顶部独立条用于纯柱状/多通道。
     if (this.viewMode !== "waveform" && !this.sideBars) this.buildBars(n);

@@ -188,14 +188,14 @@ colorInput.dispatchEvent(new w.Event("input", { bubbles: true }));
 const ovNow = globalThis.__plots.at(-1);
 check("换色写入 series.stroke", ovNow.series[2].stroke === "#ff0000");
 
-// 9) 同屏+分开子图：柱状先建、波形后量（回归：曾量到未占位高度导致波形溢出）
-//    单通道：柱状占位后 holder 高 300 → h = floor((300-16)/1)-18 = 266；旧顺序量到 600 → 566
+// 9) 同屏+分开子图：单通道也把柱状表放到波形右侧，波形使用完整容器高度
 page.setLayout("subplots"); // 回到子图布局（此前场景停在 overlay）
 page.update({ channel_count: 1, total_points: 4, series: [[1, 2, 3, 4]], metrics: [null] });
 page.setViewMode("waveform");
 page.setViewMode("both");
 const wavePlot = globalThis.__plots.at(-1);
-check("柱状占位后再量波形高度 (h=246，含标题扣除；旧实现得 566)", wavePlot.height === 246);
+check("同屏单通道柱状表在右侧", holder.querySelectorAll(".plot-cell.side-bars .bar-side .bar-meter").length === 1);
+check("柱状嵌入右侧后波形高度 (h=546)", wavePlot.height === 546);
 
 // 10) 收发页快捷过滤：命中才显示，新旧数据即时生效
 const lvView = document.createElement("div");
