@@ -133,5 +133,74 @@ check("fmtOhm 1000000", M.fmtOhm(1e6), "1 MΩ");
 check("fmtCap 0.1µF", M.fmtCap(1e5), "100 nF");
 check("fmtCap 1µF", M.fmtCap(1e6), "1 µF");
 
+// ── dB ↔ 线性（电压 20log，功率 10log）──
+check("db2lin 0dB 电压=1", M.dbToLinear(0, false), 1);
+check("db2lin 20dB 电压=10", M.dbToLinear(20, false), 10);
+check("db2lin -20dB 电压=0.1", M.dbToLinear(-20, false), near(0.1));
+check("db2lin 3dB 电压=1.4125", M.dbToLinear(3, false), near(1.41254, 1e-4));
+check("db2lin 10dB 功率=10", M.dbToLinear(10, true), 10);
+check("db2lin 3dB 功率=2", M.dbToLinear(3, true), near(1.99526, 1e-4));
+check("lin2db 电压 10x=20dB", M.linearToDb(10, false), near(20));
+check("lin2db 功率 2x=3.0103dB", M.linearToDb(2, true), near(3.0103, 1e-3));
+
+// ── 带宽 ↔ 上升时间（BW ≈ 0.35/tr）──
+check("bw 1ns→350MHz", M.bandwidthFromRiseTime(1e-9), near(3.5e8));
+check("bw 10ns→35MHz", M.bandwidthFromRiseTime(10e-9), near(3.5e7));
+check("bw 1ms→350Hz", M.bandwidthFromRiseTime(1e-3), near(350));
+check("bw 350MHz→1ns", M.riseTimeFromBandwidth(3.5e8), near(1e-9));
+check("bw reverse 35MHz→10ns", M.riseTimeFromBandwidth(3.5e7), near(10e-9));
+
+// ── VRMS / dBm / dBu / dBV（sengpielaudio 参考电平）──
+check("dbv 1V=0dBV", M.vToDbv(1), near(0));
+check("dbu 1V=2.2185dBu", M.vToDbu(1), near(2.218487, 1e-3));
+check("dbu 0.77459667V=0dBu", M.vToDbu(0.7745966692414834), near(0, 1e-6));
+check("dbm@600 1V=2.2185", M.vToDbm(1, 600), near(2.218487, 1e-3));
+check("dbm@600 0.77459667V=0", M.vToDbm(0.7745966692414834, 600), near(0, 1e-4));
+check("dbvToV 0dB=1V", M.dbvToV(0), 1);
+check("dbuToV 0dBu=0.7746V", M.dbuToV(0), near(0.77459667, 1e-6));
+check("dbmToV 0dBm@600=0.7746V", M.dbmToV(0, 600), near(0.77459667, 1e-6));
+check("dbmToV z<=0 → NaN", Number.isNaN(M.dbmToV(0, 0)), true);
+check("600Ω 时 dBm=dBu 恒等", M.vToDbu(1) === M.vToDbm(1, 600) || Math.abs(M.vToDbu(1) - M.vToDbm(1, 600)) < 1e-12, true);
+
+// ── 波形峰值因数与峰峰值（sengpielaudio：正弦 Vpp=2.828·Vrms）──
+check("sine crest=√2", M.crest("sine"), near(Math.SQRT2));
+check("square crest=1", M.crest("square"), 1);
+check("triangle crest=√3", M.crest("triangle"), near(Math.sqrt(3)));
+check("sine Vrms=Vp/√2", M.vrmsFromVpeak(1, "sine"), near(0.7071067811865476));
+check("sine Vp=Vrms·√2", M.vpeakFromVrms(0.7071067811865476, "sine"), near(1));
+check("triangle Vrms=Vp/√3", M.vrmsFromVpeak(1, "triangle"), near(1 / Math.sqrt(3)));
+check("50Ω 1mW→0.22361V（sengpielaudio 0.224V）", M.voltageFromPowerMw(1, 50), near(0.2236067977));
+
+// ── 电压增益 V/V ↔ dB ↔ Np（analog dbconvert：10V/V=20dB=2.303Np）──
+check("gain 10→20dB", M.gainToDb(10), near(20));
+check("gain 10→2.3026Np", M.gainToNp(10), near(2.302585093, 1e-6));
+check("dB 20→gain10", M.dbToGain(20), near(10));
+check("Np 2.3026→gain10", M.npToGain(2.302585093), near(10));
+
+// ── 声学 dB SPL（基准 20µPa；声强 I=p²/Z0，Z0=400=ρc；SIL≡SPL）──
+check("SPL_REF=20µPa", M.SPL_REF, 2e-5);
+check("AIR_Z0=400", M.AIR_Z0, 400);
+check("0dBSPL→20µPa", M.splToPa(0), 2e-5);
+check("1Pa→93.98dBSPL", M.paToSpl(1), near(93.9794, 1e-3));
+check("20Pa→120dBSPL", M.paToSpl(20), near(120));
+check("1µPa→-26.02dBSPL", M.paToSpl(1e-6), near(-26.02, 1e-2));
+check("1Pa→I=0.0025W/m²", M.soundIntensity(1, 400), near(0.0025));
+check("I 0.0025→p=1Pa", M.paFromIntensity(0.0025, 400), near(1));
+check("1Pa→SIL=93.98（Z0=400 时 SIL≡SPL）", M.intensityToSil(0.0025), near(93.9794, 1e-3));
+
+// ── 声源声功率级 Lw/Pac ↔ 距离 r 处 SPL（sengpielaudio conv1/conv2 实测值）──
+check("SOUND_PWR_REF=1pW", M.SOUND_PWR_REF, 1e-12);
+check("pacToLw(1W)=120dB", M.pacToLw(1), near(120));
+check("lwToPac(120dB)=1W", M.lwToPac(120), near(1));
+check("pointArea(1,1)=4π", M.pointArea(1, 1), near(4 * Math.PI));
+check("Lw120 Q1 r1→SPL 109.008（实测）", M.splFromSource(120, 1, 1), near(109.00790136128558, 1e-6));
+check("Lw120 Q1 r0.2821→SPL 120（等声级点）", M.splFromSource(120, 1, 0.2821), near(119.99983963817824, 1e-3));
+check("Lw120 Q1 r2→SPL 102.987（每翻倍-6dB）", M.splFromSource(120, 1, 2), near(102.98730144800595, 1e-4));
+check("Lw100 Q2 r1→SPL 92.018（半球 8dB）", M.splFromSource(100, 2, 1), near(92.01820131792539, 1e-4));
+check("Lw100 Q4 r1→SPL 95.029（1/4球 5dB）", M.splFromSource(100, 4, 1), near(95.0285012745652, 1e-4));
+check("Lw100 Q8 r1→SPL 98.039（1/8球 2dB）", M.splFromSource(100, 8, 1), near(98.038801231205, 1e-4));
+check("反向 SPL92 Q1 r1→Lw 103（conv2）", M.sourceFromSpl(92, 1, 1), near(102.99209863871442, 1e-3));
+check("intensityFromSource 1W Q1 r1→0.07958 W/m²", M.intensityFromSource(120, 1, 1), near(0.07957747154594767, 1e-6));
+
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);
 process.exit(fail ? 1 : 0);

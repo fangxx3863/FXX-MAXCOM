@@ -903,7 +903,7 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .tool-field label { color: var(--fg-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-inline { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .tool-inline .proto-in { flex: 1; }
-.tool-sel { flex: none !important; width: auto !important; max-width: 90px; }
+.tool-sel { flex: none !important; width: auto !important; max-width: 200px; }
 .tool-suffix { flex: none; color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
 .tool-output { color: var(--accent) !important; }
 .tool-resultline {

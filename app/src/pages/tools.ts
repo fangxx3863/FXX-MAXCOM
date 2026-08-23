@@ -11,6 +11,14 @@ import {
   seriesRes, parallelRes, seriesCap, parallelCap,
   traceImpedance as tImp, type TraceTopo, type TraceDir, type TraceInput,
 } from "../tools-math";
+import {
+  dbToLinear, linearToDb, bandwidthFromRiseTime, riseTimeFromBandwidth,
+  vToDbv, vToDbu, vToDbm, dbvToV, dbuToV, dbmToV,
+  crest, type CrestWave, vrmsFromVpeak, vpeakFromVrms, voltageFromPowerMw,
+  gainToDb, dbToGain, gainToNp, npToGain,
+  AIR_Z0, paToSpl, splToPa, soundIntensity, paFromIntensity, intensityToSil,
+  pacToLw, lwToPac, pointArea,
+} from "../tools-math";
 
 function math(src: string): string {
   return katex.renderToString(src, { throwOnError: false, displayMode: false });
@@ -1582,6 +1590,295 @@ function buildReactance(host: HTMLElement): ToolController {
   return {};
 }
 
+// ── dB ↔ 线性（电压/功率）──
+function buildDbLinear(host: HTMLElement): ToolController {
+  host.innerHTML = `
+    <div class="tool-panel">
+      <div class="tool-grid">
+        <div class="tool-field"><label>物理量</label><select id="dbl-qty" class="tool-sel proto-in"><option value="v">电压/电流（20·log）</option><option value="p">功率（10·log）</option></select></div>
+        <div class="tool-field"><label>换算方向</label><select id="dbl-dir" class="tool-sel proto-in"><option value="db2lin">dB → 线性</option><option value="lin2db">线性 → dB</option></select></div>
+        <div class="tool-field"><label>参考值</label><div class="tool-inline"><input id="dbl-ref" class="proto-in" type="number" value="1" /><span id="dbl-refu" class="tool-suffix">V</span></div></div>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-field"><label id="dbl-inlabel">dB 值</label><div class="tool-inline"><input id="dbl-in" class="proto-in" type="number" value="0" /><span id="dbl-inu" class="tool-suffix">dB</span></div></div>
+        <div class="tool-field"><label id="dbl-outlabel">线性值</label><div class="tool-inline"><input id="dbl-out" class="tool-output proto-in" readonly placeholder="—" /><span id="dbl-outu" class="tool-suffix"></span></div></div>
+      </div>
+      <div class="tool-formula" id="dbl-formula"></div>
+    </div>`;
+  const qtyEl = host.querySelector<HTMLSelectElement>("#dbl-qty")!;
+  const dirEl = host.querySelector<HTMLSelectElement>("#dbl-dir")!;
+  const refEl = host.querySelector<HTMLInputElement>("#dbl-ref")!;
+  const refuEl = host.querySelector<HTMLElement>("#dbl-refu")!;
+  const inEl = host.querySelector<HTMLInputElement>("#dbl-in")!;
+  const inuEl = host.querySelector<HTMLElement>("#dbl-inu")!;
+  const outEl = host.querySelector<HTMLInputElement>("#dbl-out")!;
+  const outuEl = host.querySelector<HTMLElement>("#dbl-outu")!;
+  const inLabel = host.querySelector<HTMLElement>("#dbl-inlabel")!;
+  const outLabel = host.querySelector<HTMLElement>("#dbl-outlabel")!;
+  const formulaEl = host.querySelector<HTMLElement>("#dbl-formula")!;
+  const compute = () => {
+    const power = qtyEl.value === "p";
+    const ref = num(refEl.value);
+    const inp = num(inEl.value);
+    if (ref === null || inp === null || ref <= 0) { outEl.value = ""; return; }
+    if (dirEl.value === "db2lin") {
+      outEl.value = fmt(ref * dbToLinear(inp, power), 8);
+      formulaEl.innerHTML = math(power ? "P = P_{ref} \\cdot 10^{L_P/10}" : "V = V_{ref} \\cdot 10^{L_V/20}");
+    } else {
+      outEl.value = fmt(linearToDb(inp / ref, power), 8);
+      formulaEl.innerHTML = math(power ? "L_P = 10\\log_{10}(P/P_{ref})" : "L_V = 20\\log_{10}(V/V_{ref})");
+    }
+  };
+  const render = () => {
+    const power = qtyEl.value === "p";
+    refuEl.textContent = power ? "W" : "V";
+    if (dirEl.value === "db2lin") {
+      inLabel.textContent = "dB 值"; inuEl.textContent = "dB";
+      outLabel.textContent = power ? "功率 P" : "电压 V"; outuEl.textContent = power ? "W" : "V";
+    } else {
+      inLabel.textContent = power ? "功率 P" : "电压 V"; inuEl.textContent = power ? "W" : "V";
+      outLabel.textContent = "dB 值"; outuEl.textContent = "dB";
+    }
+    compute();
+  };
+  host.querySelectorAll("#dbl-qty, #dbl-dir").forEach((el) => el.addEventListener("change", render));
+  host.querySelectorAll("#dbl-ref, #dbl-in").forEach((el) => el.addEventListener("input", compute));
+  render();
+  return {};
+}
+
+// ── 带宽 ↔ 上升时间（BW ≈ 0.35/tr）──
+function buildBandwidth(host: HTMLElement): ToolController {
+  const TIME_U = '<option value="1">s</option><option value="1e-3">ms</option><option value="1e-6">µs</option><option value="1e-9" selected>ns</option><option value="1e-12">ps</option>';
+  const FREQ_U = '<option value="1">Hz</option><option value="1e3">kHz</option><option value="1e6">MHz</option><option value="1e9" selected>GHz</option>';
+  host.innerHTML = `
+    <div class="tool-panel">
+      <div class="tool-grid">
+        <div class="tool-field"><label>计算方向</label><select id="bw-dir" class="tool-sel proto-in"><option value="tr">上升时间 → 带宽</option><option value="bw">带宽 → 上升时间</option></select></div>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-field"><label id="bw-inlabel">上升时间 tr</label><div class="tool-inline"><input id="bw-in" class="proto-in" type="number" value="1" /><select id="bw-inu" class="tool-sel proto-in">${TIME_U}</select></div></div>
+        <div class="tool-field"><label id="bw-outlabel">带宽 BW</label><div class="tool-inline"><input id="bw-out" class="tool-output proto-in" readonly placeholder="—" /><span id="bw-outu" class="tool-suffix">Hz</span></div></div>
+      </div>
+      <div class="tool-formula" id="bw-formula"></div>
+    </div>`;
+  const dirEl = host.querySelector<HTMLSelectElement>("#bw-dir")!;
+  const inEl = host.querySelector<HTMLInputElement>("#bw-in")!;
+  const inuEl = host.querySelector<HTMLSelectElement>("#bw-inu")!;
+  const outEl = host.querySelector<HTMLInputElement>("#bw-out")!;
+  const outuEl = host.querySelector<HTMLElement>("#bw-outu")!;
+  outuEl.style.display = "none"; // 输出自动量级已把单位写进值，隐藏静态后缀避免矛盾
+  const inLabel = host.querySelector<HTMLElement>("#bw-inlabel")!;
+  const outLabel = host.querySelector<HTMLElement>("#bw-outlabel")!;
+  const formulaEl = host.querySelector<HTMLElement>("#bw-formula")!;
+  const fmtF = (v: number): string => {
+    if (!Number.isFinite(v)) return "—";
+    if (v >= 1e9) return `${fmt(v / 1e9)} GHz`;
+    if (v >= 1e6) return `${fmt(v / 1e6)} MHz`;
+    if (v >= 1e3) return `${fmt(v / 1e3)} kHz`;
+    if (v >= 1) return `${fmt(v)} Hz`;
+    return `${fmt(v * 1e3)} mHz`;
+  };
+  const fmtT = (v: number): string => {
+    if (!Number.isFinite(v)) return "—";
+    if (v >= 1) return `${fmt(v)} s`;
+    if (v >= 1e-3) return `${fmt(v * 1e3)} ms`;
+    if (v >= 1e-6) return `${fmt(v * 1e6)} µs`;
+    if (v >= 1e-9) return `${fmt(v * 1e9)} ns`;
+    return `${fmt(v * 1e12)} ps`;
+  };
+  const compute = () => {
+    const v = num(inEl.value);
+    const u = Number(inuEl.value);
+    if (v === null || v <= 0) { outEl.value = ""; return; }
+    if (dirEl.value === "tr") {
+      outEl.value = fmtF(bandwidthFromRiseTime(v * u));
+      formulaEl.innerHTML = math("BW \\approx 0.35/t_r");
+    } else {
+      outEl.value = fmtT(riseTimeFromBandwidth(v * u));
+      formulaEl.innerHTML = math("t_r = 0.35/BW");
+    }
+  };
+  const render = () => {
+    if (dirEl.value === "tr") { inLabel.textContent = "上升时间 tr"; outLabel.textContent = "带宽 BW"; inuEl.innerHTML = TIME_U; outuEl.textContent = "Hz"; }
+    else { inLabel.textContent = "带宽 BW"; outLabel.textContent = "上升时间 tr"; inuEl.innerHTML = FREQ_U; outuEl.textContent = "s"; }
+    compute();
+  };
+  dirEl.addEventListener("change", render);
+  inEl.addEventListener("input", compute);
+  inuEl.addEventListener("change", compute);
+  render();
+  return {};
+}
+
+// ── VRMS / dBm / dBu / dBV（音频参考电平）──
+function buildAudioDb(host: HTMLElement): ToolController {
+  host.innerHTML = `
+    <div class="tool-panel">
+      <div class="tool-resultline">电平（填入任意一项，其余联动；波形决定峰值因数）</div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>参考阻抗 Z</label><div class="tool-inline"><input id="adb-z" class="proto-in" type="number" value="600" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>波形</label><select id="adb-wave" class="tool-sel proto-in"><option value="sine">正弦</option><option value="square">方波</option><option value="triangle">三角</option></select></div>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>峰值 Vp</label><div class="tool-inline"><input id="adb-vpk" class="proto-in" type="number" value="1" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>峰峰值 Vpp</label><div class="tool-inline"><input id="adb-vpp" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">V</span></div></div>
+        <div class="tool-field"><label>有效值 Vrms</label><div class="tool-inline"><input id="adb-vrms" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">V</span></div></div>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>功率</label><div class="tool-inline"><input id="adb-pm" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">mW</span></div></div>
+        <div class="tool-field"><label>dBm</label><div class="tool-inline"><input id="adb-dbm" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBm</span></div></div>
+        <div class="tool-field"><label>dBu</label><div class="tool-inline"><input id="adb-dbu" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBu</span></div></div>
+        <div class="tool-field"><label>dBV</label><div class="tool-inline"><input id="adb-dbv" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBV</span></div></div>
+      </div>
+      <div class="tool-resultline">电压增益（填入任意一项，其余联动；Np 为奈培）</div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>增益 V/V</label><div class="tool-inline"><input id="adb-gain" class="proto-in" type="number" value="10" /><span class="tool-suffix">V/V</span></div></div>
+        <div class="tool-field"><label>dB</label><div class="tool-inline"><input id="adb-gaindb" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dB</span></div></div>
+        <div class="tool-field"><label>Np</label><div class="tool-inline"><input id="adb-gainnp" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">Np</span></div></div>
+      </div>
+      <div class="tool-resultline">声源（声功率与距离无关，填入一项另一项联动）</div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>声源声功率级 Lw</label><div class="tool-inline"><input id="adb-lw" class="proto-in" type="number" value="120" /><span class="tool-suffix">dB</span></div></div>
+        <div class="tool-field"><label>声源声功率 P_ac</label><div class="tool-inline"><input id="adb-pac" class="proto-in" type="number" value="1" /><span class="tool-suffix">W</span></div></div>
+      </div>
+      <div class="tool-resultline">传播几何（决定距离衰减）</div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>距离 r</label><div class="tool-inline"><input id="adb-r" class="proto-in" type="number" value="1" /><span class="tool-suffix">m</span></div></div>
+        <div class="tool-field"><label>指向性因子 Q</label><select id="adb-q" class="tool-sel proto-in"><option value="1">球面 Q=1</option><option value="2">半球 Q=2</option><option value="4">四分之一球 Q=4</option><option value="8">八分之一球 Q=8</option></select></div>
+      </div>
+      <div class="tool-resultline">测量点（随距离变化：声压 p∝1/r，声强 I∝1/r²，每翻倍 −6dB）</div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>声压级 dBSPL</label><div class="tool-inline"><input id="adb-spl" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dBSPL</span></div></div>
+        <div class="tool-field"><label>声强级 dB SIL</label><div class="tool-inline"><input id="adb-sil" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">dB</span></div></div>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-field"><label>声强 I</label><div class="tool-inline"><input id="adb-i" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">W/m²</span></div></div>
+        <div class="tool-field"><label>声压 p</label><div class="tool-inline"><input id="adb-pa" class="proto-in" type="number" placeholder="—" /><span class="tool-suffix">Pa</span></div></div>
+      </div>
+      <div class="tool-formula" id="adb-formula"></div>
+      <div class="tool-resultline">dBV 基准 1V；dBu 基准 0.775V（1mW/600Ω）；dBm 基准 1mW，转电压依赖阻抗 Z（600Ω 时 dBm=dBu）；正弦 Vpp=2.828·Vrms、Vp=1.414·Vrms。声学：Lw 基准 1e-12W(=1pW)、SPL 基准 20µPa；Lp = Lw − 10·log10(4π·r²/Q)，1W≡120dB，Q=1 于 r=0.2821m 时 Lp=Lw，Q=1/2/4/8 于 1m 处分别低 11/8/5/2dB，距离每翻倍 −6dB；同一点在 Z0=400 时 dB SIL≡dB SPL（参考量选定的恒等，且二者随距离同步变化，均 ∝ 距离），但声强 I=P_ac·Q/(4πr²) 按 1/r²、声压 p=√(400·I) 按 1/r 衰减。</div>
+    </div>`;
+  const q = (id: string) => host.querySelector<HTMLInputElement>(id)!;
+  const zEl = q("#adb-z");
+  const waveEl = host.querySelector<HTMLSelectElement>("#adb-wave")!;
+  const lvl: Record<string, HTMLInputElement> = {
+    vpk: q("#adb-vpk"), vpp: q("#adb-vpp"), vrms: q("#adb-vrms"),
+    pm: q("#adb-pm"), dbm: q("#adb-dbm"), dbu: q("#adb-dbu"), dbv: q("#adb-dbv"),
+  };
+  const g: Record<string, HTMLInputElement> = { a: q("#adb-gain"), db: q("#adb-gaindb"), np: q("#adb-gainnp") };
+  const snd: Record<string, HTMLInputElement> = { spl: q("#adb-spl"), sil: q("#adb-sil"), pa: q("#adb-pa"), i: q("#adb-i") };
+  const lwEl = q("#adb-lw");
+  const pacEl = q("#adb-pac");
+  const rEl = q("#adb-r");
+  const qSel = host.querySelector<HTMLSelectElement>("#adb-q")!;
+  const formulaEl = q("#adb-formula");
+
+  const clearLvl = (from: string) => Object.keys(lvl).forEach((k) => { if (k !== from) lvl[k].value = ""; });
+  const recomputeLvl = (from: string) => {
+    const z = num(zEl.value);
+    const wave = (waveEl.value || "sine") as CrestWave;
+    const cf = crest(wave);
+    const src = num(lvl[from].value);
+    if (z === null || z <= 0 || src === null || !Number.isFinite(src)) { clearLvl(from); return; }
+    let vpk: number;
+    if (from === "vpk") vpk = src;
+    else if (from === "vpp") vpk = src / 2;
+    else if (from === "vrms") vpk = src * cf;
+    else if (from === "pm") vpk = vpeakFromVrms(voltageFromPowerMw(src, z), wave);
+    else if (from === "dbm") vpk = vpeakFromVrms(dbmToV(src, z), wave);
+    else if (from === "dbu") vpk = vpeakFromVrms(dbuToV(src), wave);
+    else vpk = vpeakFromVrms(dbvToV(src), wave);
+    if (!Number.isFinite(vpk) || vpk < 0) { clearLvl(from); return; }
+    const vrms = vrmsFromVpeak(vpk, wave);
+    const pm = ((vrms * vrms) / z) * 1000;
+    const vals: Record<string, number> = {
+      vpk, vpp: 2 * vpk, vrms, pm,
+      dbm: vToDbm(vrms, z), dbu: vToDbu(vrms), dbv: vToDbv(vrms),
+    };
+    Object.keys(lvl).forEach((k) => { if (k !== from) lvl[k].value = Number.isFinite(vals[k]) ? fmt(vals[k], 6) : ""; });
+  };
+
+  const clearG = (from: string) => ["a", "db", "np"].forEach((k) => { if (k !== from) g[k].value = ""; });
+  const recomputeG = (from: "a" | "db" | "np") => {
+    const src = num(g[from].value);
+    if (src === null || !Number.isFinite(src)) { clearG(from); return; }
+    let a: number;
+    if (from === "a") a = src;
+    else if (from === "db") a = dbToGain(src);
+    else a = npToGain(src);
+    if (!Number.isFinite(a)) { clearG(from); return; }
+    const vals: Record<string, number> = { a, db: gainToDb(a), np: gainToNp(a) };
+    ["a", "db", "np"].forEach((k) => { if (k !== from) g[k].value = fmt(vals[k], 6); });
+  };
+
+  const clearSnd = (from: string) => Object.keys(snd).forEach((k) => { if (k !== from) snd[k].value = ""; });
+  // 声学：声源键(lw/pac/r/q) 走前向（源功率级→距离处 SPL/I/p）；测量点键(spl/sil/pa/i) 走反向（反推 Lw/Pac）
+  const recomputeSnd = (from: string) => {
+    const r = num(rEl.value);
+    const q = num(qSel.value);
+    if (r === null || r <= 0 || q === null || q <= 0) return;
+    const isForward = from === "lw" || from === "pac" || from === "r" || from === "q";
+    if (isForward) {
+      let lw = num(lwEl.value);
+      if (from === "pac") {
+        const pv = num(pacEl.value);
+        lw = pv === null || !Number.isFinite(pv) ? null : pacToLw(pv);
+      }
+      if (lw === null || !Number.isFinite(lw)) return;
+      const pac = lwToPac(lw);
+      const area = pointArea(q, r);
+      const i = pac / area;                       // I = P_ac/A = Q·P_ac/(4πr²)
+      const p = paFromIntensity(i, AIR_Z0);
+      const spl = paToSpl(p);
+      const sil = intensityToSil(i);
+      lwEl.value = fmt(lw, 6);
+      pacEl.value = fmt(pac, 6);
+      snd.pa.value = fmt(p, 6); snd.spl.value = fmt(spl, 6); snd.i.value = fmt(i, 6); snd.sil.value = fmt(sil, 6);
+      return;
+    }
+    const src = num(snd[from].value);
+    if (src === null || !Number.isFinite(src)) { clearSnd(from); return; }
+    let p: number;
+    if (from === "pa") p = src;
+    else if (from === "i") p = paFromIntensity(src, AIR_Z0);
+    else p = splToPa(src); // spl 或 sil：Z0=400 时点处恒等
+    if (!Number.isFinite(p) || p < 0) { clearSnd(from); return; }
+    const i = soundIntensity(p, AIR_Z0);
+    const spl = paToSpl(p);
+    const sil = intensityToSil(i);
+    const pac = i * pointArea(q, r);              // 反向：点处 I×面积 → 源声功率
+    const lw = pacToLw(pac);
+    lwEl.value = fmt(lw, 6);
+    pacEl.value = fmt(pac, 6);
+    const vals: Record<string, number> = { spl, sil, pa: p, i };
+    Object.keys(snd).forEach((k) => { if (k !== from) snd[k].value = Number.isFinite(vals[k]) ? fmt(vals[k], 6) : ""; });
+  };
+
+  formulaEl.innerHTML =
+    math("L_V = 20\\log_{10}(V/1)") + "<br>" +
+    math("L_u = 20\\log_{10}(V/\\sqrt{0.6})") + "<br>" +
+    math("L_m = 10\\log_{10}(1000V^2/Z)") + "<br>" +
+    math("V_{pp} = 2\\sqrt{2}\\,V_{rms}") + "<br>" +
+    math("N_p = \\ln A") + "<br>" +
+    math("L_p = 20\\log_{10}(p/20{\\mu}Pa)") + "<br>" +
+    math("L_W = 10\\log_{10}(P_{ac}/10^{-12})") + "<br>" +
+    math("L_p = L_W - 10\\log_{10}(4\\pi r^2/Q)");
+  waveEl.addEventListener("change", () => recomputeLvl("vpk"));
+  zEl.addEventListener("input", () => recomputeLvl("vpk"));
+  Object.keys(lvl).forEach((k) => lvl[k].addEventListener("input", () => recomputeLvl(k)));
+  ["a", "db", "np"].forEach((k) => g[k].addEventListener("input", () => recomputeG(k as "a" | "db" | "np")));
+  Object.keys(snd).forEach((k) => snd[k].addEventListener("input", () => recomputeSnd(k)));
+  lwEl.addEventListener("input", () => recomputeSnd("lw"));
+  pacEl.addEventListener("input", () => recomputeSnd("pac"));
+  rEl.addEventListener("input", () => recomputeSnd("r"));
+  qSel.addEventListener("change", () => recomputeSnd("q"));
+  recomputeLvl("vpk");
+  recomputeG("a");
+  recomputeSnd("lw");
+  return {};
+}
+
 // ── 工具目录 ──
 const TOOLS: ToolDef[] = [
   { id: "555", icon: "⏱", title: "555 定时器计算器", desc: "根据 R1 和 C1 计算单稳态输出脉冲宽度", build: build555 },
@@ -1592,6 +1889,9 @@ const TOOLS: ToolDef[] = [
   { id: "current-divider", icon: "🔀", title: "分流器计算器", desc: "计算多路并联电阻上的分流电流", build: buildCurrentDivider },
   { id: "voltage-divider", icon: "🔽", title: "分压器计算器", desc: "根据输入电压和 R1/R2 计算输出电压", build: buildVoltageDivider },
   { id: "dbm-watt", icon: "📶", title: "dBm 和瓦特转换", desc: "dBm 与 mW/W 之间互转", build: buildDbmWatt },
+  { id: "db-linear", icon: "🔁", title: "dB 与线性转换", desc: "电压(20log)/功率(10log)与线性值互转", build: buildDbLinear },
+  { id: "bandwidth", icon: "📈", title: "带宽/上升时间计算", desc: "一阶带宽 BW≈0.35/tr 与上升时间互转", build: buildBandwidth },
+  { id: "audio-db", icon: "🎚", title: "音频电平/声压换算", desc: "Vp/Vpp/Vrms、mW、dBm/dBu/dBV、增益(V/V·dB·Np) 与 dB SPL 声压级互转", build: buildAudioDb },
   { id: "led-resistor", icon: "💡", title: "LED 串联电阻计算器", desc: "根据电源电压、LED 压降和电流计算限流电阻", build: buildLedResistor },
   { id: "ohm", icon: "Ω", title: "欧姆定律计算器", desc: "已知电压电流求电阻与功率", build: buildOhm },
   { id: "filter", icon: "𝍌", title: "低通/高通滤波器计算器", desc: "RC 低通/高通截止频率计算", build: buildFilter },

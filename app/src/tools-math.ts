@@ -303,3 +303,71 @@ export function traceImpedance(topo: TraceTopo, dir: TraceDir, x: TraceInput): T
   }
   return { warn: "不支持的拓扑" };
 }
+
+// ── dB ↔ 线性（电压/功率）──
+// 电压/电流等场量用 20log10，功率等能量量用 10log10；linear 为相对参考的无量纲比值。
+export function dbToLinear(db: number, power: boolean): number {
+  return 10 ** (db / (power ? 10 : 20));
+}
+export function linearToDb(ratio: number, power: boolean): number {
+  return (power ? 10 : 20) * Math.log10(ratio);
+}
+
+// ── 带宽 ↔ 上升时间（10%–90% 阶跃上升时间，近似 BW ≈ 0.35 / tr）──
+export function bandwidthFromRiseTime(tr: number): number {
+  return 0.35 / tr; // tr 秒 → BW Hz
+}
+export function riseTimeFromBandwidth(bw: number): number {
+  return 0.35 / bw; // BW Hz → tr 秒
+}
+
+// ── VRMS / dBm / dBu / dBV（音频参考电平）──
+// dBu 基准电压 0.77459667V（√0.6，即 1mW/600Ω）；dBV 基准 1V；dBm 基准 1mW（转电压需阻抗）。
+export const DBU_REF = 0.7745966692414834;
+export function vToDbv(vrms: number): number { return 20 * Math.log10(vrms); }
+export function vToDbu(vrms: number): number { return 20 * Math.log10(vrms / DBU_REF); }
+export function vToDbm(vrms: number, z: number): number {
+  if (z <= 0) return NaN;
+  return 10 * Math.log10(((vrms * vrms) / z) * 1000);
+}
+export function dbvToV(dbv: number): number { return 10 ** (dbv / 20); }
+export function dbuToV(dbu: number): number { return DBU_REF * 10 ** (dbu / 20); }
+export function dbmToV(dbm: number, z: number): number {
+  if (z <= 0) return NaN;
+  return Math.sqrt((z * 10 ** (dbm / 10)) / 1000);
+}
+
+// ── 波形（峰值因数）、峰峰值/有效值、功率→电压、电压增益（Np 奈培）──
+export type CrestWave = "sine" | "square" | "triangle";
+export function crest(wave: CrestWave): number {
+  return wave === "square" ? 1 : wave === "triangle" ? Math.sqrt(3) : Math.SQRT2;
+}
+export function vrmsFromVpeak(vpk: number, wave: CrestWave): number { return vpk / crest(wave); }
+export function vpeakFromVrms(vrms: number, wave: CrestWave): number { return vrms * crest(wave); }
+export function voltageFromPowerMw(mw: number, z: number): number { return Math.sqrt((z * mw) / 1000); }
+export function gainToDb(a: number): number { return 20 * Math.log10(a); }
+export function dbToGain(db: number): number { return 10 ** (db / 20); }
+export function gainToNp(a: number): number { return Math.log(a); }
+export function npToGain(np: number): number { return Math.exp(np); }
+
+// ── 声学电平（dB SPL）：基准 20µPa；声强 I=p²/Z0，Z0=400(=ρc)，此时 SIL≡SPL ──
+export const SPL_REF = 2e-5;   // 20 µPa 听觉阈值
+export const AIR_Z0 = 400;     // 空气特性声阻抗 N·s/m³ (ρc)
+export function paToSpl(p: number): number { return 20 * Math.log10(p / SPL_REF); }
+export function splToPa(spl: number): number { return SPL_REF * 10 ** (spl / 20); }
+export function soundIntensity(p: number, z0: number): number { return (p * p) / z0; }
+export function paFromIntensity(i: number, z0: number): number { return Math.sqrt(i * z0); }
+export function intensityToSil(i: number): number { return 10 * Math.log10(i / 1e-12); }
+
+// ── 声源声功率级 Lw：基准 P_ac0 = 1pW = 1e-12 W ≡ 0 dB-SWL（与距离无关）──
+export const SOUND_PWR_REF = 1e-12; // 1 pW
+export function pacToLw(pac: number): number { return 10 * Math.log10(pac / SOUND_PWR_REF); }
+export function lwToPac(lw: number): number { return SOUND_PWR_REF * 10 ** (lw / 10); }
+
+// 指向性因子 Q、距离 r 下，测量点面积 A = 4π·r²/Q（球面 A=4πr²，Q=1 全球 /2 半球 /4 四分之一球 /8 八分之一球）
+// 声压级(声强级) Lp = Lw − 10·log10(A)；声强 I = P_ac/A = Q·P_ac/(4πr²)
+// 反向：给定测量点 Lp 与 Q、r，反推声源声功率级 Lw = Lp + 10·log10(A)
+export function pointArea(q: number, r: number): number { return (4 * Math.PI * r * r) / q; }
+export function splFromSource(lw: number, q: number, r: number): number { return lw - 10 * Math.log10(pointArea(q, r)); }
+export function sourceFromSpl(lp: number, q: number, r: number): number { return lp + 10 * Math.log10(pointArea(q, r)); }
+export function intensityFromSource(lw: number, q: number, r: number): number { return lwToPac(lw) * q / (4 * Math.PI * r * r); }

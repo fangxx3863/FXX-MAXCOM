@@ -167,5 +167,59 @@ check("vol 1L=0.2642gal", unit("volume", "l", "gal", "1") === "0.264172 gal (US)
 check("force 1N=0.2248lbf", unit("force", "n", "lbf", "1") === "0.224809 lbf");
 check("pwr 1hp=745.7W", unit("power", "hp", "w", "1") === "745.699872 W");
 
+// ── dB ↔ 线性（参考 1V/1W，电压 20log、功率 10log）──
+h = set("db-linear", [["#dbl-qty", "v"], ["#dbl-dir", "db2lin"], ["#dbl-ref", "1"], ["#dbl-in", "0"]]);
+check("dbl 0dB电压=1V", val(h, "#dbl-out") === "1");
+h = set("db-linear", [["#dbl-qty", "v"], ["#dbl-dir", "db2lin"], ["#dbl-ref", "1"], ["#dbl-in", "20"]]);
+check("dbl 20dB电压=10V", val(h, "#dbl-out") === "10");
+h = set("db-linear", [["#dbl-qty", "p"], ["#dbl-dir", "db2lin"], ["#dbl-ref", "1"], ["#dbl-in", "10"]]);
+check("dbl 10dB功率=10W", val(h, "#dbl-out") === "10");
+h = set("db-linear", [["#dbl-qty", "v"], ["#dbl-dir", "lin2db"], ["#dbl-ref", "1"], ["#dbl-in", "10"]]);
+check("dbl 10V=20dB", val(h, "#dbl-out") === "20");
+
+// ── 带宽 ↔ 上升时间（BW≈0.35/tr）──
+h = set("bandwidth", [["#bw-dir", "tr"], ["#bw-in", "1"], ["#bw-inu", "1e-9"]]);
+check("bw 1ns=350MHz", val(h, "#bw-out").trim() === "350 MHz");
+h = set("bandwidth", [["#bw-dir", "tr"], ["#bw-in", "10"], ["#bw-inu", "1e-9"]]);
+check("bw 10ns=35MHz", val(h, "#bw-out").trim() === "35 MHz");
+h = set("bandwidth", [["#bw-dir", "bw"], ["#bw-in", "1"], ["#bw-inu", "1e9"]]);
+check("bw 1GHz=350ps", val(h, "#bw-out").trim().startsWith("350 ps"));
+
+// ── 电平 dBm/dBu/dBV/Vp/Vpp/功率（参考：analog dbconvert 实测 Z₀=50 正弦 Vpeak=1→Vrms=0.7071/Power=10mW/dBm=10/dBu=-0.7918/dBV=-3.01）──
+h = set("audio-db", [["#adb-z", "50"], ["#adb-vpk", "1"]]);
+check("adbd sine 1Vpk→0.7071Vrms", Math.abs(Number(val(h, "#adb-vrms")) - 0.707106781) < 0.001);
+check("adbd sine 1Vpk→2Vpp", val(h, "#adb-vpp") === "2");
+check("adbd 50Ω 1Vpk→10mW", val(h, "#adb-pm") === "10");
+check("adbd 50Ω 1Vpk→10dBm", val(h, "#adb-dbm") === "10");
+check("adbd 50Ω 1Vpk→-3.01dBV", val(h, "#adb-dbv").startsWith("-3.0103"));
+check("adbd 50Ω 1Vpk→-0.7918dBu", val(h, "#adb-dbu").startsWith("-0.7918"));
+h = set("audio-db", [["#adb-z", "600"], ["#adb-vpk", "1"]]);
+check("adbd 600Ω Vpk1→dBm=dBu", Math.abs(Number(val(h, "#adb-dbm")) - Number(val(h, "#adb-dbu"))) < 0.001);
+h = set("audio-db", [["#adb-wave", "square"], ["#adb-z", "50"], ["#adb-vpk", "1"]]);
+check("adbd 方波 1Vpk→1Vrms", val(h, "#adb-vrms") === "1");
+check("adbd 方波 1Vpk→0dBV", val(h, "#adb-dbv") === "0");
+h = set("audio-db", [["#adb-dbu", "0"]]);
+check("adbd 0dBu→0.7746Vrms", Math.abs(Number(val(h, "#adb-vrms")) - 0.77459667) < 0.001);
+// ── 电压增益 V/V ↔ dB ↔ Np（analog：10V/V=20dB=2.303Np）──
+h = set("audio-db", [["#adb-gain", "10"]]);
+check("adbd 增益10→20dB", val(h, "#adb-gaindb") === "20");
+check("adbd 增益10→2.3026Np", val(h, "#adb-gainnp").startsWith("2.302585"));
+// ── 声学 dB SPL（基准 20µPa；声阻抗 Z0=400＝ρc；SIL≡SPL）──
+h = set("audio-db", [["#adb-pa", "1"]]);
+check("adbd 1Pa→93.98dBSPL", val(h, "#adb-spl").startsWith("93.9794"));
+check("adbd 1Pa→0.0025W/m²", val(h, "#adb-i").startsWith("0.0025"));
+check("adbd SPL=SIL(Z0=400)", Math.abs(Number(val(h, "#adb-spl")) - Number(val(h, "#adb-sil"))) < 0.001);
+// ── 声源功率级→距离链（sengpielaudio conv1/conv2 实测值）──
+h = set("audio-db", [["#adb-lw", "120"], ["#adb-q", "1"], ["#adb-r", "1"]]);
+check("adbd Lw120 Q1 r1→109.01dBSPL", val(h, "#adb-spl").startsWith("109.0079"));
+check("adbd Lw120 Q1 r1→0.07958W/m²", val(h, "#adb-i").startsWith("0.079577"));
+check("adbd Lw120 Q1 r1→Pac=1W", val(h, "#adb-pac").startsWith("1"));
+h = set("audio-db", [["#adb-lw", "120"], ["#adb-q", "1"], ["#adb-r", "2"]]);
+check("adbd r=2→-6dB 102.99", val(h, "#adb-spl").startsWith("102.9873"));
+h = set("audio-db", [["#adb-lw", "100"], ["#adb-q", "4"], ["#adb-r", "1"]]);
+check("adbd Q4→-5dB 95.03", val(h, "#adb-spl").startsWith("95.0285"));
+h = set("audio-db", [["#adb-q", "1"], ["#adb-r", "1"], ["#adb-spl", "92"]]);
+check("adbd 反向92→Lw 102.99", val(h, "#adb-lw").startsWith("102.992"));
+
 console.log(`\n参考基线: ${pass} 过, ${fail} 挂`);
 process.exit(fail ? 1 : 0);
