@@ -419,6 +419,10 @@ input[type="number"] { padding: 3px 6px; }
 button.dd-face { justify-content: space-between; }
 .dd-face:hover, .dd-face:focus { border-color: var(--accent); }
 .dd-input { width: 110px; }
+.dd-label {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1 1 auto; min-width: 0;
+}
 .dd-arrow {
   width: 7px; height: 7px; flex: none;
   border-right: 1.5px solid var(--fg-dim); border-bottom: 1.5px solid var(--fg-dim);

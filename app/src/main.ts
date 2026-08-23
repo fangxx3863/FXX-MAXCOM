@@ -112,6 +112,17 @@ const BAUD_PRESETS = [
   "1000000", "1152000", "1500000", "2000000",
 ];
 
+// RTT 常见目标芯片（可自由输入；列表仅为候选过滤建议，需与 probe-rs builtin target 名一致）
+const CHIP_PRESETS = [
+  "nrf52832", "nrf52833", "nrf52840", "nrf5340",
+  "rp2040",
+  "esp32", "esp32c3", "esp32s3", "esp32c6",
+  "stm32f103c8", "stm32f103cbt6", "stm32f103vet6",
+  "stm32f407vet6", "stm32f411ceu6", "stm32g474ret6", "stm32h743zit6",
+  "ch32v003", "ch32v103", "ch32v203", "ch32v307", "ch32x035", "ch582",
+  "atmega328p", "gd32f103",
+];
+
 function seededMsRows(): MsRow[] {
   return [
     { enabled: true, content: "13 00 FF 88", hex: true, delayMs: 1000 },
@@ -224,6 +235,7 @@ class SessionApp {
   encodingDd!: DropdownHandle;
   tcpHostDd!: DropdownHandle;
   probeDd!: DropdownHandle;
+  chipDd!: DropdownHandle;
   newlineDd!: DropdownHandle;
   sendModeDd!: DropdownHandle;
   plotFmtDd!: DropdownHandle;
@@ -394,6 +406,15 @@ class SessionApp {
     this.q("#probe-dd").replaceWith(this.probeDd.el);
     this.q("#refresh-probes").addEventListener("click", () => void this.refreshProbes());
 
+    this.chipDd = createDropdown({
+      items: CHIP_PRESETS.map((c) => ({ value: c, label: c })),
+      value: "nrf52840",
+      editable: true,
+      placeholder: "芯片",
+      width: 150,
+    });
+    this.q("#rtt-chip-dd").replaceWith(this.chipDd.el);
+
     this.syncConnTypeUI();
 
     this.q("#connect-btn").addEventListener("click", () => this.toggleConnect());
@@ -448,6 +469,8 @@ class SessionApp {
     const isSsh = this.connKind === "ssh";
     this.el.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
     this.el.querySelectorAll<HTMLElement>(".rtt-only").forEach((el) => el.classList.toggle("hidden", !isRtt));
+    this.probeDd.el.classList.toggle("hidden", !isRtt);
+    this.chipDd.el.classList.toggle("hidden", !isRtt);
     this.portDd.el.classList.toggle("hidden", !isSerial);
     this.q("#refresh-ports").classList.toggle("hidden", !isSerial);
     this.baudDd.el.classList.toggle("hidden", !isSerial);
@@ -483,7 +506,7 @@ class SessionApp {
       }
     } else if (this.connKind === "rtt") {
       const probe = this.probeDd.value;
-      const chip = this.q<HTMLInputElement>("#rtt-chip").value.trim();
+      const chip = this.chipDd.value.trim();
       const up = Math.max(0, Number(this.q<HTMLInputElement>("#rtt-up").value) || 0);
       const down = Math.max(0, Number(this.q<HTMLInputElement>("#rtt-down").value) || 0);
       const addrRaw = this.q<HTMLInputElement>("#rtt-addr").value.trim();
@@ -1119,7 +1142,7 @@ class SessionApp {
     r["conn.sshuser"] = (this.q("#ssh-user") as HTMLInputElement).value;
     r["conn.sshpass"] = (this.q("#ssh-pass") as HTMLInputElement).value;
     r["conn.probe"] = this.probeDd.value;
-    r["conn.chip"] = (this.q("#rtt-chip") as HTMLInputElement).value;
+    r["conn.chip"] = this.chipDd.value;
     r["conn.rttup"] = (this.q("#rtt-up") as HTMLInputElement).value;
     r["conn.rttdown"] = (this.q("#rtt-down") as HTMLInputElement).value;
     r["conn.rttaddr"] = (this.q("#rtt-addr") as HTMLInputElement).value;
@@ -1182,7 +1205,7 @@ class SessionApp {
       this.pendingProbe = g("conn.probe");
       this.probeDd.setValue(g("conn.probe"));
     }
-    if (g("conn.chip")) (this.q("#rtt-chip") as HTMLInputElement).value = g("conn.chip");
+    if (g("conn.chip")) this.chipDd.setValue(g("conn.chip"));
     if (g("conn.rttup")) (this.q("#rtt-up") as HTMLInputElement).value = g("conn.rttup");
     if (g("conn.rttdown")) (this.q("#rtt-down") as HTMLInputElement).value = g("conn.rttdown");
     if (g("conn.rttaddr")) (this.q("#rtt-addr") as HTMLInputElement).value = g("conn.rttaddr");

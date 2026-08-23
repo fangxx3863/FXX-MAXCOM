@@ -62,8 +62,9 @@ export function createDropdown(opts: DropdownOptions): DropdownHandle {
   const renderLabel = () => {
     if (face instanceof HTMLInputElement) return;
     const item = items.find((i) => i.value === value);
-    face.querySelector<HTMLElement>(".dd-label")!.textContent =
-      item?.label ?? value ?? opts.placeholder ?? "";
+    const labelEl = face.querySelector<HTMLElement>(".dd-label")!;
+    labelEl.textContent = item?.label ?? value ?? opts.placeholder ?? "";
+    labelEl.title = labelEl.textContent ?? "";
   };
 
   const renderPopup = (filter: string) => {
