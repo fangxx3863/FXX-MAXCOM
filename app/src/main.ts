@@ -380,8 +380,11 @@ class SessionApp {
     // ── USB (winusb) 设备枚举 ──
     this.usbDeviceDd = createDropdown({ items: [], placeholder: t("conn.usb.placeholder"), width: 260 });
     this.q("#usb-device-dd").replaceWith(this.usbDeviceDd.el);
+    // replaceWith 会丢掉 placeholder 上的 usb-only/hidden class，必须补回（syncConnTypeUI 靠它显隐）
+    this.usbDeviceDd.el.classList.add("usb-only", "hidden");
     this.usbIfaceDd = createDropdown({ items: [], placeholder: t("conn.usbIface.placeholder"), width: 100 });
     this.q("#usb-iface-dd").replaceWith(this.usbIfaceDd.el);
+    this.usbIfaceDd.el.classList.add("usb-only", "hidden");
     this.q("#refresh-usb").addEventListener("click", () => void this.refreshUsbDevices());
     this.usbDeviceDd.el.addEventListener("change", () => {
       this.setUsbIfaceItems();
@@ -390,6 +393,7 @@ class SessionApp {
     // ── HID 设备枚举 ──
     this.hidDeviceDd = createDropdown({ items: [], placeholder: t("conn.hid.placeholder"), width: 260 });
     this.q("#hid-device-dd").replaceWith(this.hidDeviceDd.el);
+    this.hidDeviceDd.el.classList.add("hid-only", "hidden");
     this.q("#refresh-hid").addEventListener("click", () => void this.refreshHidDevices());
 
     const mkin = (id: string, items: string[], initial: string, onChange?: (v: string) => void): DropdownHandle => {
@@ -621,6 +625,10 @@ class SessionApp {
     this.el.querySelectorAll<HTMLElement>(".hid-only").forEach((el) => el.classList.toggle("hidden", !isHid));
     this.probeDd.el.classList.toggle("hidden", !isRtt);
     this.chipDd.el.classList.toggle("hidden", !isRtt);
+    // 直接引用兜底（replaceWith 换过节点的元素，防止 class 丢失时 querySelectorAll 漏管）
+    this.usbDeviceDd.el.classList.toggle("hidden", !isUsb);
+    this.usbIfaceDd.el.classList.toggle("hidden", !isUsb);
+    this.hidDeviceDd.el.classList.toggle("hidden", !isHid);
     this.portDd.el.classList.toggle("hidden", !isSerial);
     this.q("#refresh-ports").classList.toggle("hidden", !isSerial);
     this.baudDd.el.classList.toggle("hidden", !isSerial);
