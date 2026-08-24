@@ -116,17 +116,33 @@ pub enum FlowControl {
     Hardware,
 }
 
-/// 发现的串口信息（P4 端口页枚举用）
+/// 发现串口信息（P4 端口页枚举用）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortInfo {
     pub device: String,
     pub description: String,
 }
 
+/// 串口文件传输协议（烧录页 BL 交互用：X/Y/ZMODEM）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ModemProtocol {
+    #[default]
+    Xmodem,
+    Ymodem,
+    Zmodem,
+}
+
 #[cfg(feature = "rtt")]
 pub use flashing::FlashConfig;
 #[cfg(feature = "rtt")]
 pub use rtt::{ChipFamilyInfo, ProbeInfo};
+
+/// 串口文件传输（X/Y/ZMODEM）：仅在 serial feature 下编译（依赖 serialport + 协议 crate）。
+#[cfg(feature = "serial")]
+pub mod modem;
+#[cfg(feature = "serial")]
+pub use modem::{run_modem_flash, ModemFlashConfig, ModemProgress};
 
 /// 读取端：阻塞读，Ok(0) 表示本次超时无数据（作为空闲判定节拍）。
 pub trait TransportRead: Send {

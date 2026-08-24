@@ -173,6 +173,7 @@ button {
 }
 button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); color: #10131a; font-weight: 600; border-color: transparent; }
+button.danger { background: var(--err); color: #fff; font-weight: 600; border-color: transparent; }
 #connect-btn.danger { background: var(--err); color: #fff; }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.off { background: #666; }
@@ -416,7 +417,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
 .flash-progress-label {
   font-size: 12px; color: var(--fg-dim); font-variant-numeric: tabular-nums;
 }
-
+.flash-sep {
+  border: none; border-top: 1px solid var(--border);
+  margin: 18px 0 8px; width: 100%;
+}
+.flash-hint {
+  font-size: 12px; color: var(--fg-dim); margin: 4px 0 10px; line-height: 1.5;
+}
+.flash-status { margin-top: 8px; }
 /* ── 状态栏 ── */
 #statusbar {
   display: flex; gap: 18px; align-items: center;

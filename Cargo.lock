@@ -379,7 +379,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd93fd2c1b27acd030440c9dbd9d14c1122aad622374fe05a670b67a4bc034be"
 dependencies = [
  "heapless",
- "thiserror",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -427,6 +427,18 @@ checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "crc16"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11a65c4797332f3e3a5945e0377875afc79b1bdc87082a4f98ac1ef15b47e2dd"
+
+[[package]]
+name = "crc16"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "338089f42c427b86394a5ee60ff321da23a5c89c9d89514c829687b26359fcff"
 
 [[package]]
 name = "crc32fast"
@@ -571,7 +583,7 @@ version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "10d60334b3b2e7c9d91ef8150abfb6fa4c1c39ebbcf4a81c2e346aad939fee3e"
 dependencies = [
- "thiserror",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -1050,7 +1062,7 @@ dependencies = [
  "core-foundation-sys",
  "iana-time-zone-haiku",
  "js-sys",
- "log",
+ "log 0.4.34",
  "wasm-bindgen",
  "windows-core",
 ]
@@ -1263,6 +1275,15 @@ dependencies = [
 
 [[package]]
 name = "log"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"
+dependencies = [
+ "log 0.4.34",
+]
+
+[[package]]
+name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
@@ -1297,7 +1318,7 @@ dependencies = [
  "ringbuffer",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.20",
  "toml",
 ]
 
@@ -1314,8 +1335,11 @@ dependencies = [
  "serde_json",
  "serialport",
  "telnet",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
+ "xmodem",
+ "ymodem",
+ "zmodem2",
 ]
 
 [[package]]
@@ -1473,7 +1497,7 @@ dependencies = [
  "io-kit-sys 0.5.0",
  "js-sys",
  "linux-raw-sys",
- "log",
+ "log 0.4.34",
  "once_cell",
  "rustix",
  "slab",
@@ -1550,10 +1574,10 @@ dependencies = [
  "bytes",
  "delegate",
  "futures",
- "log",
+ "log 0.4.34",
  "rand",
  "sha2",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
  "windows",
  "windows-strings",
@@ -1789,7 +1813,7 @@ dependencies = [
  "scroll",
  "serde",
  "serialport",
- "thiserror",
+ "thiserror 2.0.20",
  "tracing",
  "uf2-decode",
  "yaml_serde",
@@ -1978,7 +2002,7 @@ dependencies = [
  "inout",
  "internal-russh-num-bigint",
  "keccak",
- "log",
+ "log 0.4.34",
  "md5",
  "ml-kem",
  "module-lattice",
@@ -2009,7 +2033,7 @@ dependencies = [
  "ssh-encoding",
  "ssh-key",
  "subtle",
- "thiserror",
+ "thiserror 2.0.20",
  "tokio",
  "typenum",
  "universal-hash",
@@ -2022,7 +2046,7 @@ version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3aec6cb630dbe85d72ffd7bcd95f07e1bd69f9f270ee8adfa1afe443a6331438"
 dependencies = [
- "log",
+ "log 0.4.34",
  "nix 0.31.3",
  "ssh-encoding",
  "windows-sys 0.61.2",
@@ -2436,11 +2460,31 @@ checksum = "01b97995bb05d87c31d04870a7b5393228017d12971d446e30d0739f484c5968"
 
 [[package]]
 name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
 version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec86235f5fcc2a73650310756d2ac5b138a5780bbbdfae3eeccec992c435ba4f"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 2.0.20",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2604,7 +2648,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7285e83a80ce76f5e7bce79fa41f68d78ba62d1003cf27bf748ab24413808cf4"
 dependencies = [
- "thiserror",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -2950,6 +2994,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmodem"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65b1c49d0ace68aeacb52330f9c7ff3816b12c6909cab8ef1660f0440d5600b3"
+dependencies = [
+ "crc16 0.4.0",
+ "log 0.4.34",
+]
+
+[[package]]
 name = "yaml_serde"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2960,6 +3014,16 @@ dependencies = [
  "libyaml-rs",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "ymodem"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92c6c03d31e7fb1db81431819d08690838869d204c20000f66446db030a05db1"
+dependencies = [
+ "crc16 0.3.4",
+ "log 0.3.9",
 ]
 
 [[package]]
@@ -2993,3 +3057,14 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zmodem2"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2ac5e85856f619f7d6c15cbf915448147607f31d028f54b08a0a3ea7ff632e5"
+dependencies = [
+ "bitflags 2.13.1",
+ "hex",
+ "thiserror 1.0.69",
+]

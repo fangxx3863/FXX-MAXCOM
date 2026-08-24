@@ -146,6 +146,10 @@ pub struct SessionManager {
     filters: Mutex<Vec<FilterRule>>,
     colors: Mutex<(bool, bool, Vec<ColorRule>)>,
     log_options: Mutex<LogOptions>,
+    /// 最近一次 connect 的配置快照：供 modem_transfer 在独占传输后重连恢复会话。
+    last_config: Mutex<Option<super::transport::ConnConfig>>,
+    /// modem 传输取消位（前端强制停止按钮置位；每次传输开始时复位）
+    modem_cancel: Arc<AtomicBool>,
 }
 
 impl SessionManager {
@@ -164,6 +168,8 @@ impl SessionManager {
             filters: Mutex::new(Vec::new()),
             colors: Mutex::new((true, true, Vec::new())),
             log_options: Mutex::new(LogOptions::default()),
+            last_config: Mutex::new(None),
+            modem_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -306,6 +312,7 @@ impl SessionManager {
         }
         let pair = super::transport::open(&config).map_err(|e| e.to_string())?;
         let label = pair.label.clone();
+        *self.last_config.lock().unwrap() = Some(config.clone());
 
         let stop = Arc::new(AtomicBool::new(false));
         let bus = Arc::new(Bus::new());
@@ -658,6 +665,7 @@ impl SessionManager {
             for t in a.threads.drain(..) {
                 let _ = t.join();
             }
+            *self.last_config.lock().unwrap() = None;
             self.events.state(&ConnState {
                 connected: false,
                 label: a.label,
@@ -683,6 +691,64 @@ impl SessionManager {
             }
             None => Err("未连接".into()),
         }
+    }
+
+    /// 在**当前会话连接**上做 X/Y/ZMODEM 文件传输（烧录页 BL 交互）。
+    ///
+    /// 传输期间链路被协议独占：先断开会话（释放底层串口/连接句柄），再用同一配置
+    /// 重新打开一条全双工连接专供 modem 协议使用，传输结束后自动重连恢复原会话。
+    /// 对任意传输模式（串口/TCP/Telnet/SSH/UDP）通用。
+    #[cfg(feature = "serial")]
+    pub fn modem_transfer(
+        &self,
+        protocol: super::transport::ModemProtocol,
+        path: String,
+        on_progress: impl Fn(&super::transport::ModemProgress),
+    ) -> Result<(), String> {
+        // 新传输开始：复位取消位（前端停止按钮在传输期间置位）
+        self.modem_cancel.store(false, Ordering::SeqCst);
+        let config = self
+            .last_config
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or_else(|| "未连接，无法执行 modem 传输".to_string())?;
+
+        // 1. 断开当前会话以释放底层句柄（串口不能双开；网络重开无害）
+        self.disconnect();
+        // 2. 用同一配置重开一条全双工连接专供 modem
+        let pair = super::transport::open(&config).map_err(|e| e.to_string())?;
+        // 3. 合成全双工设备 + 跑协议（取消位与命令层共享，传输线程内检查）
+        let mut duplex = super::transport::modem::Duplex {
+            read: pair.read,
+            write: pair.write,
+            cancel: self.modem_cancel.clone(),
+        };
+        let file = std::fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
+        let total = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let res = super::transport::modem::run_modem_on(
+            &mut duplex,
+            protocol,
+            file,
+            &path,
+            total,
+            &self.modem_cancel,
+            &on_progress,
+        );
+        // 4. 丢弃 duplex（关闭临时连接）
+        drop(duplex);
+        // 5. 重连恢复原会话（即使传输失败也尽量恢复连接）
+        if let Err(e) = self.connect(config) {
+            // 重连失败不覆盖原传输错误；仅记录
+            eprintln!("modem_transfer 后重连失败: {e}");
+        }
+        res
+    }
+
+    /// 强制停止当前 modem 传输（置位取消位；协议层在下一次轮询/读取时退出）。
+    /// 无传输进行时调用无害（下次传输开始会复位）。
+    pub fn cancel_modem_transfer(&self) {
+        self.modem_cancel.store(true, Ordering::SeqCst);
     }
 
     pub fn set_log_options(&self, o: LogOptions) {

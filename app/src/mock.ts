@@ -6,7 +6,7 @@
 
 import type {
   ChannelMetrics, ConnConfig, ConnState, DataFormat, EntriesBatch,
-  PlotSnapshotDto, PortInfo, SendPayload, StatsSnapshot,
+  ModemProtocol, PlotSnapshotDto, PortInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import type { ColoredSegment } from "./types";
 import { t } from "./i18n";
@@ -117,6 +117,17 @@ class MockBackend implements MockApi {
 
   async connState(): Promise<ConnState> {
     return { connected: this.connected, label: this.label, error: undefined };
+  }
+
+  async modemTransfer(_protocol: ModemProtocol, _path: string) {
+    if (!this.connected) throw t("flash.modemNotConnected");
+    // 演示模式：模拟一段延时后即视为完成（无真实对端）
+    await new Promise((r) => setTimeout(r, 600));
+    return;
+  }
+
+  async cancelModemTransfer() {
+    // 演示模式无真实传输，no-op
   }
 
   async send(payload: SendPayload) {

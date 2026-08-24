@@ -692,6 +692,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "crc16"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11a65c4797332f3e3a5945e0377875afc79b1bdc87082a4f98ac1ef15b47e2dd"
+
+[[package]]
+name = "crc16"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "338089f42c427b86394a5ee60ff321da23a5c89c9d89514c829687b26359fcff"
+
+[[package]]
 name = "crc32fast"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1939,7 +1951,7 @@ version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1054432bae2f14e0061e33d23402fbaa67a921d319d56adc6bcf887ddad1cbc2"
 dependencies = [
- "log",
+ "log 0.4.34",
  "markup5ever",
 ]
 
@@ -2047,7 +2059,7 @@ dependencies = [
  "core-foundation-sys",
  "iana-time-zone-haiku",
  "js-sys",
- "log",
+ "log 0.4.34",
  "wasm-bindgen",
  "windows-core 0.62.2",
 ]
@@ -2324,7 +2336,7 @@ dependencies = [
  "jiff-core",
  "jiff-static",
  "jiff-tzdb-platform",
- "log",
+ "log 0.4.34",
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
@@ -2377,7 +2389,7 @@ dependencies = [
  "cfg-if",
  "combine",
  "jni-sys 0.3.1",
- "log",
+ "log 0.4.34",
  "thiserror 1.0.69",
  "walkdir",
  "windows-sys 0.45.0",
@@ -2485,7 +2497,7 @@ dependencies = [
  "gtk",
  "gtk-sys",
  "libappindicator-sys",
- "log",
+ "log 0.4.34",
 ]
 
 [[package]]
@@ -2582,6 +2594,15 @@ dependencies = [
 
 [[package]]
 name = "log"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e19e8d5c34a3e0e2223db8e060f9e8264aeeb5c5fc64a4ee9965c062211c024b"
+dependencies = [
+ "log 0.4.34",
+]
+
+[[package]]
+name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
@@ -2610,7 +2631,7 @@ version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8983d30f2915feeaaab2d6babdd6bc7e9ed1a00b66b5e6d74df19aa9c0e91862"
 dependencies = [
- "log",
+ "log 0.4.34",
  "tendril",
  "web_atoms",
 ]
@@ -2620,7 +2641,7 @@ name = "maxcom"
 version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
- "log",
+ "log 0.4.34",
  "maxcom-core",
  "maxcom-engine",
  "serde",
@@ -2660,6 +2681,9 @@ dependencies = [
  "telnet",
  "thiserror 2.0.20",
  "tokio",
+ "xmodem",
+ "ymodem",
+ "zmodem2",
 ]
 
 [[package]]
@@ -2770,7 +2794,7 @@ checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
 dependencies = [
  "bitflags 2.13.1",
  "jni-sys 0.3.1",
- "log",
+ "log 0.4.34",
  "ndk-sys",
  "num_enum",
  "raw-window-handle",
@@ -2905,7 +2929,7 @@ dependencies = [
  "io-kit-sys 0.5.0",
  "js-sys",
  "linux-raw-sys",
- "log",
+ "log 0.4.34",
  "once_cell",
  "rustix",
  "slab",
@@ -3184,7 +3208,7 @@ dependencies = [
  "bytes",
  "delegate",
  "futures",
- "log",
+ "log 0.4.34",
  "rand",
  "sha2 0.11.0",
  "thiserror 2.0.20",
@@ -3789,7 +3813,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "js-sys",
- "log",
+ "log 0.4.34",
  "percent-encoding",
  "pin-project-lite",
  "serde",
@@ -3829,7 +3853,7 @@ dependencies = [
  "gobject-sys",
  "gtk-sys",
  "js-sys",
- "log",
+ "log 0.4.34",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",
@@ -3913,7 +3937,7 @@ dependencies = [
  "inout",
  "internal-russh-num-bigint",
  "keccak",
- "log",
+ "log 0.4.34",
  "md5",
  "ml-kem",
  "module-lattice",
@@ -3957,7 +3981,7 @@ version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3aec6cb630dbe85d72ffd7bcd95f07e1bd69f9f270ee8adfa1afe443a6331438"
 dependencies = [
- "log",
+ "log 0.4.34",
  "nix 0.31.3",
  "ssh-encoding",
  "windows-sys 0.61.2",
@@ -4132,7 +4156,7 @@ dependencies = [
  "bitflags 2.13.1",
  "cssparser",
  "derive_more",
- "log",
+ "log 0.4.34",
  "new_debug_unreachable",
  "phf",
  "phf_codegen",
@@ -4705,7 +4729,7 @@ dependencies = [
  "gtk",
  "jni",
  "libc",
- "log",
+ "log 0.4.34",
  "ndk",
  "ndk-sys",
  "objc2",
@@ -4767,7 +4791,7 @@ dependencies = [
  "http",
  "jni",
  "libc",
- "log",
+ "log 0.4.34",
  "mime",
  "muda",
  "objc2",
@@ -4883,7 +4907,7 @@ version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2d3c1dbe38037e7f590cdf2492594d5ceebe031e7bc7e827509b22a999d2940"
 dependencies = [
- "log",
+ "log 0.4.34",
  "raw-window-handle",
  "rfd",
  "serde",
@@ -4904,7 +4928,7 @@ dependencies = [
  "anyhow",
  "dunce",
  "glob",
- "log",
+ "log 0.4.34",
  "objc2-foundation",
  "percent-encoding",
  "schemars 0.8.22",
@@ -4953,7 +4977,7 @@ dependencies = [
  "gtk",
  "http",
  "jni",
- "log",
+ "log 0.4.34",
  "objc2",
  "objc2-app-kit",
  "once_cell",
@@ -4986,7 +5010,7 @@ dependencies = [
  "http",
  "infer",
  "json-patch",
- "log",
+ "log 0.4.34",
  "memchr",
  "phf",
  "plist",
@@ -6406,6 +6430,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "xmodem"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65b1c49d0ace68aeacb52330f9c7ff3816b12c6909cab8ef1660f0440d5600b3"
+dependencies = [
+ "crc16 0.4.0",
+ "log 0.4.34",
+]
+
+[[package]]
 name = "yaml_serde"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6416,6 +6450,16 @@ dependencies = [
  "libyaml-rs",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "ymodem"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92c6c03d31e7fb1db81431819d08690838869d204c20000f66446db030a05db1"
+dependencies = [
+ "crc16 0.3.4",
+ "log 0.3.9",
 ]
 
 [[package]]
@@ -6526,3 +6570,14 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zmodem2"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2ac5e85856f619f7d6c15cbf915448147607f31d028f54b08a0a3ea7ff632e5"
+dependencies = [
+ "bitflags 2.13.1",
+ "hex",
+ "thiserror 1.0.69",
+]

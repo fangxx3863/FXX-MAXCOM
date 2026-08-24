@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter, State};
 /// 全局应用状态：session id → 会话管理器
 pub struct AppState {
     app: AppHandle,
-    sessions: Mutex<HashMap<String, SessionManager>>,
+    sessions: Mutex<HashMap<String, Arc<SessionManager>>>,
 }
 
 impl AppState {
@@ -35,9 +35,15 @@ impl AppState {
         let mut map = self.sessions.lock().unwrap();
         let mgr = map.entry(session.to_string()).or_insert_with(|| {
             let events = Arc::new(TauriEvents::new(self.app.clone(), session.to_string()));
-            SessionManager::new(events)
+            Arc::new(SessionManager::new(events))
         });
         f(mgr)
+    }
+
+    /// 取出会话句柄（Arc 克隆），返回后不再持有 sessions 全局锁。
+    /// 供长时间运行的命令（如 modem 传输）在锁外执行，避免占用全局锁阻塞其它会话。
+    pub fn get_mgr(&self, session: &str) -> Option<Arc<SessionManager>> {
+        self.sessions.lock().unwrap().get(session).cloned()
     }
 
     /// 关闭会话：移除即触发 Drop → 断开连接、停线程
@@ -62,7 +68,11 @@ impl From<LogOptionsDto> for LogOptions {
             timestamp_mode: maxcom_core::framing::TimestampMode::parse(&d.timestamp_mode)
                 .unwrap_or_default(),
             encoding: d.encoding,
-            split_mode: if d.split_mode == "line" { "line".into() } else { "timeout".into() },
+            split_mode: if d.split_mode == "line" {
+                "line".into()
+            } else {
+                "timeout".into()
+            },
         }
     }
 }
@@ -86,12 +96,67 @@ pub fn list_chips() -> Vec<ChipFamilyInfo> {
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn flash_firmware(config: FlashConfig, app: AppHandle) -> Result<String, String> {
+pub async fn flash_firmware(config: FlashConfig, app: AppHandle) -> Result<String, String> {
     use crate::events::{FlashProgressPayload, EV_FLASH};
     let app2 = app.clone();
-    maxcom_engine::transport::flashing::flash(&config, move |p| {
-        let _ = app2.emit(EV_FLASH, FlashProgressPayload { progress: p });
+    tauri::async_runtime::spawn_blocking(move || {
+        maxcom_engine::transport::flashing::flash(&config, move |p| {
+            let _ = app2.emit(EV_FLASH, FlashProgressPayload { progress: p });
+        })
     })
+    .await
+    .map_err(|e| format!("烧录任务异常: {e}"))?
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub async fn modem_transfer(
+    session: String,
+    protocol: maxcom_engine::transport::ModemProtocol,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use crate::events::{FlashProgressPayload, EV_FLASH};
+    // 先取出会话句柄（释放 sessions 全局锁），再把阻塞的协议传输丢到阻塞线程池，
+    // 避免主线程/全局锁被 ZMODEM 无响应时的长等待（10s~120s）卡死 UI。
+    let mgr = state
+        .get_mgr(&session)
+        .ok_or_else(|| "会话不存在或已关闭".to_string())?;
+    let app = state.app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        mgr.modem_transfer(
+            protocol,
+            path,
+            move |p: &maxcom_engine::transport::ModemProgress| {
+                let _ = app.emit(
+                    EV_FLASH,
+                    FlashProgressPayload {
+                        progress: maxcom_engine::transport::flashing::FlashProgressDto {
+                            kind: p.kind.to_string(),
+                            operation: p.operation.clone(),
+                            size: p.size,
+                            total: p.total,
+                            message: p.message.clone().unwrap_or_default(),
+                        },
+                    },
+                );
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("modem 传输任务异常: {e}"))?
+}
+
+/// 强制停止当前会话的 modem 传输（置位取消位；协议层在下一轮轮询/读取时退出）。
+/// 标量调用，无阻塞，无传输进行时无害。
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn cancel_modem_transfer(session: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mgr = state
+        .get_mgr(&session)
+        .ok_or_else(|| "会话不存在或已关闭".to_string())?;
+    mgr.cancel_modem_transfer();
+    Ok(())
 }
 
 #[tauri::command]

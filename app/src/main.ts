@@ -697,6 +697,7 @@ class SessionApp {
           return raw ? (Number(raw) || null) : null;
         })(),
       }),
+      this.api,
     );
     // 规则面板：初始规则来自标签快照；变更即推本会话引擎，值级持久化交给轮询
     this.rulesPanel = new RulesPanel(this.el, this.api, rules0, () => {});

@@ -269,6 +269,19 @@ const zh: Dict = {
   "flash.filterFirmware": "固件",
   "flash.filterAll": "所有文件",
 
+  // ── 烧录页：串口 BL 传输（X/Y/ZMODEM，复用顶栏当前会话连接）──
+  "flash.modemTitle": "串口 BL 传输（X/Y/ZMODEM）",
+  "flash.modemHint": "复用顶栏当前连接向 Bootloader 发送文件（先连好串口/TCP/SSH 等）。传输期间独占链路。",
+  "flash.protocol": "协议",
+  "flash.modemSend": "发送文件",
+  "flash.modemNotConnected": "请先连接会话（顶栏连好串口/TCP/SSH 等）",
+  "flash.modemConnCheckFail": "连接状态检查失败",
+  "flash.modemSending": "正在通过 {proto} 发送…",
+  "flash.modemDone": "发送完成",
+  "flash.modemError": "发送失败: {e}",
+  "flash.modemStop": "停止",
+  "flash.modemCancelled": "已取消",
+
   // ── 协议页（Modbus RTU）──
   "protocol.notConnected": "未连接（请在顶部栏连接串口/网络）",
   "protocol.connected": "已连接（复用顶部栏连接）",
@@ -962,6 +975,19 @@ const en: Dict = {
   "flash.stage.failed": "{op} failed",
   "flash.filterFirmware": "Firmware",
   "flash.filterAll": "All files",
+
+  // ── Flash page: serial BL transfer (X/Y/ZMODEM, reuses current top-bar session) ──
+  "flash.modemTitle": "Serial BL transfer (X/Y/ZMODEM)",
+  "flash.modemHint": "Reuses the current top-bar connection to send a file to the Bootloader (connect serial/TCP/SSH first). The link is exclusive during transfer.",
+  "flash.protocol": "Protocol",
+  "flash.modemSend": "Send file",
+  "flash.modemNotConnected": "Connect a session first (top-bar serial/TCP/SSH etc.)",
+  "flash.modemConnCheckFail": "Failed to check connection state",
+  "flash.modemSending": "Sending via {proto} …",
+  "flash.modemDone": "Transfer complete",
+  "flash.modemError": "Transfer failed: {e}",
+  "flash.modemStop": "Stop",
+  "flash.modemCancelled": "Cancelled",
 
   // ── Protocol page (Modbus RTU) ──
   "protocol.notConnected": "Not connected (connect a serial/network in the top bar)",

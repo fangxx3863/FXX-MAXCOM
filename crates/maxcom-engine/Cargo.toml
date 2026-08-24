@@ -20,9 +20,22 @@ probe-rs = { version = "0.32", default-features = false, features = ["builtin-ta
 
 [features]
 default = ["serial"]
-serial = ["dep:serialport"]
+serial = ["dep:serialport", "dep:xmodem", "dep:ymodem", "dep:zmodem2"]
 rtt = ["dep:probe-rs"]
 
 [dependencies.serialport]
 version = "4"
+optional = true
+
+# 串口文件传输协议（烧录页 BL 交互：X/Y/ZMODEM）
+[dependencies.xmodem]
+version = "0.4"
+optional = true
+
+[dependencies.ymodem]
+version = "0.1"
+optional = true
+
+[dependencies.zmodem2]
+version = "0.7"
 optional = true

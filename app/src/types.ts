@@ -24,6 +24,9 @@ export interface FlashConfig {
   reset?: boolean;
 }
 
+/** 串口文件传输协议（烧录页 BL 交互，复用当前会话连接） */
+export type ModemProtocol = "xmodem" | "ymodem" | "zmodem";
+
 /** 烧录进度事件（后端 flashing::FlashProgressDto → flash://progress 事件负载） */
 export interface FlashProgressDto {
   /** 事件类型：layout | add | started | progress | finished | failed | message */

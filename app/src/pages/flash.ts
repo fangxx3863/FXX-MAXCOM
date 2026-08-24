@@ -4,8 +4,9 @@
 
 import { createDropdown, type DropdownHandle } from "../dropdown";
 import { IS_TAURI, flashFirmware, listChips, listProbes, onFlashProgress, pickFirmwarePath } from "../api";
+import type { SessionApi } from "../api";
 import { flattenChips, withAuto } from "../chips";
-import type { FlashConfig, FlashProgressDto } from "../types";
+import type { FlashConfig, FlashProgressDto, ModemProtocol, ConnState } from "../types";
 import { t } from "../i18n";
 
 export interface RttDefaults {
@@ -41,14 +42,22 @@ export class FlashPage {
   private progressTimer: number | null = null;
   private busy = false;
 
+  private api: SessionApi;
+  private protoDd!: DropdownHandle;
+  private modemSendBtn!: HTMLButtonElement;
+  private modemStopBtn!: HTMLButtonElement;
+  private modemStatusEl!: HTMLElement;
+
   constructor(
     root: HTMLElement,
     onRun: (cfg: FlashRunConfig) => void,
     getRttDefaults: () => RttDefaults,
+    api: SessionApi,
   ) {
     this.root = root;
     this.onRun = onRun;
     this.getRttDefaults = getRttDefaults;
+    this.api = api;
 
     const probeDd = createDropdown({ items: [], placeholder: t("conn.probe.placeholder"), width: 220 });
     this.probeDd = probeDd;
@@ -99,6 +108,23 @@ export class FlashPage {
     });
     this.doBtn.addEventListener("click", () => void this.flash(false));
     this.doRunBtn.addEventListener("click", () => void this.flash(true));
+
+    const protoDd = createDropdown({
+      items: [
+        { value: "ymodem", label: "YMODEM" },
+        { value: "xmodem", label: "XMODEM" },
+        { value: "zmodem", label: "ZMODEM" },
+      ],
+      value: "ymodem",
+      width: 180,
+    });
+    this.protoDd = protoDd;
+    this.q<HTMLElement>("#modem-proto-dd").replaceWith(protoDd.el);
+    this.modemSendBtn = this.q("#modem-send");
+    this.modemStopBtn = this.q("#modem-stop");
+    this.modemStatusEl = this.q("#modem-status");
+    this.modemSendBtn.addEventListener("click", () => void this.sendModem());
+    this.modemStopBtn.addEventListener("click", () => void this.stopModem());
   }
 
   private q<T extends HTMLElement>(sel: string): T {
@@ -257,6 +283,54 @@ export class FlashPage {
       this.progressBarEl.style.background = "";
       this.status(t("flash.error", { e }), true);
     } finally {
+      this.setBusy(false);
+    }
+  }
+
+  private modemStatus(text: string, err = false) {
+    this.modemStatusEl.textContent = text;
+    this.modemStatusEl.style.color = err ? "var(--err)" : "var(--ok)";
+  }
+
+  /** 强制停止：置位后端取消位，协议层在下一轮轮询/读取时退出；传输命令随即以 "cancelled" 拒绝 */
+  private async stopModem() {
+    try {
+      await this.api.cancelModemTransfer();
+    } catch {
+      // 会话已关闭等边缘情况：忽略，传输自身的 catch 会兜底
+    }
+  }
+
+  /** 串口 BL 传输：复用当前会话连接做 X/Y/ZMODEM 文件发送（传输期间独占链路） */
+  async sendModem() {
+    if (this.busy) return;
+    const path = this.filePathEl.value.trim();
+    if (!path) return this.modemStatus(t("flash.noFile"), true);
+    const proto = this.protoDd.value as ModemProtocol;
+
+    let st: ConnState;
+    try {
+      st = await this.api.connState();
+    } catch {
+      return this.modemStatus(t("flash.modemConnCheckFail"), true);
+    }
+    if (!st.connected) return this.modemStatus(t("flash.modemNotConnected"), true);
+
+    this.setBusy(true);
+    this.modemStopBtn.classList.remove("hidden"); // 传输期间显示“停止”，随时可强制中断
+    this.progressBarEl.style.background = "";
+    this.showProgress(true, true); // 先 indeterminate（ZMODEM 全程可能不确定；X/Y 会用 total 切百分比）
+    this.modemStatus(t("flash.modemSending", { proto: proto.toUpperCase() }));
+    try {
+      await this.api.modemTransfer(proto, path);
+      this.modemStatus(t("flash.modemDone"));
+    } catch (e) {
+      // 后端错误路径：兜底关闭进度条（正常 finished/failed 事件已由 handleProgress 处理）
+      this.showProgress(false);
+      if (String(e) === "cancelled") this.modemStatus(t("flash.modemCancelled"));
+      else this.modemStatus(t("flash.modemError", { e }), true);
+    } finally {
+      this.modemStopBtn.classList.add("hidden");
       this.setBusy(false);
     }
   }

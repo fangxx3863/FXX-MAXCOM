@@ -232,6 +232,19 @@
                 <span id="flash-progress-label" class="flash-progress-label"></span>
               </div>
               <p id="flash-status" class="flash-status"></p>
+
+              <hr class="flash-sep" />
+              <h4 data-i18n="flash.modemTitle">串口 BL 传输（X/Y/ZMODEM）</h4>
+              <p class="flash-hint" data-i18n="flash.modemHint">复用顶栏当前连接向 Bootloader 发送文件（先连好串口/TCP/SSH 等）。传输期间独占链路。</p>
+              <div class="flash-field">
+                <span class="set-label" data-i18n="flash.protocol">协议</span>
+                <div id="modem-proto-dd" class="flash-dd"></div>
+              </div>
+              <div class="flash-actions">
+                <button id="modem-send" class="primary" data-i18n="flash.modemSend">发送文件</button>
+                <button id="modem-stop" class="danger hidden" data-i18n="flash.modemStop">停止</button>
+              </div>
+              <p id="modem-status" class="flash-status"></p>
             </div>
           </div>
         </section>

@@ -6,7 +6,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   ChipFamilyInfo, ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, FlashProgressDto,
-  PlotSnapshotDto, PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
+  ModemProtocol, PlotSnapshotDto, PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import { getMock, mockOnRaw, mockOnEntries, mockOnState } from "./mock";
 import { t } from "./i18n";
@@ -54,6 +54,10 @@ export interface SessionApi {
   startCapture(): Promise<void>;
   saveCapture(path: string): Promise<number>;
   captureState(): Promise<[boolean, number, number]>;
+  /** 在**当前会话连接**上做 X/Y/ZMODEM 文件传输（烧录页 BL 交互，复用顶栏连接） */
+  modemTransfer(protocol: ModemProtocol, path: string): Promise<void>;
+  /** 强制停止当前会话的 modem 传输（对端无响应时不用干等超时） */
+  cancelModemTransfer(): Promise<void>;
 }
 
 function realApi(session: string): SessionApi {
@@ -78,6 +82,8 @@ function realApi(session: string): SessionApi {
     startCapture: () => invoke<void>("start_capture", { session }),
     saveCapture: (path) => invoke<number>("save_capture", { session, path }),
     captureState: () => invoke<[boolean, number, number]>("capture_state", { session }),
+    modemTransfer: (protocol, path) => invoke<void>("modem_transfer", { session, protocol, path }),
+    cancelModemTransfer: () => invoke<void>("cancel_modem_transfer", { session }),
   };
 }
 

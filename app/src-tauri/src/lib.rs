@@ -23,6 +23,10 @@ pub fn run() {
             commands::list_chips,
             #[cfg(feature = "desktop")]
             commands::flash_firmware,
+            #[cfg(feature = "desktop")]
+            commands::modem_transfer,
+            #[cfg(feature = "desktop")]
+            commands::cancel_modem_transfer,
             commands::connect,
             commands::disconnect,
             commands::conn_state,
