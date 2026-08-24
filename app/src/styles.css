@@ -962,3 +962,37 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
     white-space: nowrap;
   }
 }
+
+/* ── 移动端专属布局（<html data-platform="mobile">）──
+   桌面 UA 不匹配手机/平板 → 永不触发 → 桌面布局零影响。
+   Android 顶部安全区由原生 MainActivity 用 WindowInsets 监听把内容推回状态栏之下，
+   而非 CSS 的 env()（wry 不把 insets 喂给 WebView → env(safe-area-inset-*) 在安卓上恒为 0）；
+   此处 env(safe-area-inset-top) 供 iPhone 刘海/状态栏使用（桌面=0，无副作用）。
+   下方媒体查询会在窄视口把 #titlebar 整体 display:none，导致多标签被隐藏；
+   这里只隐藏品牌/拖拽区/窗口控制（移动端无 OS 窗口语义），保留标签条 + 新建钮，
+   恢复「新建标签/多标签切换」功能。 */
+:root[data-platform="mobile"] #titlebar {
+  display: flex;
+  height: auto;
+  min-height: 38px;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+:root[data-platform="mobile"] #brand,
+:root[data-platform="mobile"] .tb-drag,
+:root[data-platform="mobile"] #win-controls {
+  display: none;
+}
+:root[data-platform="mobile"] #tabstrip {
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px 0 8px;
+}
+:root[data-platform="mobile"] #tab-new {
+  margin: 4px 8px 4px 2px;
+}
+/* 标签在手机上稍窄，以便横滑容纳更多会话 */
+:root[data-platform="mobile"] .tab {
+  min-width: 96px;
+  max-width: 168px;
+}

@@ -3,7 +3,7 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
-import { IS_TAURI, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips } from "./api";
+import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips } from "./api";
 import type { ConnConfig, ConnState, DataFormat, DType, PortInfo, StatsSnapshot } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
@@ -85,6 +85,12 @@ function loadSettings(): AppSettings {
 }
 let currentSettings = loadSettings();
 applyTheme();
+
+// 手机/平板 UA 时标记 <html data-platform=mobile>，供 styles.css 对移动端做
+// 专属布局门控（桌面 UA 永不匹配，故不触发，桌面布局不受影响）。
+if (IS_MOBILE) {
+  document.documentElement.setAttribute("data-platform", "mobile");
+}
 
 function resolveThemeId(): string {
   if (currentSettings.theme === "system") {

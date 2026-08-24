@@ -18,6 +18,12 @@ export const EV_STATE = "conn://state";
 /** 是否运行在 Tauri WebView 内（v2 注入 __TAURI_INTERNALS__） */
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
+/** 是否运行在手机/平板（Android/iOS）浏览器或 Tauri 移动端 WebView。
+ *  桌面 UA 永不匹配，故仅移动端为 true —— 用于把手机专属布局门控在此处，
+ *  避免误伤桌面端（桌面窗口即使缩窄也不触发）。 */
+export const IS_MOBILE =
+  typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
 export interface LogOptionsDto {
   idle_timeout_ms: number;
   timestamp_mode: string;
