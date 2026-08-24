@@ -1725,6 +1725,7 @@ function applySettingsToAll() {
     s.applySettingsInputs(currentSettings);
     s.terminalPage.setFontSize(currentSettings.termSize);
     s.terminalPage.setTheme(termTheme);
+    s.logViewPage.refreshRowHeight();
   }
 }
 

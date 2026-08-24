@@ -29,6 +29,7 @@ export class LogViewPage {
   private lastTs: number | null = null;
   private lines = 0;
   private quickFilter: QuickFilter | null = null;
+  private rowCss = "";
 
   constructor(view: HTMLElement, opts: { autoscroll: HTMLInputElement; getTsMode: () => string }) {
     this.view = view;
@@ -36,6 +37,26 @@ export class LogViewPage {
     this.getTsMode = opts.getTsMode;
     // 粘性自动滚动：滚动位置决定自动滚动开关（滚上去=关，拉到底部=开）
     this.view.addEventListener("scroll", () => this.syncAutoscroll());
+    this.refreshRowHeight();
+  }
+
+  /** 每行格子高度钉成「整数设备像素」：xterm 固定行高原理。
+    把 line-height 从比例(1.5)换算为向上取整到整数设备像素的固定 px，
+    这样任意 DPR/缩放下每行都占整数个设备像素 → 累计高度为整数 →
+    scrollTop 落在整数像素，永不抖。换行由浏览器排到下一行（行高仍固定）。 */
+  refreshRowHeight() {
+    // 非浏览器环境（node 测试等）无 DOM/DPR，直接跳过
+    if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") return;
+    const fs = parseFloat(window.getComputedStyle(this.view).fontSize);
+    if (!Number.isFinite(fs) || fs <= 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    const natural = fs * 1.5; // styles.css #log-view line-height: 1.5
+    const rowCss = Math.ceil(natural * dpr) / dpr;
+    const key = rowCss.toFixed(3);
+    if (key !== this.rowCss) {
+      this.rowCss = key;
+      this.view.style.lineHeight = rowCss + "px";
+    }
   }
 
   /** 是否已滚动到底部（粘性自动滚动的判定） */
@@ -74,6 +95,7 @@ export class LogViewPage {
 
   /** 收到批量日志条目 */
   append(batch: EntriesBatch) {
+    this.refreshRowHeight();
     this.epochAnchor = batch.epoch_anchor_ms;
     const wasBottom = this.isAtBottom();
     const frag = document.createDocumentFragment();
