@@ -832,18 +832,9 @@ class SessionApp {
       }
     });
 
-    // 定时发送
-    this.q("#timer-send").addEventListener("change", (e) => {
-      const on = (e.target as HTMLInputElement).checked;
-      if (this.timerHandle !== null) {
-        window.clearInterval(this.timerHandle);
-        this.timerHandle = null;
-      }
-      if (on) {
-        const ms = Math.max(10, Number(this.q<HTMLInputElement>("#timer-ms").value) || 1000);
-        this.timerHandle = window.setInterval(() => void this.doSend(), ms);
-      }
-    });
+    // 定时发送：开关切换与间隔值变更都即时生效（改完即重启，无需再开关一次）
+    this.q("#timer-send").addEventListener("change", () => this.applyTimer());
+    this.q("#timer-ms").addEventListener("change", () => this.applyTimer());
 
     // 文件发送：读原始字节 → HEX 分块，令牌桶按线速放行（每字节约 10bit @8N1）
     this.q("#file-btn").addEventListener("click", () => this.q("#file-input").click());
@@ -884,6 +875,22 @@ class SessionApp {
 
     // 接收捕获
     this.q("#capture-btn").addEventListener("click", () => void this.toggleCapture());
+  }
+
+  /** 定时发送：按当前开关/间隔启动、停止或重启。开关切换与间隔值变更都会调用，
+      间隔值改完立即生效（重启间隔），无需再开关一次。 */
+  private applyTimer() {
+    const input = this.q<HTMLInputElement>("#timer-ms");
+    const raw = Number(input.value);
+    const ms = Math.max(10, raw || 1000);
+    if (String(ms) !== input.value) input.value = String(ms); // 归一化显示（min 10）
+    if (this.timerHandle !== null) {
+      window.clearInterval(this.timerHandle);
+      this.timerHandle = null;
+    }
+    if (this.q<HTMLInputElement>("#timer-send").checked) {
+      this.timerHandle = window.setInterval(() => void this.doSend(), ms);
+    }
   }
 
   private async doSend(textOverride?: string) {
