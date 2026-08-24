@@ -116,9 +116,13 @@ export class LogViewPage {
       this.lines--;
     }
     // 粘底：用户原本在底部（或自动滚动已开）才维持贴底；否则不打扰用户。
-    // 取整贴底：分数行高会让 scrollTop 在 sub-pixel 处来回 ±1px 抖动
+    // 取整贴底必须换算到「整数设备像素」：CSS 像素取整在 DPR=1.5 时会把
+    // 整数 CSS px(奇数) 变成 .5 设备像素，浏览器对该值来回吸附 → 整块 ±1px 抖。
+    // 200% 时 1 CSS px = 2 设备像素恒为整数故不抖(与每行抖动同源)。
     if (this.autoscroll.checked || wasBottom) {
-      this.view.scrollTop = Math.round(this.view.scrollHeight - this.view.clientHeight);
+      const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+      const maxCss = this.view.scrollHeight - this.view.clientHeight;
+      this.view.scrollTop = Math.round(maxCss * dpr) / dpr;
     }
   }
 
