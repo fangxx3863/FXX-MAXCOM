@@ -26,6 +26,11 @@ use std::time::Duration;
 /// 捕获缓冲上限（64 MiB，超出丢弃并计数）
 const CAPTURE_CAP: usize = 64 * 1024 * 1024;
 
+/// 长流防护：无换行/无空闲的连续数据（二进制流）累计超过该字节数即强制封行输出。
+/// 否则 splitter pending / time_buf 只涨不拆、batch 恒空，前端收不到任何 entries
+/// （xterm 走 raw 通道不受影响）；且最终一次性刷出的会是超大单行，前端渲染卡死。
+const PARTIAL_FLUSH_CAP: usize = 4096;
+
 /// 日志条目 DTO（segments 已染色；前端直接渲染）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntryDto {
@@ -485,9 +490,41 @@ impl SessionManager {
                                 batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false });
                             }
                         }
+                        // 长流防护：连续流无换行（二进制流）时空闲封行永不触发（last_data_ms 持续刷新）、
+                        // pending 只涨不拆 → batch 恒空 → 前端收发区冻结。pending 超过
+                        // PARTIAL_FLUSH_CAP 即强制以新行输出（partial=false），保证前端持续收到数据。
+                        // 只取前 CAP 字节、余量回填 pending：触发式整段取走会因读块(≤4096)叠加
+                        // 产生近 8KB 的 entry，硬约束单条 ≤ CAP 更稳。
+                        if splitter.pending_bytes() >= PARTIAL_FLUSH_CAP {
+                            let mut raw = splitter.flush_pending_line();
+                            let excess = raw.split_off(PARTIAL_FLUSH_CAP);
+                            if !excess.is_empty() {
+                                let _ = splitter.feed(&excess); // 尾段无换行，feed 仅回填 pending
+                            }
+                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let segments = colorize.process_line(&raw_text);
+                            let text = strip_ansi(&raw_text);
+                            if filter.should_show(&text) {
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false });
+                            }
+                        }
                     } else {
                         // 超时分包：不按换行拆，整段累积到 time_buf，靠空闲封行输出为时间块
                         time_buf.extend_from_slice(&data);
+                        // 长流防护：time 分包同理——time_buf 超限先输出为时间块（partial=false），
+                        // 避免连续流下无限累积、空闲才一次性吐出巨块。同样只取前 CAP 字节、余量回填。
+                        if time_buf.len() >= PARTIAL_FLUSH_CAP {
+                            let mut raw = std::mem::take(&mut time_buf);
+                            if raw.len() > PARTIAL_FLUSH_CAP {
+                                time_buf.extend_from_slice(&raw.split_off(PARTIAL_FLUSH_CAP));
+                            }
+                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let segments = colorize.process_line(&raw_text);
+                            let text = strip_ansi(&raw_text);
+                            if filter.should_show(&text) {
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false });
+                            }
+                        }
                     }
                         }
                     }

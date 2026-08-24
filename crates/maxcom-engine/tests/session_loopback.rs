@@ -563,3 +563,74 @@ fn timeout_mode_chunks_whole_burst_as_single_entry() {
 
     mgr.disconnect();
 }
+
+/// 长流防护回归：发送 total 字节无换行数据（'A' 填充），断言分批产出 ≤PARTIAL_FLUSH_CAP
+/// 的 entry 且字节完整。旧行为：无换行+无空闲 → batch 恒空前端收不到数据，结束后才一次性
+/// 刷出一条 total 字节的巨行（前端渲染卡死）。
+fn assert_lf_free_stream_streams(rec: &Arc<Recorder>, mgr: &SessionManager, total: usize) {
+    let hex: String = "41".repeat(total);
+    let n = mgr
+        .send(&SendPayload {
+            text: None,
+            hex: Some(hex),
+            newline: "none".into(),
+        })
+        .expect("send");
+    assert_eq!(n, total);
+
+    assert!(
+        wait_until(
+            || {
+                rec.entries
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .map(|e| e.text.len())
+                    .sum::<usize>()
+                    >= total
+            },
+            Duration::from_secs(5)
+        ),
+        "无换行长流未持续产出 entries（长流防护失效）"
+    );
+
+    let entries = rec.entries.lock().unwrap().clone();
+    let total_len: usize = entries.iter().map(|e| e.text.len()).sum();
+    assert_eq!(total_len, total, "长流字节数不完整");
+    let max_len = entries.iter().map(|e| e.text.len()).max().unwrap_or(0);
+    assert!(
+        max_len <= 4096,
+        "存在超过 4096B 的巨型 entry（len={max_len}）——未按块封行，前端会一次性渲染巨行"
+    );
+    assert!(
+        entries.len() >= 2,
+        "应分批产出多条 entry，实际 {} 条",
+        entries.len()
+    );
+}
+
+#[test]
+fn long_lf_free_stream_streams_entries_line_mode() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.connect(tcp_cfg(port)).expect("connect");
+    assert_lf_free_stream_streams(&rec, &mgr, 20_000);
+    mgr.disconnect();
+}
+
+#[test]
+fn long_lf_free_stream_streams_entries_timeout_mode() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_log_options(LogOptions {
+        idle_timeout_ms: 10,
+        timestamp_mode: TimestampMode::Absolute,
+        encoding: "auto".into(),
+        split_mode: "timeout".into(),
+    });
+    mgr.connect(tcp_cfg(port)).expect("connect");
+    assert_lf_free_stream_streams(&rec, &mgr, 20_000);
+    mgr.disconnect();
+}
