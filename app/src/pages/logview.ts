@@ -93,8 +93,11 @@ export class LogViewPage {
       this.view.removeChild(this.view.firstChild);
       this.lines--;
     }
-    // 粘底：用户原本在底部（或自动滚动已开）才维持贴底；否则不打扰用户
-    if (this.autoscroll.checked || wasBottom) this.view.scrollTop = this.view.scrollHeight;
+    // 粘底：用户原本在底部（或自动滚动已开）才维持贴底；否则不打扰用户。
+    // 取整贴底：分数行高会让 scrollTop 在 sub-pixel 处来回 ±1px 抖动
+    if (this.autoscroll.checked || wasBottom) {
+      this.view.scrollTop = Math.round(this.view.scrollHeight - this.view.clientHeight);
+    }
   }
 
   private renderLine(e: LogEntryDto): HTMLElement {
