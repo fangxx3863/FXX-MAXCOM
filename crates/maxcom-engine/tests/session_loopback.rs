@@ -158,6 +158,63 @@ fn full_pipeline_over_tcp_loopback() {
     assert!(rec.states.lock().unwrap().iter().any(|s| !s.connected));
 }
 
+/// 回归：冷启动时（未连接）就设置的过滤规则，connect 后必须生效。
+/// 此前 set_filters 只发给活动线程的 cmd_tx，active=None 时被静默丢弃，
+/// 手动开关一次才生效——本次必须自动生效（缓存配置在线程就绪后重放）。
+#[test]
+fn filters_set_before_connect_apply_after_connect() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+
+    // 冷启动顺序：先设规则，后连接（此时还未建立会话线程）
+    mgr.set_filters(vec![FilterRule {
+        name: "hide-hello".into(),
+        pattern: "hello".into(),
+        action: "hide".into(),
+        enabled: true,
+    }]);
+
+    mgr.connect(tcp_cfg(port)).expect("connect");
+
+    // 回环回显：两行，一行命中 hide、一行可见
+    mgr.send(&SendPayload {
+        text: Some("hello world".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    mgr.send(&SendPayload {
+        text: Some("keep visible".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+
+    // 等可见行出现（证明管道活着且过滤已激活）
+    assert!(
+        wait_until(
+            || rec
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.text.contains("keep visible")),
+            Duration::from_secs(3)
+        ),
+        "可见行未产出，连接前设置的过滤未生效"
+    );
+
+    // 命中 hide 的行绝不应被产出
+    let entries = rec.entries.lock().unwrap();
+    assert!(
+        !entries.iter().any(|e| e.text.contains("hello")),
+        "连接前设置的 hide 规则未生效: entries={:?}",
+        *entries
+    );
+    mgr.disconnect();
+}
+
 #[test]
 fn connect_rejects_bad_config_and_double_connect() {
     let port = spawn_echo_server();

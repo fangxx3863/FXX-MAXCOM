@@ -136,6 +136,10 @@ pub struct SessionManager {
     /// 接收捕获缓冲（Some=捕获中）
     capture: Arc<Mutex<Option<Vec<u8>>>>,
     capture_dropped: Arc<AtomicU64>,
+    /// 持久化配置：连接后重放给新线程引擎（修复冷启动时因未连接被丢弃的规则）
+    filters: Mutex<Vec<FilterRule>>,
+    colors: Mutex<(bool, bool, Vec<ColorRule>)>,
+    log_options: Mutex<LogOptions>,
 }
 
 impl SessionManager {
@@ -151,6 +155,9 @@ impl SessionManager {
             reconnect_delay_ms: AtomicU64::new(2000),
             capture: Arc::new(Mutex::new(None)),
             capture_dropped: Arc::new(AtomicU64::new(0)),
+            filters: Mutex::new(Vec::new()),
+            colors: Mutex::new((true, true, Vec::new())),
+            log_options: Mutex::new(LogOptions::default()),
         }
     }
 
@@ -407,12 +414,26 @@ impl SessionManager {
         let ev = self.events.clone();
         let stop_l = stop.clone();
         let cmd_rx_log = cmd_rx.clone();
+        // 冷启动配置：连接前 set_filters/set_color_rules/set_log_options 可能已被调用，
+        // 此处同步播种到日志线程，避免异步 cmd 与数据竞速导致前几行漏过滤
+        let init_filters = self.filters.lock().unwrap().clone();
+        let (init_master, init_ansi_yield, init_rules) = self.colors.lock().unwrap().clone();
+        let init_lopts = self.log_options.lock().unwrap().clone();
         threads.push(std::thread::Builder::new().name("logview".into()).spawn(move || {
             let detector = EncodingDetector;
             let mut splitter = LineSplitter::new();
             let mut colorize = ColorizeEngine::new(true);
+            colorize.master_enabled = init_master;
+            colorize.ansi_yield = init_ansi_yield;
+            colorize.reset();
+            for r in init_rules {
+                colorize.register(r);
+            }
             let mut filter = FilterEngine::new();
-            let mut options = LogOptions::default();
+            for r in &init_filters {
+                filter.add_rule(r);
+            }
+            let mut options = init_lopts;
             let heartbeat = tick(Duration::from_millis(50));
             let mut batch: Vec<LogEntryDto> = Vec::new();
             let mut last_flush = std::time::Instant::now();
@@ -632,18 +653,21 @@ impl SessionManager {
     }
 
     pub fn set_log_options(&self, o: LogOptions) {
+        *self.log_options.lock().unwrap() = o.clone();
         if let Some(a) = &*self.active.lock().unwrap() {
             let _ = a.cmd_tx.send(Cmd::SetLogOptions(o));
         }
     }
 
     pub fn set_filters(&self, rules: Vec<FilterRule>) {
+        *self.filters.lock().unwrap() = rules.clone();
         if let Some(a) = &*self.active.lock().unwrap() {
             let _ = a.cmd_tx.send(Cmd::SetFilters(rules));
         }
     }
 
     pub fn set_color_rules(&self, master: bool, ansi_yield: bool, rules: Vec<ColorRule>) {
+        *self.colors.lock().unwrap() = (master, ansi_yield, rules.clone());
         if let Some(a) = &*self.active.lock().unwrap() {
             let _ = a.cmd_tx.send(Cmd::SetColorRules {
                 master,
