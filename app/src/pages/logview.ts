@@ -34,6 +34,19 @@ export class LogViewPage {
     this.view = view;
     this.autoscroll = opts.autoscroll;
     this.getTsMode = opts.getTsMode;
+    // 粘性自动滚动：滚动位置决定自动滚动开关（滚上去=关，拉到底部=开）
+    this.view.addEventListener("scroll", () => this.syncAutoscroll());
+  }
+
+  /** 是否已滚动到底部（粘性自动滚动的判定） */
+  private isAtBottom(): boolean {
+    const el = this.view;
+    return el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+  }
+
+  /** 按当前滚动位置同步自动滚动开关 */
+  private syncAutoscroll() {
+    this.autoscroll.checked = this.isAtBottom();
   }
 
   setHexDisplay(on: boolean) {
@@ -62,6 +75,7 @@ export class LogViewPage {
   /** 收到批量日志条目 */
   append(batch: EntriesBatch) {
     this.epochAnchor = batch.epoch_anchor_ms;
+    const wasBottom = this.isAtBottom();
     const frag = document.createDocumentFragment();
     for (const item of batch.items) {
       const line = this.renderLine(item);
@@ -79,7 +93,8 @@ export class LogViewPage {
       this.view.removeChild(this.view.firstChild);
       this.lines--;
     }
-    if (this.autoscroll.checked) this.view.scrollTop = this.view.scrollHeight;
+    // 粘底：用户原本在底部（或自动滚动已开）才维持贴底；否则不打扰用户
+    if (this.autoscroll.checked || wasBottom) this.view.scrollTop = this.view.scrollHeight;
   }
 
   private renderLine(e: LogEntryDto): HTMLElement {

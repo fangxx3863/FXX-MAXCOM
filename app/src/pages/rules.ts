@@ -152,7 +152,7 @@ export class RulesPanel {
             { value: "string", label: t("rules.mode.string") },
           ],
           value: rule.mode ?? "regex",
-          width: 72,
+          width: 96,
           onChange: (v) => {
             rule.mode = v as "regex" | "string";
             this.changed();
@@ -165,7 +165,7 @@ export class RulesPanel {
             { value: "show", label: t("rules.show") },
           ],
           value: rule.action,
-          width: 84,
+          width: 64,
           onChange: (v) => {
             rule.action = v as "show" | "hide";
             this.changed();
