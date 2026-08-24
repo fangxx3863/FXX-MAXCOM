@@ -6,9 +6,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   ChipFamilyInfo, ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, FlashProgressDto,
-  ModemProtocol, PlotSnapshotDto, PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
+  HidDeviceInfo, ModemProtocol, PlotSnapshotDto, PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
+  UsbDeviceInfo,
 } from "./types";
-import { getMock, mockOnRaw, mockOnEntries, mockOnState } from "./mock";
+import { getMock, mockOnRaw, mockOnEntries, mockOnState, DEMO_USB_DEVICES, DEMO_HID_DEVICES } from "./mock";
 import { t } from "./i18n";
 
 export const EV_RAW = "conn://raw";
@@ -133,6 +134,18 @@ const DEMO_CHIP_FAMILIES: ChipFamilyInfo[] = [
 export async function listChips(): Promise<ChipFamilyInfo[]> {
   if (!IS_TAURI) return DEMO_CHIP_FAMILIES;
   return await invoke<ChipFamilyInfo[]>("list_chips");
+}
+
+/** 枚举 USB 设备（winusb 传输的设备下拉）。浏览器演示模式返回模拟设备。 */
+export async function listUsbDevices(): Promise<UsbDeviceInfo[]> {
+  if (!IS_TAURI) return DEMO_USB_DEVICES;
+  return await invoke<UsbDeviceInfo[]>("list_usb_devices");
+}
+
+/** 枚举 HID 设备（hid 传输的设备下拉）。浏览器演示模式返回模拟设备。 */
+export async function listHidDevices(): Promise<HidDeviceInfo[]> {
+  if (!IS_TAURI) return DEMO_HID_DEVICES;
+  return await invoke<HidDeviceInfo[]>("list_hid_devices");
 }
 
 /** 烧录固件（会话无关；浏览器演示模式返回模拟成功） */

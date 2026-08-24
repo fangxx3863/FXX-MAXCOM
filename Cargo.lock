@@ -1328,7 +1328,9 @@ version = "0.2.0"
 dependencies = [
  "bytes",
  "crossbeam-channel",
+ "hidapi",
  "maxcom-core",
+ "nusb",
  "probe-rs",
  "russh",
  "serde",

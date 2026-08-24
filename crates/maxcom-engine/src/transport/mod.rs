@@ -6,6 +6,8 @@
 
 #[cfg(feature = "rtt")]
 pub mod flashing;
+#[cfg(feature = "usb")]
+pub mod hid;
 #[cfg(feature = "rtt")]
 pub mod rtt;
 #[cfg(feature = "serial")]
@@ -14,6 +16,8 @@ pub mod ssh;
 pub mod tcp;
 pub mod telnet;
 pub mod udp;
+#[cfg(feature = "usb")]
+pub mod winusb;
 
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -71,6 +75,38 @@ pub enum ConnConfig {
         #[serde(default)]
         rtt_address: Option<u64>,
     },
+    /// WinUSB/libusb 类原始 USB 传输（nusb；仅 `usb` feature 编译时可用）
+    Winusb {
+        vid: u16,
+        pid: u16,
+        /// 接口号；None = 自动挑选第一个含 bulk/interrupt 数据端点的接口
+        #[serde(default)]
+        interface: Option<u8>,
+        /// OUT 端点地址（如 0x01）；0 = 自动（优先 bulk、回退 interrupt）
+        #[serde(default)]
+        out_ep: u8,
+        /// IN 端点地址（如 0x81）；0 = 自动（优先 bulk、回退 interrupt）
+        #[serde(default)]
+        in_ep: u8,
+    },
+    /// HID 传输（hidapi；仅 `usb` feature 编译时可用）
+    Hid {
+        vid: u16,
+        pid: u16,
+        /// 序列号（同 VID:PID 多设备时用于精确匹配；空 = 取第一个匹配设备）
+        #[serde(default)]
+        serial: Option<String>,
+        /// 写时前置的 Report ID（单报告设备为 0）
+        #[serde(default)]
+        report_id: u8,
+        /// 读时是否剥掉首字节 Report ID（单报告设备首字节恒为 0x00）
+        #[serde(default = "default_strip_report_id")]
+        strip_report_id: bool,
+    },
+}
+
+fn default_strip_report_id() -> bool {
+    true
 }
 
 fn default_baud() -> u32 {
@@ -121,6 +157,39 @@ pub enum FlowControl {
 pub struct PortInfo {
     pub device: String,
     pub description: String,
+}
+
+/// 枚举到的 USB 接口信息（winusb 设备下拉：选设备后选接口）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsbInterfaceInfo {
+    pub number: u8,
+    pub class: u8,
+    pub subclass: u8,
+    pub protocol: u8,
+}
+
+/// 枚举到的 USB 设备（winusb 设备下拉用）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsbDeviceInfo {
+    pub vid: u16,
+    pub pid: u16,
+    pub manufacturer: String,
+    pub product: String,
+    pub serial: String,
+    pub interfaces: Vec<UsbInterfaceInfo>,
+}
+
+/// 枚举到的 HID 设备（hid 设备下拉用）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HidDeviceInfo {
+    pub vid: u16,
+    pub pid: u16,
+    pub manufacturer: String,
+    pub product: String,
+    pub serial: String,
+    pub usage_page: u16,
+    pub usage: u16,
+    pub interface_number: i32,
 }
 
 /// 串口文件传输协议（烧录页 BL 交互用：X/Y/ZMODEM）。
@@ -207,6 +276,30 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
         ConnConfig::Serial { .. } => Err(io::Error::other(
             "serial support not compiled (feature \"serial\")",
         )),
+        #[cfg(feature = "usb")]
+        ConnConfig::Winusb {
+            vid,
+            pid,
+            interface,
+            out_ep,
+            in_ep,
+        } => winusb::open(*vid, *pid, *interface, *out_ep, *in_ep),
+        #[cfg(not(feature = "usb"))]
+        ConnConfig::Winusb { .. } => Err(io::Error::other(
+            "usb support not compiled (feature \"usb\")",
+        )),
+        #[cfg(feature = "usb")]
+        ConnConfig::Hid {
+            vid,
+            pid,
+            serial,
+            report_id,
+            strip_report_id,
+        } => hid::open(*vid, *pid, serial.as_deref(), *report_id, *strip_report_id),
+        #[cfg(not(feature = "usb"))]
+        ConnConfig::Hid { .. } => Err(io::Error::other(
+            "usb support not compiled (feature \"usb\")",
+        )),
     }
 }
 
@@ -232,6 +325,30 @@ pub fn discover_probes() -> Vec<ProbeInfo> {
 #[cfg(feature = "rtt")]
 pub fn chip_list() -> Vec<ChipFamilyInfo> {
     rtt::chip_list()
+}
+
+/// 枚举 USB 设备（winusb 传输的设备下拉）。非 usb feature / 无设备 → 空列表，绝不抛异常。
+pub fn discover_usb_devices() -> Vec<UsbDeviceInfo> {
+    #[cfg(feature = "usb")]
+    {
+        winusb::discover()
+    }
+    #[cfg(not(feature = "usb"))]
+    {
+        Vec::new()
+    }
+}
+
+/// 枚举 HID 设备（hid 传输的设备下拉）。非 usb feature / 无设备 → 空列表，绝不抛异常。
+pub fn discover_hid_devices() -> Vec<HidDeviceInfo> {
+    #[cfg(feature = "usb")]
+    {
+        hid::discover()
+    }
+    #[cfg(not(feature = "usb"))]
+    {
+        Vec::new()
+    }
 }
 
 impl ConnConfig {
@@ -261,6 +378,24 @@ impl ConnConfig {
             }
             ConnConfig::Rtt { .. } => {
                 // 空芯片名 / "auto" → probe-rs 自动识别目标芯片，无需强制填写
+                Ok(())
+            }
+            ConnConfig::Winusb { vid, pid, .. } => {
+                if *vid == 0 {
+                    return Err("USB VID 无效（未选择设备）".into());
+                }
+                if *pid == 0 {
+                    return Err("USB PID 无效（未选择设备）".into());
+                }
+                Ok(())
+            }
+            ConnConfig::Hid { vid, pid, .. } => {
+                if *vid == 0 {
+                    return Err("HID VID 无效（未选择设备）".into());
+                }
+                if *pid == 0 {
+                    return Err("HID PID 无效（未选择设备）".into());
+                }
                 Ok(())
             }
         }

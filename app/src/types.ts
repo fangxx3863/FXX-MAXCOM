@@ -10,7 +10,41 @@ export type ConnConfig =
   | { type: "udp_client"; host: string; port: number }
   | { type: "ssh"; host: string; port: number; username: string; password?: string }
   | { type: "telnet"; host: string; port: number }
-  | { type: "rtt"; probe_selector: string; chip: string; up_channel: number; down_channel: number; rtt_address?: number | null };
+  | { type: "rtt"; probe_selector: string; chip: string; up_channel: number; down_channel: number; rtt_address?: number | null }
+  // WinUSB/libusb 类原始 USB：interface=null 自动挑接口；out_ep/in_ep 0=自动
+  | { type: "winusb"; vid: number; pid: number; interface?: number | null; out_ep?: number; in_ep?: number }
+  // HID：serial 非空按序列号精确匹配；strip_report_id 默认剥 Report ID
+  | { type: "hid"; vid: number; pid: number; serial?: string | null; report_id?: number; strip_report_id?: boolean };
+
+/** 枚举到的 USB 接口（winusb 设备下拉：选设备后选接口） */
+export interface UsbInterfaceInfo {
+  number: number;
+  class: number;
+  subclass: number;
+  protocol: number;
+}
+
+/** 枚举到的 USB 设备（winusb 设备下拉） */
+export interface UsbDeviceInfo {
+  vid: number;
+  pid: number;
+  manufacturer: string;
+  product: string;
+  serial: string;
+  interfaces: UsbInterfaceInfo[];
+}
+
+/** 枚举到的 HID 设备（hid 设备下拉） */
+export interface HidDeviceInfo {
+  vid: number;
+  pid: number;
+  manufacturer: string;
+  product: string;
+  serial: string;
+  usage_page: number;
+  usage: number;
+  interface_number: number;
+}
 
 export interface FlashConfig {
   probe_selector: string;

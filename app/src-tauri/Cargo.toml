@@ -32,8 +32,8 @@ maxcom-engine = { path = "../../crates/maxcom-engine", default-features = false 
 [features]
 # LDK: 本地开发可关掉串口以加速编译：cargo build --no-default-features
 default = []
-# 桌面（Windows/Linux/macOS）：串口 + probe-rs RTT
-desktop = ["maxcom-engine/serial", "maxcom-engine/rtt"]
+# 桌面（Windows/Linux/macOS）：串口 + probe-rs RTT + USB 原始传输（winusb/hid）
+desktop = ["maxcom-engine/serial", "maxcom-engine/rtt", "maxcom-engine/usb"]
 # 移动端（Android/iOS）：串口枚举/RTT 不可用，仅网络传输
 mobile = []
 custom-protocol = ["tauri/custom-protocol"]

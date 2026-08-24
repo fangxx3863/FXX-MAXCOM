@@ -64,6 +64,13 @@
       <input id="rtt-up" type="number" data-i18n-placeholder="rtt.up.placeholder" placeholder="UP通道" value="0" class="rtt-only hidden" title="RTT up 通道（目标→主机，打印输出）" data-i18n-title="rtt.up.title" />
       <input id="rtt-down" type="number" data-i18n-placeholder="rtt.down.placeholder" placeholder="DOWN通道" value="0" class="rtt-only hidden" title="RTT down 通道（主机→目标，发送）" data-i18n-title="rtt.down.title" />
       <input id="rtt-addr" type="text" data-i18n-placeholder="rtt.addr.placeholder" placeholder="RTT地址(可选)" value="" class="rtt-only hidden" title="RTT 控制块地址，留空自动扫描" data-i18n-title="rtt.addr.title" />
+      <div id="usb-device-dd" class="usb-only hidden"></div>
+      <button id="refresh-usb" title="刷新 USB 设备列表" data-i18n-title="refresh.usb" class="usb-only hidden">⟳</button>
+      <div id="usb-iface-dd" class="usb-only hidden"></div>
+      <div id="hid-device-dd" class="hid-only hidden"></div>
+      <button id="refresh-hid" title="刷新 HID 设备列表" data-i18n-title="refresh.hid" class="hid-only hidden">⟳</button>
+      <input id="hid-report-id" type="number" min="0" max="255" value="0" class="hid-only hidden" data-i18n-placeholder="hid.reportId.placeholder" placeholder="Report ID" title="写时前置的 Report ID（单报告设备为 0）" data-i18n-title="hid.reportId.title" />
+      <label class="chk hid-only hidden"><input id="hid-strip" type="checkbox" checked /><span data-i18n="hid.strip">剥 Report ID</span></label>
       <label class="chk"><input id="auto-reconnect" type="checkbox" checked /><span data-i18n="conn.autoReconnect">自动重连</span></label>
       <button id="connect-btn" class="primary" data-i18n="conn.connect">连接</button>
       <span id="conn-state" class="dot off" title="未连接" data-i18n-title="state.disconnected"></span>

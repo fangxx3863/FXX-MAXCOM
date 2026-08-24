@@ -94,6 +94,20 @@ pub fn list_chips() -> Vec<ChipFamilyInfo> {
     maxcom_engine::transport::chip_list()
 }
 
+/// 枚举 USB 设备（winusb 传输的设备下拉）
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn list_usb_devices() -> Vec<maxcom_engine::transport::UsbDeviceInfo> {
+    maxcom_engine::transport::discover_usb_devices()
+}
+
+/// 枚举 HID 设备（hid 传输的设备下拉）
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn list_hid_devices() -> Vec<maxcom_engine::transport::HidDeviceInfo> {
+    maxcom_engine::transport::discover_hid_devices()
+}
+
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub async fn flash_firmware(config: FlashConfig, app: AppHandle) -> Result<String, String> {

@@ -17,6 +17,11 @@ regex = "1"
 encoding_rs = "0.8"
 toml = "0.8"
 thiserror = "2"
+# USB 原始传输（WinUSB/libusb 类）：nusb（Windows 走 WinUSB API / Linux usbfs / macOS IOKit）
+nusb = "0.2"
+# HID 传输：nusb 不含 HID 栈（HID 由操作系统 HID 驱动管理），用 hidapi 跨平台接入。
+# 后端与 probe-rs 对齐：Windows 纯 Rust windows-native；Linux basic-udev（hidraw）。
+hidapi = { version = "2", default-features = false, features = ["windows-native", "linux-native-basic-udev"] }
 
 [profile.release]
 lto = true

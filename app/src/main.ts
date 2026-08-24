@@ -3,8 +3,8 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
-import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips } from "./api";
-import type { ConnConfig, ConnState, DataFormat, DType, PortInfo, StatsSnapshot } from "./types";
+import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices } from "./api";
+import type { ConnConfig, ConnState, DataFormat, DType, HidDeviceInfo, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
@@ -200,6 +200,26 @@ function displayLabel(label: string): string {
   return label.replace(/\/dev\/[^\s@]+/g, (m) => shortPortName(m));
 }
 
+/** 4 位十六进制数字（小写） */
+function hex4(n: number): string {
+  return n.toString(16).padStart(4, "0").toLowerCase();
+}
+
+/** USB 设备下拉标签 */
+function usbDeviceLabel(d: UsbDeviceInfo): string {
+  const label = d.product || d.manufacturer || "USB Device";
+  const sn = d.serial ? ` [${d.serial}]` : "";
+  return `${label} (${hex4(d.vid)}:${hex4(d.pid)})${sn}`;
+}
+
+/** HID 设备下拉标签 */
+function hidDeviceLabel(d: HidDeviceInfo): string {
+  const label = d.product || d.manufacturer || "HID Device";
+  const sn = d.serial ? ` [${d.serial}]` : "";
+  const usage = d.usage_page ? ` (usage 0x${d.usage_page.toString(16).padStart(4, "0")})` : "";
+  return `${label}${sn}${usage}`;
+}
+
 // ══════════════════════════ 单个会话（一个标签页）══════════════════════════
 class SessionApp {
   readonly id: string;
@@ -236,6 +256,9 @@ class SessionApp {
   connTypeDd!: DropdownHandle;
   portDd!: DropdownHandle;
   baudDd!: DropdownHandle;
+  usbDeviceDd!: DropdownHandle;
+  usbIfaceDd!: DropdownHandle;
+  hidDeviceDd!: DropdownHandle;
   parityDd!: DropdownHandle;
   databitsDd!: DropdownHandle;
   stopbitsDd!: DropdownHandle;
@@ -323,6 +346,8 @@ class SessionApp {
         { value: "ssh", label: t("conn.ssh") },
         { value: "telnet", label: t("conn.telnet") },
         { value: "rtt", label: t("conn.rtt") },
+        { value: "winusb", label: t("conn.winusb") },
+        { value: "hid", label: t("conn.hid") },
       ],
       onChange: (v) => {
         this.connKind = v;
@@ -331,6 +356,8 @@ class SessionApp {
           portEl.value = v === "ssh" ? "22" : "23";
         }
         if (v === "rtt") void this.refreshProbes();
+        if (v === "winusb") void this.refreshUsbDevices();
+        if (v === "hid") void this.refreshHidDevices();
         this.syncConnTypeUI();
       },
     });
@@ -349,6 +376,21 @@ class SessionApp {
     this.q("#baud-dd").replaceWith(this.baudDd.el);
 
     this.q("#refresh-ports").addEventListener("click", () => void this.refreshPorts());
+
+    // ── USB (winusb) 设备枚举 ──
+    this.usbDeviceDd = createDropdown({ items: [], placeholder: t("conn.usb.placeholder"), width: 260 });
+    this.q("#usb-device-dd").replaceWith(this.usbDeviceDd.el);
+    this.usbIfaceDd = createDropdown({ items: [], placeholder: t("conn.usbIface.placeholder"), width: 100 });
+    this.q("#usb-iface-dd").replaceWith(this.usbIfaceDd.el);
+    this.q("#refresh-usb").addEventListener("click", () => void this.refreshUsbDevices());
+    this.usbDeviceDd.el.addEventListener("change", () => {
+      this.setUsbIfaceItems();
+    });
+
+    // ── HID 设备枚举 ──
+    this.hidDeviceDd = createDropdown({ items: [], placeholder: t("conn.hid.placeholder"), width: 260 });
+    this.q("#hid-device-dd").replaceWith(this.hidDeviceDd.el);
+    this.q("#refresh-hid").addEventListener("click", () => void this.refreshHidDevices());
 
     const mkin = (id: string, items: string[], initial: string, onChange?: (v: string) => void): DropdownHandle => {
       const dd = createDropdown({ items: items.map((v) => ({ value: v, label: v })), value: initial, onChange });
@@ -467,6 +509,68 @@ class SessionApp {
     }
   }
 
+  /** USB 设备下拉数据（winusb 传输）。key = "vid:pid"（hex，小写）。 */
+  private usbDevs: UsbDeviceInfo[] = [];
+
+  async refreshUsbDevices() {
+    try {
+      this.usbDevs = await listUsbDevices();
+      const items = this.usbDevs.map((d) => ({
+        value: `${hex4(d.vid)}:${hex4(d.pid)}`,
+        label: usbDeviceLabel(d),
+      }));
+      this.usbDeviceDd.setItems(items);
+      if (this.pendingUsb) {
+        this.usbDeviceDd.setValue(this.pendingUsb);
+        this.pendingUsb = "";
+      }
+      this.setUsbIfaceItems();
+      if (this.pendingUsbIface) {
+        this.usbIfaceDd.setValue(this.pendingUsbIface);
+        this.pendingUsbIface = "";
+      }
+    } catch (e) {
+      this.setHint(t("usb.enumerate.error", { e }));
+    }
+  }
+
+  /** 按当前选中的 USB 设备刷新接口下拉（key = 接口号字符串，"" = 自动） */
+  private setUsbIfaceItems() {
+    const dev = this.usbDevs.find((d) => `${hex4(d.vid)}:${hex4(d.pid)}` === this.usbDeviceDd.value);
+    if (!dev || dev.interfaces.length === 0) {
+      this.usbIfaceDd.setItems([{ value: "", label: t("conn.usbIface.auto") }]);
+      return;
+    }
+    this.usbIfaceDd.setItems(
+      dev.interfaces.map((i) => ({
+        value: String(i.number),
+        label: `${t("conn.usbIface.prefix")} ${i.number} (0x${i.class.toString(16).padStart(2, "0")})`,
+      })),
+    );
+  }
+
+  /** HID 设备下拉数据（hid 传输）。key = "vid:pid[:serial]"（serial 非空用于区分同 VID:PID 多设备）。 */
+  async refreshHidDevices() {
+    try {
+      const devs = await listHidDevices();
+      const items = devs.map((d) => ({
+        value: `${hex4(d.vid)}:${hex4(d.pid)}${d.serial ? `:${d.serial}` : ""}`,
+        label: hidDeviceLabel(d),
+      }));
+      this.hidDeviceDd.setItems(items);
+      if (this.pendingHid) {
+        this.hidDeviceDd.setValue(this.pendingHid);
+        this.pendingHid = "";
+      }
+    } catch (e) {
+      this.setHint(t("hid.enumerate.error", { e }));
+    }
+  }
+
+  private pendingUsb = "";
+  private pendingUsbIface = "";
+  private pendingHid = "";
+
   /** 从 probe-rs 拉取内置目标芯片候选（浏览器演示模式用少量内置列表）。 */
   private async loadChips() {
     try {
@@ -505,12 +609,16 @@ class SessionApp {
   private syncConnTypeUI() {
     const isSerial = this.connKind === "serial";
     const isRtt = this.connKind === "rtt";
+    const isUsb = this.connKind === "winusb";
+    const isHid = this.connKind === "hid";
     const isNetwork =
       this.connKind === "tcp_client" || this.connKind === "udp_client" ||
       this.connKind === "ssh" || this.connKind === "telnet";
     const isSsh = this.connKind === "ssh";
     this.el.querySelectorAll<HTMLElement>(".serial-only").forEach((el) => el.classList.toggle("hidden", !isSerial));
     this.el.querySelectorAll<HTMLElement>(".rtt-only").forEach((el) => el.classList.toggle("hidden", !isRtt));
+    this.el.querySelectorAll<HTMLElement>(".usb-only").forEach((el) => el.classList.toggle("hidden", !isUsb));
+    this.el.querySelectorAll<HTMLElement>(".hid-only").forEach((el) => el.classList.toggle("hidden", !isHid));
     this.probeDd.el.classList.toggle("hidden", !isRtt);
     this.chipDd.el.classList.toggle("hidden", !isRtt);
     this.portDd.el.classList.toggle("hidden", !isSerial);
@@ -581,6 +689,31 @@ class SessionApp {
       const rtt_address = addrRaw ? Number(addrRaw) || 0 : null;
       // 空芯片名 / "auto" → probe-rs 自动识别目标芯片（后端处理），故不强制填写
       cfg = { type: "rtt", probe_selector: probe, chip, up_channel: up, down_channel: down, rtt_address };
+    } else if (this.connKind === "winusb") {
+      const key = this.usbDeviceDd.value;
+      const parts = key.split(":");
+      const vid = parseInt(parts[0] ?? "", 16) || 0;
+      const pid = parseInt(parts[1] ?? "", 16) || 0;
+      const ifaceRaw = this.usbIfaceDd.value;
+      const ifaceNum = ifaceRaw === "" ? null : Number(ifaceRaw);
+      cfg = { type: "winusb", vid, pid, interface: ifaceNum };
+      if (!key) {
+        alert(t("conn.noUsb"));
+        return;
+      }
+    } else if (this.connKind === "hid") {
+      const key = this.hidDeviceDd.value;
+      const parts = key.split(":");
+      const vid = parseInt(parts[0] ?? "", 16) || 0;
+      const pid = parseInt(parts[1] ?? "", 16) || 0;
+      const serial = parts.length > 2 ? parts.slice(2).join(":") : null;
+      const report_id = Math.max(0, Number(this.q<HTMLInputElement>("#hid-report-id").value) || 0);
+      const strip_report_id = this.q<HTMLInputElement>("#hid-strip").checked;
+      cfg = { type: "hid", vid, pid, serial, report_id, strip_report_id };
+      if (!key) {
+        alert(t("conn.noHid"));
+        return;
+      }
     } else {
       const host = this.tcpHostDd.value;
       const port = Number(this.q<HTMLInputElement>("#tcp-port").value) || 8888;
@@ -1299,6 +1432,11 @@ class SessionApp {
     r["conn.rttup"] = (this.q("#rtt-up") as HTMLInputElement).value;
     r["conn.rttdown"] = (this.q("#rtt-down") as HTMLInputElement).value;
     r["conn.rttaddr"] = (this.q("#rtt-addr") as HTMLInputElement).value;
+    r["conn.usbdev"] = this.usbDeviceDd.value;
+    r["conn.usbiface"] = this.usbIfaceDd.value;
+    r["conn.hiddev"] = this.hidDeviceDd.value;
+    r["conn.hidreportid"] = (this.q("#hid-report-id") as HTMLInputElement).value;
+    r["conn.hidstrip"] = this.q<HTMLInputElement>("#hid-strip").checked ? "1" : "";
     r["conn.autoreconn"] = this.q<HTMLInputElement>("#auto-reconnect").checked ? "1" : "";
     r["conn.dtr"] = this.dtrOn ? "1" : "";
     r["conn.rts"] = this.rtsOn ? "1" : "";
@@ -1366,6 +1504,20 @@ class SessionApp {
     if (g("conn.rttup")) (this.q("#rtt-up") as HTMLInputElement).value = g("conn.rttup");
     if (g("conn.rttdown")) (this.q("#rtt-down") as HTMLInputElement).value = g("conn.rttdown");
     if (g("conn.rttaddr")) (this.q("#rtt-addr") as HTMLInputElement).value = g("conn.rttaddr");
+    if (g("conn.usbdev")) {
+      this.pendingUsb = g("conn.usbdev");
+      this.usbDeviceDd.setValue(g("conn.usbdev"));
+    }
+    if (g("conn.usbiface")) this.pendingUsbIface = g("conn.usbiface");
+    if (g("conn.hiddev")) {
+      this.pendingHid = g("conn.hiddev");
+      this.hidDeviceDd.setValue(g("conn.hiddev"));
+    }
+    if (g("conn.hidreportid")) (this.q("#hid-report-id") as HTMLInputElement).value = g("conn.hidreportid");
+    if (g("conn.hidstrip")) this.q<HTMLInputElement>("#hid-strip").checked = true;
+    // setValue 不触发 onChange：恢复 winusb/hid 类型时显式拉取设备列表并回填
+    if (this.connKind === "winusb") void this.refreshUsbDevices();
+    if (this.connKind === "hid") void this.refreshHidDevices();
     if (g("conn.autoreconn")) this.q<HTMLInputElement>("#auto-reconnect").checked = true;
     if (g("conn.dtr")) {
       this.dtrOn = true;

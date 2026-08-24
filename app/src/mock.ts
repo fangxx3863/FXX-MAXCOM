@@ -5,8 +5,8 @@
 // 事件经全局 hub 分发并携带 session 标签，与真实后端的事件路由形态一致。
 
 import type {
-  ChannelMetrics, ConnConfig, ConnState, DataFormat, EntriesBatch,
-  ModemProtocol, PlotSnapshotDto, PortInfo, SendPayload, StatsSnapshot,
+  ChannelMetrics, ConnConfig, ConnState, DataFormat, EntriesBatch, HidDeviceInfo,
+  ModemProtocol, PlotSnapshotDto, PortInfo, SendPayload, StatsSnapshot, UsbDeviceInfo,
 } from "./types";
 import type { ColoredSegment } from "./types";
 import { t } from "./i18n";
@@ -40,6 +40,53 @@ const DEMO_PORTS: PortInfo[] = [
   { device: "COM3", description: "USB-SERIAL CH340 (demo)" },
   { device: "COM7", description: "Standard Serial over Bluetooth (demo)" },
   { device: "COM11", description: "STMicroelectronics ST-LINK VCP (demo)" },
+];
+
+/** 演示用 USB 设备（winusb 传输下拉；与真实链路同 DTO 形态） */
+export const DEMO_USB_DEVICES: UsbDeviceInfo[] = [
+  {
+    vid: 0x1a86,
+    pid: 0x7523,
+    manufacturer: "WCH",
+    product: "CH340 USB-Serial (demo)",
+    serial: "",
+    interfaces: [{ number: 0, class: 0xff, subclass: 0x01, protocol: 0x02 }],
+  },
+  {
+    vid: 0x0483,
+    pid: 0x5740,
+    manufacturer: "STMicroelectronics",
+    product: "STM32 Virtual COM Port (demo)",
+    serial: "STM32_DEMO_001",
+    interfaces: [
+      { number: 0, class: 0x02, subclass: 0x02, protocol: 0x01 },
+      { number: 1, class: 0x0a, subclass: 0x00, protocol: 0x00 },
+    ],
+  },
+];
+
+/** 演示用 HID 设备（hid 传输下拉；与真实链路同 DTO 形态） */
+export const DEMO_HID_DEVICES: HidDeviceInfo[] = [
+  {
+    vid: 0x1a86,
+    pid: 0xfe01,
+    manufacturer: "WCH",
+    product: "CH9329 HID Bridge (demo)",
+    serial: "HID_DEMO_01",
+    usage_page: 0xff00,
+    usage: 0x0001,
+    interface_number: 0,
+  },
+  {
+    vid: 0x046d,
+    pid: 0xc52b,
+    manufacturer: "Logitech",
+    product: "Unifying Receiver (demo)",
+    serial: "",
+    usage_page: 0x0001,
+    usage: 0x0006,
+    interface_number: 0,
+  },
 ];
 
 const LINES: Array<{ segs: ColoredSegment[] }> = [
@@ -93,16 +140,21 @@ class MockBackend implements MockApi {
   async connect(config: ConnConfig) {
     if (this.connected) throw t("mock.busy");
     this.connected = true;
+    const hex = (n: number) => n.toString(16).padStart(4, "0");
     this.label =
       config.type === "serial"
         ? t("conn.label.serial", { port: config.port, baud: config.baud })
         : config.type === "rtt"
           ? t("conn.label.rtt", { chip: config.chip, up: config.up_channel })
-          : t("conn.label.net", {
-              proto: config.type === "tcp_client" ? "TCP" : "UDP",
-              host: config.host,
-              port: config.port,
-            });
+          : config.type === "winusb"
+            ? `USB ${hex(config.vid)}:${hex(config.pid)}`
+            : config.type === "hid"
+              ? `HID ${hex(config.vid)}:${hex(config.pid)}`
+              : t("conn.label.net", {
+                  proto: config.type === "tcp_client" ? "TCP" : "UDP",
+                  host: config.host,
+                  port: config.port,
+                });
     this.emitState();
     const tick = window.setInterval(() => this.pump(), 160);
     this.timers.push(tick);

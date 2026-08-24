@@ -17,11 +17,15 @@ russh = { version = "0.63", default-features = false, features = ["ring", "rsa"]
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 bytes = "1"
 probe-rs = { version = "0.32", default-features = false, features = ["builtin-targets", "builtin-formats", "cmsisdap_v1"], optional = true }
+nusb = { workspace = true, optional = true }
+hidapi = { workspace = true, optional = true }
 
 [features]
 default = ["serial"]
 serial = ["dep:serialport", "dep:xmodem", "dep:ymodem", "dep:zmodem2"]
 rtt = ["dep:probe-rs"]
+# USB 原始传输（winusb）+ HID 传输（桌面端启用；移动端不编译，避免 Android 链接问题）
+usb = ["dep:nusb", "dep:hidapi"]
 
 [dependencies.serialport]
 version = "4"

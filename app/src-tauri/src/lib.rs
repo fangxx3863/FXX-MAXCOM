@@ -22,6 +22,10 @@ pub fn run() {
             #[cfg(feature = "desktop")]
             commands::list_chips,
             #[cfg(feature = "desktop")]
+            commands::list_usb_devices,
+            #[cfg(feature = "desktop")]
+            commands::list_hid_devices,
+            #[cfg(feature = "desktop")]
             commands::flash_firmware,
             #[cfg(feature = "desktop")]
             commands::modem_transfer,
