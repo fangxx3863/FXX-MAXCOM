@@ -234,12 +234,14 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
   font-size: var(--log-size, 12.5px);
   line-height: 1.5; user-select: text;
 }
-.log-line { white-space: pre-wrap; word-break: break-all; }
+.log-line { display: flex; align-items: flex-start; min-height: var(--log-row-h, 1.5em); }
 .log-ts {
   color: var(--fg-dim); margin-right: 8px;
   /* 定宽右对齐：Δ+1065ms / +999ms / 绝对时间戳混用时内容列仍对齐 */
-  display: inline-block; min-width: 12ch; text-align: right;
+  flex: 0 0 auto; min-width: 12ch; text-align: right;
 }
+/* 内容块：从时间戳右列起对齐。pre-wrap 保留换行；超时分包单个 .log-line 含多个换行时，换行拆出的每行都对齐到内容列（绿线），不再回到容器左缘。 */
+.log-content { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-all; }
 .seg-bold { font-weight: 700; }
 #send-panel {
   display: flex; gap: 8px; padding: 8px 10px;

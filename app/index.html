@@ -88,7 +88,8 @@
               <div id="log-controls">
                 <span class="ctl"><span data-i18n="log.timestamp">时间戳</span> <div id="ts-mode-dd" class="inline-dd"></div></span>
                 <span class="ctl"><span data-i18n="log.encoding">编码</span> <div id="encoding-dd" class="inline-dd"></div></span>
-                <label><span data-i18n="log.idleTimeout">分包超时(ms)</span> <input id="idle-timeout" type="number" min="1" max="500" value="10" /></label>
+                <span class="ctl"><span data-i18n="log.splitMode">分包</span> <div id="split-mode-dd" class="inline-dd"></div></span>
+                <label id="idle-timeout-ctl"><span data-i18n="log.idleTimeout">超时(ms)</span> <input id="idle-timeout" type="number" min="1" max="500" value="10" /></label>
                 <label><input id="hex-display" type="checkbox" /><span data-i18n="log.hexDisplay">HEX显示</span></label>
                 <label><input id="autoscroll" type="checkbox" checked /><span data-i18n="log.autoscroll">自动滚动</span></label>
                 <input id="quick-filter" data-i18n-placeholder="log.filter.placeholder" data-i18n-title="log.filter.title" placeholder="过滤：仅显示匹配行" title="支持正则（非法时按子串匹配），对新旧数据即时生效" size="16" />

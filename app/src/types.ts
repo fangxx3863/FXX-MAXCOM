@@ -75,6 +75,8 @@ export interface LogEntryDto {
   text: string;
   segments: ColoredSegment[];
   raw_hex: string;
+  /** 未换行结束的部分行（line 分包空闲封行刷出）：应续接到当前行，而非断行 */
+  partial?: boolean;
 }
 
 export interface EntriesBatch {

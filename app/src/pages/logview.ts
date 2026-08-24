@@ -29,6 +29,8 @@ export class LogViewPage {
   private lastTs: number | null = null;
   private lines = 0;
   private quickFilter: QuickFilter | null = null;
+  /** 未换行结束的部分行（partial=true 的空闲封行条目）：续接到该行而非断行 */
+  private pendingLine: HTMLElement | null = null;
   private rowCss = "";
 
   constructor(view: HTMLElement, opts: { autoscroll: HTMLInputElement; getTsMode: () => string }) {
@@ -56,6 +58,9 @@ export class LogViewPage {
     if (key !== this.rowCss) {
       this.rowCss = key;
       this.view.style.lineHeight = rowCss + "px";
+      // 空行条目（时间戳=无 时 .log-line 无内容）会坍缩成 0 高，空行即消失。
+      // 用 --log-row-h 钉一行高作 min-height，让空行也占一行可见。
+      this.view.style.setProperty("--log-row-h", rowCss + "px");
     }
   }
 
@@ -100,15 +105,26 @@ export class LogViewPage {
     const wasBottom = this.isAtBottom();
     const frag = document.createDocumentFragment();
     for (const item of batch.items) {
-      const line = this.renderLine(item);
-      line.dataset.raw = item.text;
-      // 新行同样受快捷过滤约束
+      const isPartial = !!item.partial;
       const f = this.quickFilter;
-      if (f && (f.regex ? !f.regex.test(item.text) : !item.text.includes(f.text!))) {
-        line.classList.add("hidden");
+      // partial=true：空闲封行刷出的未结束部分行 → 续接到当前行，不新起一行。
+      // partial=false/缺省：换行结束 → 若上一条是未结束的部分行，则接上并断行；否则新起一行。
+      if (this.pendingLine) {
+        this.appendContentTo(this.contentOf(this.pendingLine), item);
+        const raw = (this.pendingLine.dataset.raw ?? "") + item.text;
+        this.pendingLine.dataset.raw = raw;
+        const hide = f && (f.regex ? !f.regex.test(raw) : !raw.includes(f.text!));
+        this.pendingLine.classList.toggle("hidden", !!hide);
+        if (!isPartial) this.pendingLine = null; // 断行，关闭当前部分行
+        continue;
       }
+      const line = this.createLine(item);
+      line.dataset.raw = item.text;
+      const hide = f && (f.regex ? !f.regex.test(item.text) : !item.text.includes(f.text!));
+      line.classList.toggle("hidden", !!hide);
       frag.appendChild(line);
       this.lines++;
+      if (isPartial) this.pendingLine = line;
     }
     this.view.appendChild(frag);
     while (this.lines > MAX_LINES && this.view.firstChild) {
@@ -126,7 +142,8 @@ export class LogViewPage {
     }
   }
 
-  private renderLine(e: LogEntryDto): HTMLElement {
+  /** 新建一行：换行结束的条目（或部分行条目首次到达时） */
+  private createLine(e: LogEntryDto): HTMLElement {
     const div = document.createElement("div");
     div.className = "log-line";
     const mode = this.getTsMode();
@@ -136,13 +153,29 @@ export class LogViewPage {
       ts.textContent = this.formatTs(e.ts_ms);
       div.appendChild(ts);
     }
+    const content = document.createElement("div");
+    content.className = "log-content";
+    div.appendChild(content);
+    this.appendContentTo(content, e);
+    return div;
+  }
+
+  /** 取某行 .log-line 的内容块（用于续行追加；由 createLine 保证存在） */
+  private contentOf(line: HTMLElement): HTMLElement {
+    const c = line.querySelector<HTMLElement>(".log-content");
+    if (!c) throw new Error("log-content missing");
+    return c;
+  }
+
+  /** 把条目内容（HEX 或染色段）追加到给定行 */
+  private appendContentTo(line: HTMLElement, e: LogEntryDto) {
     if (this.hexDisplay) {
       // HEX 模式：原始字节十六进制（染色让位——二进制没有"颜色语义"）
       const s = document.createElement("span");
       s.className = "log-hex";
       s.textContent = e.raw_hex || t("log.empty");
-      div.appendChild(s);
-      return div;
+      line.appendChild(s);
+      return;
     }
     for (const seg of e.segments) {
       const s = document.createElement("span");
@@ -150,10 +183,10 @@ export class LogViewPage {
       if (seg.fg) s.style.color = cssColor(seg.fg);
       if (seg.bg) s.style.backgroundColor = cssColor(seg.bg);
       if (seg.bold) s.classList.add("seg-bold");
-      div.appendChild(s);
+      line.appendChild(s);
     }
-    return div;
   }
+
 
   private formatTs(tsMs: number): string {
     switch (this.getTsMode()) {
@@ -178,6 +211,7 @@ export class LogViewPage {
     this.view.replaceChildren();
     this.lines = 0;
     this.lastTs = null;
+    this.pendingLine = null;
   }
 }
 

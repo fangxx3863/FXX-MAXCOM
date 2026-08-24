@@ -1,7 +1,10 @@
 //! 会话编排集成测试：TCP 回环验证 读→扇出→日志引擎→回调 / 发送 / 统计 / 过滤 全链路。
 
 use maxcom_core::filter::FilterRule;
-use maxcom_engine::session::{ConnState, LogEntryDto, SendPayload, SessionEvents, SessionManager};
+use maxcom_core::framing::TimestampMode;
+use maxcom_engine::session::{
+    ConnState, LogEntryDto, LogOptions, SendPayload, SessionEvents, SessionManager,
+};
 use maxcom_engine::transport::ConnConfig;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -466,5 +469,97 @@ fn capture_roundtrip_to_file() {
     let saved = std::fs::read(&path).unwrap();
     assert_eq!(saved, b"capture-me\n");
     let _ = std::fs::remove_file(&path);
+    mgr.disconnect();
+}
+
+#[test]
+fn line_split_idle_flush_marks_partial() {
+    // 换行分包：无结尾换行的残余（shell 提示符/最后一行）在空闲封行时刷出为
+    // partial=true 的未结束部分行——前端据此续接到当前行，不把提示符与后续命令拆成两行。
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_log_options(LogOptions {
+        idle_timeout_ms: 10,
+        timestamp_mode: TimestampMode::Absolute,
+        encoding: "auto".into(),
+        split_mode: "line".into(),
+    });
+    mgr.connect(tcp_cfg(port)).expect("connect");
+    assert!(mgr.is_connected());
+
+    // 发送无换行的 "prompt"：回显到达后无更多数据 → 空闲封行应把它作为部分行刷出
+    mgr.send(&SendPayload {
+        text: Some("prompt".into()),
+        hex: None,
+        newline: "none".into(),
+    })
+    .unwrap();
+
+    assert!(
+        wait_until(
+            || rec
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.partial && e.text.contains("prompt")),
+            Duration::from_secs(3)
+        ),
+        "换行分包：空闲封行应把无换行残余刷为 partial=true（未结束部分行）"
+    );
+    mgr.disconnect();
+}
+
+#[test]
+fn timeout_mode_chunks_whole_burst_as_single_entry() {
+    // 超时分包：应对无换行协议——不按换行拆行，整段累积、空闲封行输出为一个时间块（partial=false 独立一行）。
+    // 与换行分包（逐行拆、每行一条）必须区分开，不能"换行=超时行为一致"。
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_log_options(LogOptions {
+        idle_timeout_ms: 10,
+        timestamp_mode: TimestampMode::Absolute,
+        encoding: "auto".into(),
+        split_mode: "timeout".into(),
+    });
+    mgr.connect(tcp_cfg(port)).expect("connect");
+    assert!(mgr.is_connected());
+
+    // 发送一段带换行的突发：超时分包应整段一条（含 a、b、c 的完整时间块），而非逐行三条。
+    mgr.send(&SendPayload {
+        text: Some("a\r\nb\r\nc".into()),
+        hex: None,
+        newline: "none".into(),
+    })
+    .unwrap();
+
+    assert!(
+        wait_until(
+            || rec
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.text.contains("a") && e.text.contains("c") && !e.partial),
+            Duration::from_secs(3)
+        ),
+        "超时分包应把整段突发输出为一条时间块（含 a/c），而不是逐行拆"
+    );
+    // 不应出现把 b 单独拆成一条的情况（整段时间块只一条含 b）
+    let b_entries = rec
+        .entries
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|e| e.text.contains("b"))
+        .count();
+    assert!(
+        b_entries <= 1,
+        "超时分包不应逐行拆（含 b 的条数={}）",
+        b_entries
+    );
+
     mgr.disconnect();
 }

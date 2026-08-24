@@ -34,6 +34,9 @@ pub struct LogEntryDto {
     pub segments: Vec<maxcom_core::colorize::ColoredSegment>,
     /// 原始行字节的 hex（HEX 显示模式用）
     pub raw_hex: String,
+    /// 是否未换行结束的部分行（line 分包空闲封行刷出的中间态，前端应续接到当前行而非断行）
+    #[serde(default)]
+    pub partial: bool,
 }
 
 /// 绘图快照 DTO（前端 ~50ms 轮询一次）
@@ -69,6 +72,8 @@ pub struct LogOptions {
     pub idle_timeout_ms: u64,
     pub timestamp_mode: TimestampMode,
     pub encoding: String,
+    /// 分包方式："timeout"=空闲超时封行（默认）；"line"=仅按换行符分包，不做空闲封行
+    pub split_mode: String,
 }
 
 impl Default for LogOptions {
@@ -77,6 +82,7 @@ impl Default for LogOptions {
             idle_timeout_ms: 10,
             timestamp_mode: TimestampMode::Absolute,
             encoding: "auto".into(),
+            split_mode: "line".into(),
         }
     }
 }
@@ -422,6 +428,7 @@ impl SessionManager {
         threads.push(std::thread::Builder::new().name("logview".into()).spawn(move || {
             let detector = EncodingDetector;
             let mut splitter = LineSplitter::new();
+            splitter.split_on_bare_cr = false; // line mode: split only on LF or CRLF; bare CR is line data
             let mut colorize = ColorizeEngine::new(true);
             colorize.master_enabled = init_master;
             colorize.ansi_yield = init_ansi_yield;
@@ -438,6 +445,7 @@ impl SessionManager {
             let mut batch: Vec<LogEntryDto> = Vec::new();
             let mut last_flush = std::time::Instant::now();
             let mut last_data_ms = now_mono_ms();
+            let mut time_buf: Vec<u8> = Vec::new(); // 超时分包：不按换行拆，整段累积，空闲封行输出为一个时间块
             loop {
                 select! {
                     recv(cmd_rx_log) -> msg => {
@@ -453,7 +461,7 @@ impl SessionManager {
                                 colorize.reset();
                                 for r in rules { colorize.register(r); }
                             }
-                            Ok(Cmd::ClearLog) => splitter.clear(),
+                            Ok(Cmd::ClearLog) => { splitter.clear(); time_buf.clear(); }
                             Err(_) => break,
                         }
                     }
@@ -461,28 +469,43 @@ impl SessionManager {
                         if let Ok(data) = data {
                             let now = now_mono_ms();
                             last_data_ms = now;
-                            for raw in splitter.feed(&data) {
-                                let raw_text = detector.decode(&raw, &options.encoding);
-                                let segments = colorize.process_line(&raw_text); // 见 ANSI → 产出颜色段
-                                let text = strip_ansi(&raw_text); // DTO.text/过滤/raw 用干净文本
-                                if filter.should_show(&text) {
-                                    batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw) });
-                                }
+                            if options.split_mode == "line" {
+                        for raw in splitter.feed(&data) {
+                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let segments = colorize.process_line(&raw_text); // 见 ANSI → 产出颜色段
+                            let text = strip_ansi(&raw_text); // DTO.text/过滤/raw 用干净文本
+                            if filter.should_show(&text) {
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false });
                             }
+                        }
+                    } else {
+                        // 超时分包：不按换行拆，整段累积到 time_buf，靠空闲封行输出为时间块
+                        time_buf.extend_from_slice(&data);
+                    }
                         }
                     }
                     recv(heartbeat) -> _ => {
-                        // 空闲封行：无换行的残余数据在 idle_timeout 后作为一行产出
+                        // 空闲封行：无换行的残余数据在 idle_timeout 后刷出（未结束部分行，前端续行）
                         // （时间戳取最后活动时刻；对齐 ADR-0008 智能分包语义）
-                        if splitter.pending_bytes() > 0
-                            && now_mono_ms().saturating_sub(last_data_ms) >= options.idle_timeout_ms
-                        {
-                            let raw = splitter.flush_pending_line();
+                        // 空闲封行条目的 partial 仅在 line 分包下为 true（未结束部分行，前端续接亂断行，不把提示符与后续命令拆成两行）；time 分包下为 false（时间块=独立一行）
+                        let idle_elapsed = now_mono_ms().saturating_sub(last_data_ms) >= options.idle_timeout_ms;
+                        if options.split_mode == "line" {
+                            if splitter.pending_bytes() > 0 && idle_elapsed {
+                                let raw = splitter.flush_pending_line();
+                                let raw_text = detector.decode(&raw, &options.encoding);
+                                let segments = colorize.process_line(&raw_text);
+                                let text = strip_ansi(&raw_text);
+                                if filter.should_show(&text) {
+                                    batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: true });
+                                }
+                            }
+                        } else if !time_buf.is_empty() && idle_elapsed {
+                            let raw = std::mem::take(&mut time_buf);
                             let raw_text = detector.decode(&raw, &options.encoding);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw) });
+                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: false });
                             }
                         }
                         if !batch.is_empty() && last_flush.elapsed() >= Duration::from_millis(30) {
@@ -493,12 +516,22 @@ impl SessionManager {
                     }
                 }
                 if stop_l.load(Ordering::Relaxed) {
-                    for raw in splitter.flush() {
+                    if options.split_mode == "line" {
+                        for raw in splitter.flush() {
+                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let segments = colorize.process_line(&raw_text);
+                            let text = strip_ansi(&raw_text);
+                            if filter.should_show(&text) {
+                                batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false });
+                            }
+                        }
+                    } else if !time_buf.is_empty() {
+                        let raw = std::mem::take(&mut time_buf);
                         let raw_text = detector.decode(&raw, &options.encoding);
                         let segments = colorize.process_line(&raw_text);
                         let text = strip_ansi(&raw_text);
                         if filter.should_show(&text) {
-                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw) });
+                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false });
                         }
                     }
                     if !batch.is_empty() {

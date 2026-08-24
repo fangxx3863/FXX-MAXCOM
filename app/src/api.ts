@@ -29,6 +29,7 @@ export interface LogOptionsDto {
   idle_timeout_ms: number;
   timestamp_mode: string;
   encoding: string;
+  split_mode: string;
 }
 
 /** 单会话 API：每个标签页一个实例，全部命令自动携带 session 参数 */

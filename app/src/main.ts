@@ -242,6 +242,7 @@ class SessionApp {
   flowctlDd!: DropdownHandle;
   tsModeDd!: DropdownHandle;
   encodingDd!: DropdownHandle;
+  splitModeDd!: DropdownHandle;
   tcpHostDd!: DropdownHandle;
   probeDd!: DropdownHandle;
   chipDd!: DropdownHandle;
@@ -386,6 +387,20 @@ class SessionApp {
       onChange: () => this.applyLogOptions(),
     });
     this.q("#encoding-dd").replaceWith(this.encodingDd.el);
+
+    this.splitModeDd = createDropdown({
+      items: [
+        { value: "timeout", label: t("log.splitMode.timeout") },
+        { value: "line", label: t("log.splitMode.line") },
+      ],
+      value: "line",
+      onChange: () => {
+        this.applyLogOptions();
+        this.syncIdleTimeout();
+      },
+    });
+    this.q("#split-mode-dd").replaceWith(this.splitModeDd.el);
+    this.syncIdleTimeout();
 
     const dtrChk = this.q<HTMLInputElement>("#dtr-chk");
     const rtsChk = this.q<HTMLInputElement>("#rts-chk");
@@ -745,8 +760,17 @@ class SessionApp {
         idle_timeout_ms: Number((this.q("#idle-timeout") as HTMLInputElement).value) || 10,
         timestamp_mode: this.tsModeDd.value,
         encoding: this.encodingDd.value,
+        split_mode: this.splitModeDd.value,
       })
       .catch(() => {});
+  }
+
+  /** 分包超时(ms) 仅在「超时分包」时显示；「换行分包」时隐藏 */
+  private syncIdleTimeout() {
+    this.q<HTMLElement>("#idle-timeout-ctl").classList.toggle(
+      "hidden",
+      this.splitModeDd.value !== "timeout",
+    );
   }
 
   // ── 侧栏面板拖宽（按 会话+面板 记忆）──
@@ -847,6 +871,7 @@ class SessionApp {
           this.q("#send-hint").textContent = t("log.send.error", { e });
         });
     const handleDirectKey = (e: KeyboardEvent) => {
+      if (!direct.checked) return; // 直通关闭：完全放行，保留浏览器默认行为；常驻挂载不依赖 change 事件
       if (e.ctrlKey || e.metaKey || e.altKey) return; // 保留浏览器快捷键(复制/全选等)
       if (e.key === "Enter") {
         e.preventDefault();
@@ -863,14 +888,8 @@ class SessionApp {
       }
       // 其余键(方向键/PgUp等)放行，让收发区正常滚动
     };
-    direct.addEventListener("change", () => {
-      if (direct.checked) {
-        logView.addEventListener("keydown", handleDirectKey);
-        logView.focus();
-      } else {
-        logView.removeEventListener("keydown", handleDirectKey);
-      }
-    });
+    // keydown 常驻挂载：直通关闭时 handleDirectKey 内放行；即使快照恢复勾选态、未触发 change 事件监听也在。
+    logView.addEventListener("keydown", handleDirectKey);
     // 直通时点击收发区聚焦，方便直接打字
     logView.addEventListener("mousedown", () => {
       if (direct.checked) logView.focus();
@@ -1284,6 +1303,7 @@ class SessionApp {
     r["conn.rts"] = this.rtsOn ? "1" : "";
     r["tsmode"] = this.tsModeDd.value;
     r["encoding"] = this.encodingDd.value;
+    r["splitmode"] = this.splitModeDd.value;
     r["idletimeout"] = (this.q("#idle-timeout") as HTMLInputElement).value;
     r["hexdisp"] = this.q<HTMLInputElement>("#hex-display").checked ? "1" : "";
     r["autoscroll"] = this.q<HTMLInputElement>("#autoscroll").checked ? "1" : "";
@@ -1292,6 +1312,7 @@ class SessionApp {
     r["newline"] = this.newlineDd.value;
     r["timerms"] = (this.q("#timer-ms") as HTMLInputElement).value;
     r["timeron"] = this.q<HTMLInputElement>("#timer-send").checked ? "1" : "";
+    r["direct"] = this.q<HTMLInputElement>("#direct-input").checked ? "1" : "";
     r["plot.fmt"] = this.plotFmtDd.value;
     r["plot.channels"] = (this.q("#plot-channels") as HTMLInputElement).value;
     r["plot.dtype"] = this.plotDtypeDd.value;
@@ -1356,6 +1377,8 @@ class SessionApp {
     if (g("tsmode")) this.tsModeDd.setValue(g("tsmode"));
     if (g("encoding")) this.encodingDd.setValue(g("encoding"));
     if (g("idletimeout")) (this.q("#idle-timeout") as HTMLInputElement).value = g("idletimeout");
+    if (g("splitmode")) this.splitModeDd.setValue(g("splitmode"));
+    this.syncIdleTimeout();
     if (g("hexdisp")) {
       const chk = this.q<HTMLInputElement>("#hex-display");
       chk.checked = true;
@@ -1370,6 +1393,7 @@ class SessionApp {
     if (g("newline")) this.newlineDd.setValue(g("newline"));
     if (g("timerms")) (this.q("#timer-ms") as HTMLInputElement).value = g("timerms");
     if (g("timeron")) this.q<HTMLInputElement>("#timer-send").checked = true; // 仅恢复勾选态，不自动启动
+    if (g("direct")) this.q<HTMLInputElement>("#direct-input").checked = true; // 直通仅恢复勾选态；keydown 常驻，点击即生效
     if (g("plot.fmt")) {
       this.plotFmtDd.setValue(g("plot.fmt"));
       this.applyPlotFmtControls();

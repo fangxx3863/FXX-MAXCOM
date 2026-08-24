@@ -51,6 +51,8 @@ pub struct LogOptionsDto {
     pub idle_timeout_ms: u64,
     pub timestamp_mode: String,
     pub encoding: String,
+    #[serde(default)]
+    pub split_mode: String,
 }
 
 impl From<LogOptionsDto> for LogOptions {
@@ -60,6 +62,7 @@ impl From<LogOptionsDto> for LogOptions {
             timestamp_mode: maxcom_core::framing::TimestampMode::parse(&d.timestamp_mode)
                 .unwrap_or_default(),
             encoding: d.encoding,
+            split_mode: if d.split_mode == "line" { "line".into() } else { "timeout".into() },
         }
     }
 }

@@ -7,6 +7,9 @@
 //! 跨片段 CRLF 合并（LOG-T02）：真机串口/USB 读取边界任意切分，CR 与 LF
 //! 常落入不同 feed → 旧行为把 CRLF 拆成「一行 + 空行」。这里记住上片以 CR
 //! 终结（LineSplitter::feed 末尾检测）并吞并下一片开头的孤立 LF，避免产出空行。
+//!
+//! 裸 CR 处理：`split_on_bare_cr` 为 true（默认）时裸 CR 当换行符（进度条/老 Mac 行尾）；
+//! 为 false 时仅按 \n 或 \r\n 拆行，裸 CR 留在行内（line 分包语义）。
 
 use crate::colorize::ColoredSegment;
 
@@ -20,12 +23,25 @@ pub struct LogEntry {
 }
 
 /// 字节流 → 行（bytes）。有状态：跨片段保留未完成行。
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct LineSplitter {
     pending: Vec<u8>,
     /// 上一片末尾是否为裸 CR（已终结行、其后无 LF）。为真时吞并下一片开头的孤立 LF，
-    /// 把跨片段的 CRLF 合并为单一换行，避免拆出空行。
+    /// 把跨片段的 CRLF 合并为单一换行，避免拆出空行。仅在 split_on_bare_cr=true 时生效。
     last_cr: bool,
+    /// 是否把裸 CR（未跟 LF）当换行符。true=旧行为（进度条/老 Mac 行尾）；
+    /// false=仅按 \n 或 \r\n 拆行，裸 CR 视为行内数据（line 分包语义）。
+    pub split_on_bare_cr: bool,
+}
+
+impl Default for LineSplitter {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            last_cr: false,
+            split_on_bare_cr: true,
+        }
+    }
 }
 
 impl LineSplitter {
@@ -59,19 +75,27 @@ impl LineSplitter {
                     start = i;
                 }
                 0x0D => {
-                    // CR：终结符（其后跟 LF 时吞掉，避免空行）
-                    lines.push(buf[start..i].to_vec());
-                    i += 1;
-                    if i < buf.len() && buf[i] == 0x0A {
+                    // CR：其后跟 LF 时 CRLF 整体为终结符（吞掉 LF 避免空行）；
+                    // 裸 CR（未跟 LF）视 split_on_bare_cr：true=终结符（旧行为），false=行内数据
+                    if i + 1 < buf.len() && buf[i + 1] == 0x0A {
+                        lines.push(buf[start..i].to_vec());
+                        i += 2;
+                        start = i;
+                    } else if self.split_on_bare_cr {
+                        lines.push(buf[start..i].to_vec());
+                        i += 1;
+                        start = i;
+                    } else {
+                        // 裸 CR 不是终结符：视为行内数据，跳过（后续若遇 LF 仍正常拆行）
                         i += 1;
                     }
-                    start = i;
                 }
                 _ => i += 1,
             }
         }
-        // 记录本片是否以裸 CR 结尾（供下一片吞并孤立 LF）
-        self.last_cr = buf.last() == Some(&0x0D);
+        // 记录本片是否以裸 CR 结尾（供下一片吞并孤立 LF）；split_on_bare_cr=false 时
+        // 裸 CR 是行内数据、不算终结符，故不置位。
+        self.last_cr = self.split_on_bare_cr && buf.last() == Some(&0x0D);
         // 保留未完成行
         if start > 0 {
             self.pending.drain(..start);
@@ -149,14 +173,11 @@ mod tests {
     fn crlf_split_across_feeds_stays_one_line() {
         // 真实设备：CR 与 LF 分到两个 feed/分包 → 合并为单个 CRLF，不产空行
         let mut sp = LineSplitter::new();
-        // 内容 + 裸 CR（尚未见 LF）
         assert_eq!(sp.feed(b"log here\r"), vec![b"log here".to_vec()]);
         assert_eq!(sp.pending_bytes(), 0);
-        // 孤立 LF 开头：吞掉，不产空行，紧接着内容 "next" 成为残余
         assert_eq!(sp.feed(b"\nnext"), Vec::<Vec<u8>>::new());
         assert_eq!(sp.pending_bytes(), 4);
         assert_eq!(sp.flush(), vec![b"next".to_vec()]);
-        // 继续：再来一个 CRLF（同 feed）正常结束
         let l = sp.feed(b"tail\r\n");
         assert_eq!(l, vec![b"tail".to_vec()]);
         assert_eq!(sp.flush(), Vec::<Vec<u8>>::new());
@@ -167,8 +188,31 @@ mod tests {
         // 上片以裸 CR 终结、下片以普通字符开头：不应吞字符，只吞孤立 LF
         let mut sp = LineSplitter::new();
         assert_eq!(sp.feed(b"a\r"), vec![b"a".to_vec()]);
-        // 下片开头是 'x'（非 LF）→ 不合并，'x' 正常成为新行残余
         assert_eq!(sp.feed(b"xy"), Vec::<Vec<u8>>::new());
         assert_eq!(sp.flush(), vec![b"xy".to_vec()]);
+    }
+
+    #[test]
+    fn line_mode_does_not_split_bare_cr() {
+        // line 分包：仅按 \n 或 \r\n 拆行，裸 CR 是行内数据
+        let mut sp = LineSplitter::new();
+        sp.split_on_bare_cr = false;
+        let lines = sp.feed(b"a\r\nb\nc\rd");
+        assert_eq!(lines, vec![b"a".to_vec(), b"b".to_vec()]);
+        assert_eq!(sp.pending_bytes(), 3); // "c\rd"
+        assert_eq!(sp.flush(), vec![b"c\rd".to_vec()]);
+    }
+
+    #[test]
+    fn line_mode_crlf_across_feed_boundary_merged() {
+        // line 分包：CR 与 LF 分跨两个 feed → 仍合并为单 CRLF，不产空行
+        let mut sp = LineSplitter::new();
+        sp.split_on_bare_cr = false;
+        assert!(sp.feed(b"hello\r").is_empty()); // 裸 CR 是数据，不拆
+        assert_eq!(sp.pending_bytes(), 6); // "hello\r"
+        let lines = sp.feed(b"\nworld");
+        assert_eq!(lines, vec![b"hello".to_vec()]); // CRLF 合并拆出 hello
+        assert_eq!(sp.pending_bytes(), 5); // "world"
+        assert_eq!(sp.flush(), vec![b"world".to_vec()]);
     }
 }
