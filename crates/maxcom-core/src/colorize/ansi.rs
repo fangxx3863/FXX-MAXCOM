@@ -5,6 +5,7 @@
 //! SGR 之外的序列（光标移动 CSI / 操作系统命令 OSC / 裸 ESC）不可渲染，直接丢弃；
 //! 输出段拼接 === 原始文本剥离全部控制码后的内容（不泄露 `[31m`，不改日志原文）。
 
+use crate::ansistrip::ansi_slice;
 use crate::colorize::palette::BASIC_COLORS;
 use ansitok::{parse_ansi, ElementKind};
 
@@ -36,10 +37,10 @@ pub fn parse_ansi_segments(text: &str) -> Vec<ColoredSegment> {
     let mut buf = String::new();
     for e in parse_ansi(text) {
         match e.kind() {
-            ElementKind::Text => buf.push_str(&text[e.start()..e.end()]),
+            ElementKind::Text => buf.push_str(ansi_slice(text, e.start(), e.end())),
             ElementKind::Sgr => {
                 flush(&mut buf, &style, &mut out);
-                apply_sgr(&text[e.start()..e.end()], &mut style);
+                apply_sgr(ansi_slice(text, e.start(), e.end()), &mut style);
             }
             // CSI / OSC / 裸 ESC：无可渲染样式，丢弃（不清文本段，避免无谓分段）
             _ => {}
@@ -244,5 +245,23 @@ mod tests {
                 "ANSI 段拼接应等于剥离后的干净文本"
             );
         }
+    }
+
+    #[test]
+    fn multibyte_char_with_c1_continuation_byte_does_not_panic() {
+        // 最小复现：ESC → 双字节字符 ¹（0xC2 0xB9）→ 双 ESC。vte Escape 态把 ¹ 的
+        // 字节经 anywhere() 静默吞掉，ansitok 产出 Esc 元素 [1,2) 切进 ¹ 中间。
+        // 旧代码 `&text[e.start()..e.end()]` panic（日志线程崩溃，HEX 显示同样触发——
+        // 引擎始终走 colorize）。ansi_slice 收拢边界后不 panic。
+        let input = "\u{1b}\u{B9}\u{1b}\u{1b}";
+        let segs = parse_ansi_segments(input);
+        let joined: String = segs.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(joined, "");
+        // 与真实 ANSI 序列混排的二进制文本也不 panic
+        let mixed = format!(
+            "\u{1b}[31m{}\u{1b}[0m",
+            "\u{1b}\u{B9}\u{1b}\u{1b}".repeat(20)
+        );
+        parse_ansi_segments(&mixed); // 仅断言不 panic
     }
 }
