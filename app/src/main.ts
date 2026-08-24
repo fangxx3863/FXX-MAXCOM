@@ -836,6 +836,46 @@ class SessionApp {
     this.q("#timer-send").addEventListener("change", () => this.applyTimer());
     this.q("#timer-ms").addEventListener("change", () => this.applyTimer());
 
+    // 直通：点击收发区后键盘直接发送到设备（类似终端/SSCOM）
+    const direct = this.q<HTMLInputElement>("#direct-input");
+    const logView = this.q<HTMLElement>("#log-view");
+    logView.tabIndex = 0; // 可聚焦，点击后才能接收键盘
+    const sendRaw = (text: string) =>
+      void this.api
+        .send({ text, newline: "none" })
+        .catch((e) => {
+          this.q("#send-hint").textContent = t("log.send.error", { e });
+        });
+    const handleDirectKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return; // 保留浏览器快捷键(复制/全选等)
+      if (e.key === "Enter") {
+        e.preventDefault();
+        sendRaw(this.realNewline() || String.fromCharCode(13, 10));
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        sendRaw("\x7f");
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        sendRaw("\t");
+      } else if (e.key.length === 1) {
+        e.preventDefault();
+        sendRaw(e.key);
+      }
+      // 其余键(方向键/PgUp等)放行，让收发区正常滚动
+    };
+    direct.addEventListener("change", () => {
+      if (direct.checked) {
+        logView.addEventListener("keydown", handleDirectKey);
+        logView.focus();
+      } else {
+        logView.removeEventListener("keydown", handleDirectKey);
+      }
+    });
+    // 直通时点击收发区聚焦，方便直接打字
+    logView.addEventListener("mousedown", () => {
+      if (direct.checked) logView.focus();
+    });
+
     // 文件发送：读原始字节 → HEX 分块，令牌桶按线速放行（每字节约 10bit @8N1）
     this.q("#file-btn").addEventListener("click", () => this.q("#file-input").click());
     this.q("#file-input").addEventListener("change", async (e) => {
