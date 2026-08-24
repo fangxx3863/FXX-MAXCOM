@@ -165,6 +165,8 @@ const zh: Dict = {
   "rules.color": "颜色",
   "rules.bold": "粗",
   "rules.filterRegex.placeholder": "正则，如 HEARTBEAT|DEBUG",
+  "rules.mode.regex": "正则",
+  "rules.mode.string": "字符串",
   "rules.colorRegex.placeholder": "正则，如 temp:\\s*\\d+",
 
   // ── 绘图页 ──
@@ -856,6 +858,8 @@ const en: Dict = {
   "rules.color": "Color",
   "rules.bold": "B",
   "rules.filterRegex.placeholder": "Regex, e.g. HEARTBEAT|DEBUG",
+  "rules.mode.regex": "Regex",
+  "rules.mode.string": "String",
   "rules.colorRegex.placeholder": "Regex, e.g. temp:\\s*\\d+",
 
   "plot.format": "Format",

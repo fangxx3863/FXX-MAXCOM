@@ -8,6 +8,7 @@ export interface FilterRuleUi {
   enabled: boolean;
   pattern: string;
   action: "show" | "hide";
+  mode?: "regex" | "string";
 }
 
 export interface ColorRuleUi {
@@ -72,7 +73,7 @@ export class RulesPanel {
     });
 
     q<HTMLButtonElement>("#flt-add").addEventListener("click", () => {
-      this.filters.push({ enabled: true, pattern: "", action: "hide" });
+      this.filters.push({ enabled: true, pattern: "", action: "hide", mode: "regex" });
       this.renderFilters();
       this.changed();
     });
@@ -116,7 +117,14 @@ export class RulesPanel {
 
   private push() {
     void this.api.setFilters(
-      this.filters.filter((r) => r.pattern).map((r, i) => ({ name: `f${i}`, ...r })),
+      this.filters
+        .filter((r) => r.pattern)
+        .map((r, i) => ({
+          name: `f${i}`,
+          pattern: (r.mode ?? "regex") === "string" ? escapeRegex(r.pattern) : r.pattern,
+          action: r.action,
+          enabled: r.enabled,
+        })),
     );
     void this.api.setColorRules(
       this.master,
@@ -138,6 +146,19 @@ export class RulesPanel {
           rule.pattern = v;
           this.changed();
         });
+        const mode = createDropdown({
+          items: [
+            { value: "regex", label: t("rules.mode.regex") },
+            { value: "string", label: t("rules.mode.string") },
+          ],
+          value: rule.mode ?? "regex",
+          width: 72,
+          onChange: (v) => {
+            rule.mode = v as "regex" | "string";
+            this.changed();
+          },
+        });
+        this.dropdowns.push(mode);
         const dd = createDropdown({
           items: [
             { value: "hide", label: t("rules.hide") },
@@ -156,7 +177,7 @@ export class RulesPanel {
           this.renderFilters();
           this.changed();
         });
-        div.append(chk, input, dd.el, del);
+        div.append(chk, input, mode.el, dd.el, del);
         return div;
       }),
     );
@@ -241,4 +262,9 @@ function delBtn(onClick: () => void): HTMLButtonElement {
   el.title = t("common.deleteRow");
   el.addEventListener("click", onClick);
   return el;
+}
+
+/** 正则元字符转义：「字符串匹配」模式把用户输入当字面量，避免 [D] 被当成字符类 */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
