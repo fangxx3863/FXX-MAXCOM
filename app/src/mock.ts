@@ -18,6 +18,7 @@ export interface MockApi {
   listPorts(): Promise<PortInfo[]>;
   connect(config: ConnConfig): Promise<void>;
   disconnect(): Promise<void>;
+  connState(): Promise<ConnState>;
   send(payload: SendPayload): Promise<number>;
   setLogOptions(o: { idle_timeout_ms: number; timestamp_mode: string; encoding: string }): Promise<void>;
   setFilters(rules: unknown[]): Promise<void>;
@@ -112,6 +113,10 @@ class MockBackend implements MockApi {
     this.timers.forEach((t) => window.clearInterval(t));
     this.timers = [];
     this.emitState();
+  }
+
+  async connState(): Promise<ConnState> {
+    return { connected: this.connected, label: this.label, error: undefined };
   }
 
   async send(payload: SendPayload) {

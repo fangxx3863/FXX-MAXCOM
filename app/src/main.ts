@@ -507,10 +507,36 @@ class SessionApp {
     this.q("#ssh-pass").classList.toggle("hidden", !isSsh);
   }
 
-  private toggleConnect() {
-    if (this.connected) {
-      void this.api.disconnect();
+  private async toggleConnect(forceConnect = false) {
+    const wasConnected = this.connected;
+    // 与后端同步真实连接状态：读线程掉线（且不重连）后 active 可能残留，
+    // 前端每次连接/断开前先查询，避免"仅允许单连接"误报。
+    let backend = this.connected;
+    try {
+      backend = (await this.api.connState()).connected;
+    } catch {
+      backend = this.connected;
+    }
+    this.connected = backend;
+
+    if (wasConnected && !forceConnect) {
+      // 用户意图：断开。后端无论真实/残留都已释放。
+      try {
+        await this.api.disconnect();
+      } catch {
+        /* 忽略 */
+      }
+      this.connected = false;
       return;
+    }
+    // 连接意图（含 forceConnect）：后端（真实/残留）仍占用单连接 → 先断开释放再连。
+    if (backend) {
+      try {
+        await this.api.disconnect();
+      } catch {
+        /* 忽略 */
+      }
+      this.connected = false;
     }
     let cfg: ConnConfig;
     if (this.connKind === "serial") {
@@ -596,10 +622,10 @@ class SessionApp {
     (this.q("#rtt-down") as HTMLInputElement).value = String(cfg.down_channel);
     (this.q("#rtt-addr") as HTMLInputElement).value = cfg.rtt_address == null ? "" : String(cfg.rtt_address);
     this.syncConnTypeUI();
-    void (async () => {
-      if (this.connected) await this.api.disconnect();
-      this.toggleConnect();
-    })().catch((e) => this.setHint(t("rtt.switchError", { e })));
+    // 强制连接：无论当前是否已有连接（含后端残留 active），先同步并在 toggleConnect 内释放再连。
+    void this
+      .toggleConnect(true)
+      .catch((e) => this.setHint(t("rtt.switchError", { e })));
   }
 
   /** 连接状态事件（引擎推送，经全局路由进入） */
@@ -1769,31 +1795,55 @@ window.addEventListener("contextmenu", (e) => {
   if (tv instanceof HTMLInputElement || tv instanceof HTMLTextAreaElement) tv.focus();
   const items: CtxItem[] = [];
   const S = sessions.get(activeId);
-  if (S && S.currentPage === "plot") {
-    const cell = tv.closest?.(".plot-cell") as HTMLElement | null;
-    if (cell) {
-      const chAttr = cell.dataset.ch;
-      items.push({
-        label: t("ctx.copyPng"),
-        hint: t("ctx.copyPng.hint"),
-        action: () => S.plotPage.copyChartPng(chAttr === undefined ? null : Number(chAttr)),
-      });
-      items.push({
-        label: t("ctx.exportCsv"),
-        hint: chAttr === undefined ? t("ctx.exportCsv.all") : t("ctx.exportCsv.ch", { n: Number(chAttr) + 1 }),
-        action: () => S.plotPage.exportCsv(chAttr === undefined ? null : Number(chAttr)),
-      });
-      items.push({ sep: true });
-    } else if (tv.closest?.("#plot-bars") || tv.closest?.("#plot-holder")) {
-      items.push({
-        label: t("ctx.exportCsv"),
-        hint: t("ctx.exportCsv.all"),
-        action: () => S.plotPage.exportCsv(null),
-      });
-      items.push({ sep: true });
+  // 终端页：右键走 xterm 选区/粘贴（xterm 内部选区不是 DOM 选区，commonEditItems 识别不到，
+  // 且粘贴应经 onData 发往端口而非改 input 值）
+  if (S && S.currentPage === "terminal" && tv.closest?.(".term-host")) {
+    const tpage = S.terminalPage;
+    items.push({
+      label: t("ctx.copy"),
+      enabled: !!tpage && tpage.getSelectionText().length > 0,
+      action: () => {
+        const text = tpage?.getSelectionText();
+        if (text) void navigator.clipboard.writeText(text);
+      },
+    });
+    items.push({
+      label: t("ctx.paste"),
+      hint: t("ctx.paste.hint"),
+      action: () =>
+        void navigator.clipboard
+          .readText()
+          .then((text) => tpage?.pasteTerm(text))
+          .catch(() => {}),
+    });
+    items.push({ label: t("ctx.selectAll"), action: () => tpage?.selectAllTerm() });
+  } else {
+    if (S && S.currentPage === "plot") {
+      const cell = tv.closest?.(".plot-cell") as HTMLElement | null;
+      if (cell) {
+        const chAttr = cell.dataset.ch;
+        items.push({
+          label: t("ctx.copyPng"),
+          hint: t("ctx.copyPng.hint"),
+          action: () => S.plotPage.copyChartPng(chAttr === undefined ? null : Number(chAttr)),
+        });
+        items.push({
+          label: t("ctx.exportCsv"),
+          hint: chAttr === undefined ? t("ctx.exportCsv.all") : t("ctx.exportCsv.ch", { n: Number(chAttr) + 1 }),
+          action: () => S.plotPage.exportCsv(chAttr === undefined ? null : Number(chAttr)),
+        });
+        items.push({ sep: true });
+      } else if (tv.closest?.("#plot-bars") || tv.closest?.("#plot-holder")) {
+        items.push({
+          label: t("ctx.exportCsv"),
+          hint: t("ctx.exportCsv.all"),
+          action: () => S.plotPage.exportCsv(null),
+        });
+        items.push({ sep: true });
+      }
     }
+    items.push(...commonEditItems());
   }
-  items.push(...commonEditItems());
   openContextMenu(items, me.clientX, me.clientY);
 });
 if (!import.meta.env.DEV) {

@@ -24,6 +24,20 @@ export interface FlashConfig {
   reset?: boolean;
 }
 
+/** 烧录进度事件（后端 flashing::FlashProgressDto → flash://progress 事件负载） */
+export interface FlashProgressDto {
+  /** 事件类型：layout | add | started | progress | finished | failed | message */
+  kind: string;
+  /** 操作阶段：erase | fill | program | verify | ""（未知） */
+  operation: string;
+  /** progress 时已处理字节；finished 时为该阶段总字节 */
+  size: number;
+  /** 操作总量（未知为 0，前端据此显示不确定进度） */
+  total: number;
+  /** 附加消息（DiagnosticMessage / failed 详情） */
+  message: string;
+}
+
 export interface ProbeInfo {
   selector: string;
   identifier: string;

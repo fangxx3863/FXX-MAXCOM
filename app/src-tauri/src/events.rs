@@ -9,6 +9,8 @@ use tauri::{AppHandle, Emitter};
 pub const EV_RAW: &str = "conn://raw";
 pub const EV_ENTRIES: &str = "conn://entries";
 pub const EV_STATE: &str = "conn://state";
+#[cfg(feature = "desktop")]
+pub const EV_FLASH: &str = "flash://progress";
 
 #[derive(Serialize, Clone)]
 struct RawPayload {
@@ -28,6 +30,14 @@ struct EntriesPayload<'a> {
 struct StatePayload<'a> {
     session: String,
     state: &'a ConnState,
+}
+
+/// 烧录进度负载（全局：烧录是跨标签单探针操作，不携带 session 标签）。
+/// 前端各 FlashPage 监听，仅当前处于烧录中的页面响应。
+#[cfg(feature = "desktop")]
+#[derive(Serialize, Clone)]
+pub struct FlashProgressPayload {
+    pub progress: maxcom_engine::transport::flashing::FlashProgressDto,
 }
 
 /// absolute 时间戳锚点：wall = anchor + ts_ms(monotonic)。进程内取一次，漂移可忽略。

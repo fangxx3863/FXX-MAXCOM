@@ -7,8 +7,8 @@
 
 use super::rtt::attach_session;
 use probe_rs::flashing::{
-    download_file_with_options, BinLoader, BinOptions, DownloadOptions, ElfLoader, HexLoader,
-    Uf2Loader,
+    download_file_with_options, BinLoader, BinOptions, DownloadOptions, ElfLoader, FlashProgress,
+    HexLoader, ProgressEvent, ProgressOperation, Uf2Loader,
 };
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -55,8 +55,92 @@ fn infer_format(path: &Path) -> Option<&'static str> {
     }
 }
 
-/// 执行一次烧录，成功返回人类可读的完成信息。
-pub fn flash(config: &FlashConfig) -> Result<String, String> {
+/// 烧录进度事件 DTO（前端进度条/阶段文本渲染）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlashProgressDto {
+    /// 事件类型：layout | add | started | progress | finished | failed | message
+    pub kind: String,
+    /// 操作阶段：erase | fill | program | verify | ""（未知）
+    pub operation: String,
+    /// progress 时已处理字节；finished 时为该阶段总字节
+    pub size: u64,
+    /// 操作总量（未知为 0，前端据此显示不确定进度）
+    pub total: u64,
+    /// 附加消息（DiagnosticMessage / failed 详情）
+    pub message: String,
+}
+
+fn op_str(op: ProgressOperation) -> String {
+    match op {
+        ProgressOperation::Erase => "erase".into(),
+        ProgressOperation::Fill => "fill".into(),
+        ProgressOperation::Program => "program".into(),
+        ProgressOperation::Verify => "verify".into(),
+    }
+}
+
+fn dto_of(ev: ProgressEvent) -> FlashProgressDto {
+    use ProgressEvent::*;
+    match ev {
+        FlashLayoutReady { .. } => FlashProgressDto {
+            kind: "layout".into(),
+            operation: String::new(),
+            size: 0,
+            total: 0,
+            message: String::new(),
+        },
+        AddProgressBar { operation, total } => FlashProgressDto {
+            kind: "add".into(),
+            operation: op_str(operation),
+            size: 0,
+            total: total.unwrap_or(0),
+            message: String::new(),
+        },
+        Started(operation) => FlashProgressDto {
+            kind: "started".into(),
+            operation: op_str(operation),
+            size: 0,
+            total: 0,
+            message: String::new(),
+        },
+        Progress {
+            operation, size, ..
+        } => FlashProgressDto {
+            kind: "progress".into(),
+            operation: op_str(operation),
+            size,
+            total: 0,
+            message: String::new(),
+        },
+        Failed(operation) => FlashProgressDto {
+            kind: "failed".into(),
+            operation: op_str(operation),
+            size: 0,
+            total: 0,
+            message: String::new(),
+        },
+        Finished(operation) => FlashProgressDto {
+            kind: "finished".into(),
+            operation: op_str(operation),
+            size: 0,
+            total: 0,
+            message: String::new(),
+        },
+        DiagnosticMessage { message } => FlashProgressDto {
+            kind: "message".into(),
+            operation: String::new(),
+            size: 0,
+            total: 0,
+            message,
+        },
+    }
+}
+
+/// 执行一次烧录，成功返回人类可读的完成信息。`on_progress` 在烧录过程中被同步回调（阶段事件）。
+pub fn flash(
+    config: &FlashConfig,
+    mut on_progress: impl FnMut(FlashProgressDto) + Send + 'static,
+) -> Result<String, String> {
     if config.path.trim().is_empty() {
         return Err("请选择固件文件".into());
     }
@@ -80,10 +164,13 @@ pub fn flash(config: &FlashConfig) -> Result<String, String> {
         config.format.as_str()
     };
 
-    fn opts(verify: bool) -> DownloadOptions<'static> {
+    let progress = FlashProgress::new(move |ev| on_progress(dto_of(ev)));
+
+    fn build_opts(verify: bool, progress: FlashProgress<'static>) -> DownloadOptions<'static> {
         let mut o = DownloadOptions::new();
         o.verify = verify;
         o.do_chip_erase = true;
+        o.progress = progress;
         o
     }
 
@@ -92,11 +179,14 @@ pub fn flash(config: &FlashConfig) -> Result<String, String> {
             &mut session,
             path,
             ElfLoader(Default::default()),
-            opts(config.verify),
+            build_opts(config.verify, progress),
         ),
-        "hex" | "ihex" | "intelhex" => {
-            download_file_with_options(&mut session, path, HexLoader, opts(config.verify))
-        }
+        "hex" | "ihex" | "intelhex" => download_file_with_options(
+            &mut session,
+            path,
+            HexLoader,
+            build_opts(config.verify, progress),
+        ),
         "bin" | "binary" => download_file_with_options(
             &mut session,
             path,
@@ -104,9 +194,14 @@ pub fn flash(config: &FlashConfig) -> Result<String, String> {
                 base_address: config.bin_base_address,
                 skip: 0,
             }),
-            opts(config.verify),
+            build_opts(config.verify, progress),
         ),
-        "uf2" => download_file_with_options(&mut session, path, Uf2Loader, opts(config.verify)),
+        "uf2" => download_file_with_options(
+            &mut session,
+            path,
+            Uf2Loader,
+            build_opts(config.verify, progress),
+        ),
         other => {
             return Err(format!("不支持的固件格式: {other}（支持 elf/hex/bin/uf2）"));
         }

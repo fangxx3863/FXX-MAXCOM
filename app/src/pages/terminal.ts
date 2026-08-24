@@ -88,4 +88,20 @@ export class TerminalPage {
     // reset 连滚动缓冲一起清（clear() 只清视口上方，用户感知为'没清掉'）
     this.term.reset();
   }
+
+  /** 终端选区文本（右键复制用；xterm 内部选区，与 DOM 选区不同，不能用 window.getSelection()） */
+  getSelectionText(): string {
+    return this.term.getSelection();
+  }
+
+  /** 全选整个滚动缓冲 */
+  selectAllTerm() {
+    this.term.selectAll();
+  }
+
+  /** 粘贴到终端：写入文本并经 onData 发往端口（含本地回显逻辑，与击键同路径） */
+  pasteTerm(text: string) {
+    if (!text) return;
+    this.term.paste(text);
+  }
 }

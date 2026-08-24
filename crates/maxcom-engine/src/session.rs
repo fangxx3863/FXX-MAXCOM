@@ -158,6 +158,24 @@ impl SessionManager {
         self.active.lock().unwrap().is_some()
     }
 
+    /// 查询当前连接状态（主动查询，区别于被动 state 事件）。
+    /// 读线程掉线但未走 disconnect() 清理时 active 可能残留；前端应在每次
+    /// 连接/断开前调用本方法同步，避免“仅允许单连接”误报。
+    pub fn conn_state(&self) -> ConnState {
+        match &*self.active.lock().unwrap() {
+            Some(a) => ConnState {
+                connected: true,
+                label: a.label.clone(),
+                error: None,
+            },
+            None => ConnState {
+                connected: false,
+                label: String::new(),
+                error: None,
+            },
+        }
+    }
+
     pub fn set_auto_reconnect(&self, on: bool) {
         self.auto_reconnect.store(on, Ordering::Relaxed);
     }
@@ -338,7 +356,13 @@ impl SessionManager {
                         }
                         // ── 掉线：自动重连循环 ──
                         loop {
-                            if stop_r.load(Ordering::Relaxed) || !auto_r.load(Ordering::Relaxed) {
+                            if stop_r.load(Ordering::Relaxed) {
+                                break 'session;
+                            }
+                            if !auto_r.load(Ordering::Relaxed) {
+                                // 掉线且关闭自动重连：停止整个会话（日志/绘图线程随之退出）。
+                                // 注意：active 暂不清空，由 conn_state() 上报 + 前端在连接/断开前同步兜底。
+                                stop_r.store(true, Ordering::Relaxed);
                                 break 'session;
                             }
                             // 分片睡眠，保证 stop 能及时生效

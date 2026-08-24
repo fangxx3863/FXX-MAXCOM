@@ -5,8 +5,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
-  ChipFamilyInfo, ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, PlotSnapshotDto,
-  PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
+  ChipFamilyInfo, ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, FlashProgressDto,
+  PlotSnapshotDto, PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
 } from "./types";
 import { getMock, mockOnRaw, mockOnEntries, mockOnState } from "./mock";
 import { t } from "./i18n";
@@ -14,6 +14,7 @@ import { t } from "./i18n";
 export const EV_RAW = "conn://raw";
 export const EV_ENTRIES = "conn://entries";
 export const EV_STATE = "conn://state";
+export const EV_FLASH = "flash://progress";
 
 /** 是否运行在 Tauri WebView 内（v2 注入 __TAURI_INTERNALS__） */
 export const IS_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -35,6 +36,8 @@ export interface SessionApi {
   listPorts(): Promise<PortInfo[]>;
   connect(config: ConnConfig): Promise<void>;
   disconnect(): Promise<void>;
+  /** 主动查询当前连接状态（连接/断开前同步，避免"仅允许单连接"误报） */
+  connState(): Promise<ConnState>;
   send(payload: SendPayload): Promise<number>;
   setLogOptions(o: LogOptionsDto): Promise<void>;
   setFilters(rules: unknown[]): Promise<void>;
@@ -57,6 +60,7 @@ function realApi(session: string): SessionApi {
     listPorts: () => invoke<PortInfo[]>("list_ports"),
     connect: (config) => invoke<void>("connect", { session, config }),
     disconnect: () => invoke<void>("disconnect", { session }),
+    connState: () => invoke<ConnState>("conn_state", { session }),
     send: (payload) => invoke<number>("send", { session, payload }),
     setLogOptions: (o) => invoke<void>("set_log_options", { session, o }),
     setFilters: (rules) => invoke<void>("set_filters", { session, rules }),
@@ -195,6 +199,16 @@ export function onState(fn: (e: StateEvt) => void): void {
     return;
   }
   void listen<StateEvt>(EV_STATE, (e) => fn(e.payload));
+}
+
+export interface FlashProgressEvt {
+  progress: FlashProgressDto;
+}
+
+/** 烧录进度事件（全局，负载无 session 标签；各 FlashPage 监听，仅当前烧录中的页面响应） */
+export function onFlashProgress(fn: (e: FlashProgressEvt) => void): void {
+  if (!IS_TAURI) return; // 演示模式 mock 直接返回成功，无进度流
+  void listen<FlashProgressEvt>(EV_FLASH, (e) => fn(e.payload));
 }
 
 function b64ToBytes(b64: string): Uint8Array {

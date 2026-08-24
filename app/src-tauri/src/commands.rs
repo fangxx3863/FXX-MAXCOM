@@ -7,14 +7,14 @@ use maxcom_core::colorize::ColorRule;
 use maxcom_core::filter::FilterRule;
 use maxcom_core::plot::format::DataFormat;
 use maxcom_core::stats::StatsSnapshot;
-use maxcom_engine::session::{LogOptions, PlotSnapshotDto, SendPayload, SessionManager};
+use maxcom_engine::session::{ConnState, LogOptions, PlotSnapshotDto, SendPayload, SessionManager};
 #[cfg(feature = "desktop")]
 use maxcom_engine::transport::{ChipFamilyInfo, FlashConfig, ProbeInfo};
 use maxcom_engine::transport::{ConnConfig, PortInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 
 /// 全局应用状态：session id → 会话管理器
 pub struct AppState {
@@ -83,8 +83,12 @@ pub fn list_chips() -> Vec<ChipFamilyInfo> {
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn flash_firmware(config: FlashConfig) -> Result<String, String> {
-    maxcom_engine::transport::flashing::flash(&config)
+pub fn flash_firmware(config: FlashConfig, app: AppHandle) -> Result<String, String> {
+    use crate::events::{FlashProgressPayload, EV_FLASH};
+    let app2 = app.clone();
+    maxcom_engine::transport::flashing::flash(&config, move |p| {
+        let _ = app2.emit(EV_FLASH, FlashProgressPayload { progress: p });
+    })
 }
 
 #[tauri::command]
@@ -99,6 +103,12 @@ pub fn connect(
 #[tauri::command]
 pub fn disconnect(session: String, state: State<'_, AppState>) {
     state.with(&session, |mgr| mgr.disconnect());
+}
+
+/// 主动查询当前连接状态（读线程掉线但未清理时前端在连接/断开前同步，避免"仅允许单连接"误报）
+#[tauri::command]
+pub fn conn_state(session: String, state: State<'_, AppState>) -> ConnState {
+    state.with(&session, |mgr| mgr.conn_state())
 }
 
 #[tauri::command]

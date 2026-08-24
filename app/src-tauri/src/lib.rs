@@ -25,6 +25,7 @@ pub fn run() {
             commands::flash_firmware,
             commands::connect,
             commands::disconnect,
+            commands::conn_state,
             commands::send,
             commands::set_log_options,
             commands::set_filters,

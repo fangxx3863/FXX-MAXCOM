@@ -3,9 +3,9 @@
 // 芯片候选来自 probe-rs 内置 target 列表（list_chips），并支持“自动检测”由探针识别目标。
 
 import { createDropdown, type DropdownHandle } from "../dropdown";
-import { IS_TAURI, flashFirmware, listChips, listProbes, pickFirmwarePath } from "../api";
+import { IS_TAURI, flashFirmware, listChips, listProbes, onFlashProgress, pickFirmwarePath } from "../api";
 import { flattenChips, withAuto } from "../chips";
-import type { FlashConfig } from "../types";
+import type { FlashConfig, FlashProgressDto } from "../types";
 import { t } from "../i18n";
 
 export interface RttDefaults {
@@ -35,6 +35,10 @@ export class FlashPage {
   private statusEl!: HTMLElement;
   private doBtn!: HTMLButtonElement;
   private doRunBtn!: HTMLButtonElement;
+  private progressWrapEl!: HTMLElement;
+  private progressBarEl!: HTMLElement;
+  private progressLabelEl!: HTMLElement;
+  private progressTimer: number | null = null;
   private busy = false;
 
   constructor(
@@ -82,6 +86,10 @@ export class FlashPage {
     this.statusEl = this.q("#flash-status");
     this.doBtn = this.q("#flash-do");
     this.doRunBtn = this.q("#flash-do-run");
+    this.progressWrapEl = this.q("#flash-progress");
+    this.progressBarEl = this.q("#flash-progress-bar");
+    this.progressLabelEl = this.q("#flash-progress-label");
+    onFlashProgress((e) => this.handleProgress(e.progress));
 
     this.q("#flash-refresh-probes").addEventListener("click", () => void this.refreshProbes());
     this.q("#flash-browse").addEventListener("click", () => void this.browse());
@@ -157,15 +165,82 @@ export class FlashPage {
     this.doRunBtn.disabled = b;
   }
 
+  /** 操作阶段 → 本地化文案（未知阶段回退到 flash.stage.prepare） */
+  private opLabel(op: string): string {
+    if (!op) return t("flash.stage.prepare");
+    const key = `flash.stage.${op}`;
+    const val = t(key);
+    return val && val !== key ? val : t("flash.stage.prepare");
+  }
+
+  /** 显示/隐藏进度条；indeterminate = 总量未知（擦除/连接阶段） */
+  private showProgress(show: boolean, indeterminate = false) {
+    this.progressWrapEl.classList.toggle("hidden", !show);
+    if (!show) {
+      this.progressBarEl.style.width = "0%";
+      this.progressBarEl.classList.remove("indeterminate");
+      this.progressLabelEl.textContent = "";
+      return;
+    }
+    this.progressBarEl.classList.toggle("indeterminate", indeterminate);
+    if (!indeterminate) this.progressBarEl.style.width = "0%";
+  }
+
+  /** 后端 flash://progress 事件 → 更新进度条与阶段文案（仅当前烧录中的页面响应） */
+  private handleProgress(p: FlashProgressDto) {
+    if (!this.busy) return;
+    const op = this.opLabel(p.operation);
+    if (p.kind === "add") {
+      this.showProgress(true, p.total <= 0);
+      this.progressLabelEl.textContent = op;
+      this.status(op);
+    } else if (p.kind === "started" || p.kind === "progress") {
+      if (p.kind === "started") this.showProgress(true, p.total <= 0);
+      if (p.total > 0) {
+        const pct = Math.min(100, Math.round((p.size / p.total) * 100));
+        this.progressBarEl.classList.remove("indeterminate");
+        this.progressBarEl.style.width = pct + "%";
+        this.progressLabelEl.textContent = `${op} ${pct}%`;
+        this.status(`${op} ${pct}%`);
+      } else {
+        this.progressBarEl.classList.add("indeterminate");
+        this.progressLabelEl.textContent = op;
+        this.status(op);
+      }
+    } else if (p.kind === "message") {
+      this.progressLabelEl.textContent = p.message || op;
+    } else if (p.kind === "finished") {
+      this.progressBarEl.classList.remove("indeterminate");
+      this.progressBarEl.style.width = "100%";
+      this.progressLabelEl.textContent = t("flash.stage.done");
+      if (this.progressTimer !== null) window.clearTimeout(this.progressTimer);
+      this.progressTimer = window.setTimeout(() => this.showProgress(false), 1200);
+    } else if (p.kind === "failed") {
+      this.progressBarEl.classList.remove("indeterminate");
+      this.progressBarEl.style.width = "100%";
+      this.progressBarEl.style.background = "var(--err)";
+      this.progressLabelEl.textContent = t("flash.stage.failed", { op });
+      this.status(t("flash.stage.failed", { op }), true);
+      if (this.progressTimer !== null) window.clearTimeout(this.progressTimer);
+      this.progressTimer = window.setTimeout(() => {
+        this.showProgress(false);
+        this.progressBarEl.style.background = "";
+      }, 2000);
+    }
+  }
+
   async flash(runAfter: boolean) {
     if (this.busy) return;
     const cfg = this.config();
     if (!cfg.path) return this.status(t("flash.noFile"), true);
 
     this.setBusy(true);
+    this.progressBarEl.style.background = "";
+    this.showProgress(true, true); // 先不确定进度（连接探针/擦除阶段）
     this.status(t("flash.flashing", { path: cfg.path }));
     try {
       const msg = await flashFirmware(cfg);
+      this.showProgress(false);
       this.status(runAfter ? t("flash.connectingRtt", { msg }) : msg);
       if (runAfter) {
         const d = this.getRttDefaults();
@@ -178,6 +253,8 @@ export class FlashPage {
         });
       }
     } catch (e) {
+      this.showProgress(false);
+      this.progressBarEl.style.background = "";
       this.status(t("flash.error", { e }), true);
     } finally {
       this.setBusy(false);
