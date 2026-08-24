@@ -2,11 +2,12 @@
 //!
 //! 对一行日志**首次匹配生效**，产出带颜色标签的段（不改日志原文，只附加颜色）：
 //! - 总开关 `master_enabled` 关闭 → 全部默认色（INV-2）
-//! - ANSI 让位 `ansi_yield`：数据含 ANSI 序列时不插手（INV-1），交 xterm.js 渲染；
-//!   日志路径剥离控制码，避免 `[31m` 泄露
+//! - ANSI 让位 `ansi_yield`：数据含 ANSI 序列时设备自带颜色优先（COLOR-T08，日志/收发页
+//!   把 ANSI SGR 渲染成颜色段）；关闭时剥离控制码后走规则链。终端模式由 xterm.js 解析。
 //! - 优先级稳定排序：越小越先；同优先级按注册顺序（内置 bracket=1 keyword=2 kv=3 number=4，
 //!   用户规则缺省 3.5 —— 排在 kv 之后、number 之前）
 
+pub mod ansi;
 pub mod builtin;
 pub mod palette;
 
@@ -201,13 +202,22 @@ impl ColorizeEngine {
     /// 对一行应用规则链，返回染色段。
     pub fn process_line(&self, line: &str) -> Vec<ColoredSegment> {
         if !self.master_enabled {
-            return vec![ColoredSegment::plain(line)];
-        }
-        if self.ansi_yield && contains_ansi(line) {
-            // ANSI 让位（INV-1）：日志路径剥离控制码，交终端渲染
+            // 染色总开关关：连设备 ANSI 也不染色，仅剥离控制码显示纯文本（不泄露 `[31m`）
             return vec![ColoredSegment::plain(strip_ansi(line))];
         }
-        // 稳定排序：priority 升序，同优先级按注册顺序
+        if contains_ansi(line) {
+            if self.ansi_yield {
+                // ANSI 让位（默认）：设备自带颜色优先（COLOR-T08），规则链不插手
+                return ansi::parse_ansi_segments(line);
+            }
+            // 不让位：用户规则优先 → 剥离控制码后套规则链
+            return self.apply_rules(&strip_ansi(line));
+        }
+        self.apply_rules(line)
+    }
+
+    /// 应用规则链（稳定优先级排序，首次命中生效）。
+    fn apply_rules(&self, line: &str) -> Vec<ColoredSegment> {
         let mut order: Vec<usize> = (0..self.rules.len()).collect();
         order.sort_by(|&a, &b| {
             self.rules[a]
@@ -273,11 +283,13 @@ mod tests {
     }
 
     #[test]
-    fn ansi_yield_strips_and_skips_rules() {
+    fn ansi_yield_renders_device_colors() {
         let e = ColorizeEngine::new(true);
         let segs = e.process_line("\x1b[31m[ERROR] red already\x1b[0m");
-        // 让位：不套用染色规则，只剥离控制码
-        assert_eq!(segs, vec![ColoredSegment::plain("[ERROR] red already")]);
+        // ANSI 让位（默认）：设备自带颜色优先，不套用染色规则链
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].text, "[ERROR] red already");
+        assert_eq!(segs[0].fg.as_deref(), Some("red"));
     }
 
     #[test]

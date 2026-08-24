@@ -8,6 +8,7 @@
 //! 上层通过 [`SessionEvents`] trait 接收回调；测试用内存记录器验证。
 
 use crossbeam_channel::{bounded, select, tick, Sender};
+use maxcom_core::ansistrip::strip_ansi;
 use maxcom_core::bus::Bus;
 use maxcom_core::colorize::{ColorRule, ColorizeEngine};
 use maxcom_core::encoding::EncodingDetector;
@@ -416,8 +417,9 @@ impl SessionManager {
                             let now = now_mono_ms();
                             last_data_ms = now;
                             for raw in splitter.feed(&data) {
-                                let text = detector.decode(&raw, &options.encoding);
-                                let segments = colorize.process_line(&text);
+                                let raw_text = detector.decode(&raw, &options.encoding);
+                                let segments = colorize.process_line(&raw_text); // 见 ANSI → 产出颜色段
+                                let text = strip_ansi(&raw_text); // DTO.text/过滤/raw 用干净文本
                                 if filter.should_show(&text) {
                                     batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw) });
                                 }
@@ -431,8 +433,9 @@ impl SessionManager {
                             && now_mono_ms().saturating_sub(last_data_ms) >= options.idle_timeout_ms
                         {
                             let raw = splitter.flush_pending_line();
-                            let text = detector.decode(&raw, &options.encoding);
-                            let segments = colorize.process_line(&text);
+                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let segments = colorize.process_line(&raw_text);
+                            let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
                                 batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw) });
                             }
@@ -446,8 +449,9 @@ impl SessionManager {
                 }
                 if stop_l.load(Ordering::Relaxed) {
                     for raw in splitter.flush() {
-                        let text = detector.decode(&raw, &options.encoding);
-                        let segments = colorize.process_line(&text);
+                        let raw_text = detector.decode(&raw, &options.encoding);
+                        let segments = colorize.process_line(&raw_text);
+                        let text = strip_ansi(&raw_text);
                         if filter.should_show(&text) {
                             batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw) });
                         }
