@@ -28,7 +28,7 @@ pub fn strip_ansi(text: &str) -> String {
 /// 产出非字符边界的 start/end，直接 `&text[start..end]` 会 panic。日志路径解码任意
 /// 二进制（UTF-8/GBK），含这类字符的行必然出现。start 向下、end 向上收拢到最近字符
 /// 边界，保留完整字符且绝不 panic。
-pub(crate) fn ansi_slice<'a>(text: &'a str, start: usize, end: usize) -> &'a str {
+pub(crate) fn ansi_slice(text: &str, start: usize, end: usize) -> &str {
     let start = text.floor_char_boundary(start.min(text.len()));
     let end = text.ceil_char_boundary(end.min(text.len()));
     &text[start..end]
