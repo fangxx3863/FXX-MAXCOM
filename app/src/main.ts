@@ -1247,6 +1247,8 @@ class SessionApp {
   feedLogCapture(batch: EntriesBatch) {
     const lc = this.logCapture;
     if (!lc) return;
+    // 跟随当前 HEX 显示模式：HEX 下捕获原始字节十六进制（raw_hex），否则解码文本
+    lc.hex = this.logViewPage.hexView;
     lc.feed(batch);
     this.updateLogCaptureBadge();
   }

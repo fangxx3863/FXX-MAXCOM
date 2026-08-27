@@ -92,6 +92,11 @@ export class LogViewPage {
     this.hexDisplay = on;
   }
 
+  /** 当前是否 HEX 显示模式（日志捕获据此决定写 raw_hex 还是 text） */
+  get hexView(): boolean {
+    return this.hexDisplay;
+  }
+
   /** 快捷过滤：命中才显示（空 = 全显）。对已渲染与后续新行都即时生效 */
   setQuickFilter(pattern: string) {
     this.quickFilter = compileQuickFilter(pattern);

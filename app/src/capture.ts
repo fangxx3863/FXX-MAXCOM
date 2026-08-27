@@ -88,6 +88,8 @@ export function resolveLogFmt(setting: CaptureLogFormat, tabMode: string): Resol
 export class LogCapture {
   readonly fmt: ResolvedLogFmt;
   readonly startMs: number;
+  /** HEX 显示模式开启时，捕获原始字节十六进制（raw_hex）而非解码文本 */
+  hex = false;
   private lines: string[] = [];
   private prevTsMs: number | null = null;
   private pending: { ts: number; text: string } | null = null;
@@ -105,22 +107,30 @@ export class LogCapture {
   feed(batch: EntriesBatch): void {
     const anchor = batch.epoch_anchor_ms;
     for (const item of batch.items) {
-      const text = item.text;
+      const text = this.hex ? item.raw_hex : item.text;
       if (item.partial === true) {
         if (this.pending) {
-          this.pending.text += text;
+          this.mergePartial(text);
         } else {
           this.pending = { ts: item.ts_ms, text };
         }
         continue;
       }
       if (this.pending) {
-        this.pending.text += text;
+        this.mergePartial(text);
         this.flush(this.pending.ts, this.pending.text, anchor);
         this.pending = null;
       } else {
         this.flush(item.ts_ms, text, anchor);
       }
+    }
+  }
+
+  /** partial 续行：hex 用空格分隔字节（raw_hex 为 "48 65" 式，直接拼会把字节粘死）；非 hex 直接拼接 */
+  private mergePartial(text: string): void {
+    if (this.pending) {
+      if (this.hex && this.pending.text && text) this.pending.text += " ";
+      this.pending.text += text;
     }
   }
 

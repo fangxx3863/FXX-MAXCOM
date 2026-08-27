@@ -96,6 +96,24 @@ globalThis.__C = { resolveLogFmt, formatFullTs, formatTimeOnly, formatTsPrefix, 
   check("delta 首行 前缀对齐列12", lc2.content().split("\n")[0].indexOf("A") === 12);
   check("delta 二行 前缀对齐列12", lc2.content().split("\n")[1].indexOf("B") === 12);
 
+  // 6b) LogCapture HEX 模式：写 raw_hex（大写空格分隔）而非解码文本；partial 续行空格分隔字节
+  const lch = new C.LogCapture("none");
+  lch.hex = true;
+  lch.feed({
+    epoch_anchor_ms: 0,
+    items: [
+      { ts_ms: 100, text: "He", raw_hex: "48 65", partial: true },
+      { ts_ms: 110, text: "l", raw_hex: "6C", partial: true },
+      { ts_ms: 120, text: "lo", raw_hex: "6C 6F", partial: false },
+    ],
+  });
+  check("HEX 捕获写 raw_hex", lch.count === 1);
+  check("HEX partial 续行空格分隔字节", lch.content() === "48 65 6C 6C 6F\n");
+  // 非 HEX 模式（默认 hex=false）仍写解码文本
+  const lcTxt = new C.LogCapture("none");
+  lcTxt.feed({ epoch_anchor_ms: 0, items: [{ ts_ms: 1, text: "hi", raw_hex: "68 69" }] });
+  check("非HEX 捕获仍写 text", lcTxt.content() === "hi\n");
+
   // 7) captureStem：名称(customName/制造商) + COM号 + 开始时间(ms)，中文/空格保留
   const st = new Date(2026, 7, 27, 12, 34, 56, 789).getTime();
   // 自定义标签页名 + COM号（保留 COM 前缀，不剥成裸号）
