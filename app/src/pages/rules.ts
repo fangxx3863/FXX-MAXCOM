@@ -18,6 +18,8 @@ export interface ColorRuleUi {
   color: string;
   bold: boolean;
   priority?: number;
+  /** 匹配语义：regex=正则(默认)；string=字面量（推送前转义成正则字面量，防 [D] 被当字符类） */
+  mode?: "regex" | "string";
 }
 
 export interface RulesSnapshot {
@@ -89,6 +91,7 @@ export class RulesPanel {
         target: "match",
         color: PALETTE[this.colors.length % PALETTE.length],
         bold: false,
+        mode: "regex",
       });
       this.renderColors();
       this.changed();
@@ -129,7 +132,17 @@ export class RulesPanel {
     void this.api.setColorRules(
       this.master,
       this.ansiYield,
-      this.colors.filter((r) => r.pattern).map((r, i) => ({ name: `u${i}`, bg_color: null, ...r })),
+      this.colors
+        .filter((r) => r.pattern)
+        .map((r, i) => ({
+          name: `u${i}`,
+          bg_color: null,
+          pattern: (r.mode ?? "regex") === "string" ? escapeRegex(r.pattern) : r.pattern,
+          target: r.target,
+          color: r.color,
+          bold: r.bold,
+          enabled: r.enabled,
+        })),
     );
   }
 
@@ -196,6 +209,19 @@ export class RulesPanel {
           rule.pattern = v;
           this.changed();
         });
+        const mode = createDropdown({
+          items: [
+            { value: "regex", label: t("rules.mode.regex") },
+            { value: "string", label: t("rules.mode.string") },
+          ],
+          value: rule.mode ?? "regex",
+          width: 96,
+          onChange: (v) => {
+            rule.mode = v as "regex" | "string";
+            this.changed();
+          },
+        });
+        this.dropdowns.push(mode);
         const target = createDropdown({
           items: [
             { value: "match", label: t("rules.match") },
@@ -228,7 +254,7 @@ export class RulesPanel {
           this.renderColors();
           this.changed();
         });
-        div.append(chk, input, target.el, color, boldLabel, del);
+        div.append(chk, input, mode.el, target.el, color, boldLabel, del);
         return div;
       }),
     );

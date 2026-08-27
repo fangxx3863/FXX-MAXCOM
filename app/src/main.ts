@@ -284,6 +284,8 @@ class SessionApp {
   msRows: MsRow[];
   private pendingPort: string | null = null;
   private pendingProbe: string | null = null;
+  /** 开启 HEX 显示前用户选的分包方式：关闭 HEX 后恢复。null=未处于 HEX 锁定时 */
+  private hexPreSplit: string | null = null;
 
   constructor(id: string, name: string | null, snap?: Record<string, string>) {
     this.id = id;
@@ -879,6 +881,7 @@ class SessionApp {
     this.q<HTMLInputElement>("#hex-display").addEventListener("change", (e) => {
       const on = (e.target as HTMLInputElement).checked;
       this.logViewPage.setHexDisplay(on);
+      this.applyHexSplitLock(on);
     });
 
     this.q("#clear-log").addEventListener("click", () => {
@@ -913,6 +916,33 @@ class SessionApp {
       "hidden",
       this.splitModeDd.value !== "timeout",
     );
+  }
+
+  /**
+   * HEX 显示下只允许「超时分包」：换行分包会把行尾的换行符(CRLF 或 LF)当分隔符吞掉，
+   * HEX 视图里就永远看不到这些字节。故开启 HEX → 记住当前分包方式并强制切到超时分包；
+   * 关闭 HEX → 恢复之前的分包方式（若有）。HEX 开启期间锁死分包下拉，防手动再选回换行分包。
+   */
+  private applyHexSplitLock(on: boolean) {
+    const dd = this.splitModeDd;
+    if (on) {
+      if (this.hexPreSplit === null) this.hexPreSplit = dd.value;
+      if (dd.value !== "timeout") {
+        dd.setValue("timeout");
+        this.applyLogOptions();
+        this.syncIdleTimeout();
+      }
+    } else if (this.hexPreSplit !== null) {
+      if (dd.value !== this.hexPreSplit) {
+        dd.setValue(this.hexPreSplit);
+        this.applyLogOptions();
+        this.syncIdleTimeout();
+      }
+      this.hexPreSplit = null;
+    }
+    // 锁死/解锁分包下拉（非 editable 时控件面是 <button>）
+    const face = this.splitModeDd.el.querySelector("button");
+    if (face) face.disabled = on;
   }
 
   // ── 侧栏面板拖宽（按 会话+面板 记忆）──
@@ -1540,11 +1570,13 @@ class SessionApp {
     if (g("idletimeout")) (this.q("#idle-timeout") as HTMLInputElement).value = g("idletimeout");
     if (g("splitmode")) this.splitModeDd.setValue(g("splitmode"));
     this.syncIdleTimeout();
-    if (g("hexdisp")) {
+    const hexOn = !!g("hexdisp");
+    {
       const chk = this.q<HTMLInputElement>("#hex-display");
-      chk.checked = true;
-      this.logViewPage.setHexDisplay(true);
+      chk.checked = hexOn;
+      this.logViewPage.setHexDisplay(hexOn);
     }
+    this.applyHexSplitLock(hexOn);
     if (!g("autoscroll")) this.q<HTMLInputElement>("#autoscroll").checked = false;
     if (g("quickfilter")) {
       (this.q("#quick-filter") as HTMLInputElement).value = g("quickfilter");
