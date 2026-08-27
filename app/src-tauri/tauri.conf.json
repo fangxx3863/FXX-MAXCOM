@@ -15,8 +15,8 @@
         "title": "MAXCOM",
         "width": 1280,
         "height": 820,
-        "minWidth": 960,
-        "minHeight": 600,
+        "minWidth": 720,
+        "minHeight": 500,
         "decorations": false,
         "backgroundColor": "#14161a"
       }

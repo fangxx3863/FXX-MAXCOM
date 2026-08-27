@@ -159,7 +159,7 @@ body {
 
 /* ── 顶栏 ── */
 #topbar {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 6px 10px; background: var(--bg2); border-bottom: 1px solid var(--border);
 }
 .brand { font-weight: 700; letter-spacing: 1px; color: var(--accent); margin-right: 6px; }
@@ -970,30 +970,36 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .tools-fit-table th { background: var(--bg2); color: var(--fg-dim); font-weight: 600; }
 
 /* ── 响应式布局 ──
-   桌面（桌面窗口 minWidth:960，见 tauri.conf.json）不触发；
-   窄视口/手机竖屏时把左侧功能条（#sidebar）改为底部横向 tab 栏。 */
+   仅移动端（<html data-platform="mobile">，iOS/Android UA）触发：把左侧功能条转底部横向 tab 栏、
+   隐藏自绘标题栏等。桌面 UA 永不设置 data-platform=mobile → 该块对桌面永不生效，
+   即使窗口被拉小或 DPI 缩放把 CSS 视口压窄，桌面也保持「左功能条 + 顶部标题/连接栏」结构，
+   不会把顶部状态栏吃掉（配合 tauri.conf 的可调最小尺寸）。 */
 @media (max-width: 760px), (orientation: portrait) and (max-width: 1024px) {
   /* 主内容全高，功能条沉底 */
-  #layout { flex-direction: column; }
-  #pages { order: 1; flex: 1 1 auto; min-height: 0; }
-  #sidebar {
+  :root[data-platform="mobile"] #layout { flex-direction: column; }
+  :root[data-platform="mobile"] #pages { order: 1; flex: 1 1 auto; min-height: 0; }
+  :root[data-platform="mobile"] #sidebar {
     order: 2; flex: none;
     flex-direction: row; justify-content: space-evenly;
     gap: 2px; padding: 5px 4px;
     border-right: none; border-top: 1px solid var(--border);
     overflow-x: auto;
   }
-  #sidebar button {
+  :root[data-platform="mobile"] #sidebar button {
     width: auto; flex: 1 1 0; min-width: 56px;
     padding: 5px 4px; font-size: 10px;
   }
   /* 移动端无 OS 窗口语义：隐藏自绘标题栏与窗口控制条 */
-  #titlebar { display: none; }
-  /* 顶栏可换行，避免窄屏控件被挤出 */
-  #topbar { flex-wrap: wrap; }
+  :root[data-platform="mobile"] #titlebar { display: none; }
+  /* 顶栏可换行，避免窄屏控件被挤出（桌面端基础规则也已可换行） */
+  :root[data-platform="mobile"] #topbar { flex-wrap: wrap; }
   /* 收发页控制条更紧凑 */
-  #log-controls, #plot-controls { gap: 8px; padding: 5px 8px; }
-  #log-controls label, #log-controls .ctl, #plot-controls label, #plot-controls .ctl {
+  :root[data-platform="mobile"] #log-controls,
+  :root[data-platform="mobile"] #plot-controls { gap: 8px; padding: 5px 8px; }
+  :root[data-platform="mobile"] #log-controls label,
+  :root[data-platform="mobile"] #plot-controls .ctl,
+  :root[data-platform="mobile"] #plot-controls label,
+  :root[data-platform="mobile"] #plot-controls .ctl {
     white-space: nowrap;
   }
 }

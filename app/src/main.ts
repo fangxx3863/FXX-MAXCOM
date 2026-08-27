@@ -8,6 +8,7 @@ import type { ConnConfig, ConnState, DataFormat, DType, HidDeviceInfo, PortInfo,
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
+import { openUrl as openExternal } from "@tauri-apps/plugin-opener";
 import { TerminalPage } from "./pages/terminal";
 import { LogViewPage } from "./pages/logview";
 import { PlotPage, Y_PRESETS, type PlotLayout, type ViewMode } from "./pages/plot";
@@ -35,6 +36,8 @@ interface AppSettings {
   theme: string;
   /** 图表导出样式：theme=跟随主题；paper=论文风格（白底仿 LaTeX） */
   chartStyle: string;
+  /** 界面整体缩放（DPI）：100=100%，125=125% 等 */ 
+  uiScale: number;
 }
 const DEFAULT_SETTINGS: AppSettings = {
   logSize: 12.5,
@@ -42,6 +45,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   termSize: 14,
   theme: "dark",
   chartStyle: "theme",
+  uiScale: 100,
 };
 const SETTINGS_KEY = "maxcom.settings";
 const THEME_PRESETS: Record<string, string> = {
@@ -1651,6 +1655,8 @@ class SessionApp {
     if (themeSel) themeSel.value = st.theme;
     const chartStyleSel = this.q<HTMLSelectElement>("#set-chart-style");
     if (chartStyleSel) chartStyleSel.value = st.chartStyle;
+    const uiScaleSel = this.q<HTMLSelectElement>("#set-ui-scale");
+    if (uiScaleSel) uiScaleSel.value = String(st.uiScale);
   }
 
   wireSettings() {
@@ -1670,6 +1676,13 @@ class SessionApp {
     chartStyleSel.addEventListener("change", () =>
       saveSettings({ ...currentSettings, chartStyle: chartStyleSel.value }),
     );
+    // 界面整体缩放（DPI）：即时生效并持久化；100% 时浏览器退回默认（zoom:1）
+    const uiScaleSel = this.q<HTMLSelectElement>("#set-ui-scale");
+    if (uiScaleSel) {
+      uiScaleSel.addEventListener("change", () =>
+        saveSettings({ ...currentSettings, uiScale: Number(uiScaleSel.value) || DEFAULT_SETTINGS.uiScale }),
+      );
+    }
     this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
     // 界面语言：全局共享，切换后整页重载（标签页/设置保留）；重载前先断开所有连接
     const langSel = this.q<HTMLSelectElement>("#set-lang");
@@ -1982,6 +1995,9 @@ function applySettingsToAll() {
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty("--log-size", `${currentSettings.logSize}px`);
   rootStyle.setProperty("--log-family", currentSettings.logFamily);
+  // 界面整体缩放（DPI）：CSS zoom 等比缩放 WebView 全部内容。桌面 UA 的移动端媒体查询已
+  // 平台门控，故缩放压窄 CSS 视口也不会吃掉顶部标题/连接栏。
+  rootStyle.setProperty("zoom", String(currentSettings.uiScale / 100));
   applyTheme();
   const resolved = resolveThemeId();
   const termTheme = TERMINAL_THEMES[resolved] ?? TERMINAL_THEMES.dark;
@@ -2012,6 +2028,19 @@ async function changeLanguage(l: Lang): Promise<void> {
 
 // ── 标签栏按钮 / 新建 ──
 document.getElementById("tab-new")?.addEventListener("click", () => newTab());
+
+// ── 外链打开逻辑──桌面 Tauri WebView 默认不响应 target=_blank 的 <a>，需经 opener
+//    插件调系统浏览器（桌面：默认浏览器；移动端：对应 intent）。浏览器/演示模式走 window.open。
+//    用 document 级事件委托，覆盖每个会话克隆出的「关于页」项目主页链接。 https/http 才拦。 */
+document.addEventListener("click", (e) => {
+  const a = (e.target as HTMLElement).closest?.("a[href]");
+  if (!a) return;
+  const href = (a.getAttribute("href") || "").trim();
+  if (!/^https?:\/\//i.test(href)) return;
+  e.preventDefault();
+  if (IS_TAURI) void openExternal(href);
+  else window.open(href, "_blank", "noopener");
+});
 
 // ── 标题栏静态标签（win-* 按钮 title 等）按当前语言落地 ──
 {

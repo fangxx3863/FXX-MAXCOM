@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-selectors.mjs && tsc --noEmit && vite build && node scripts/smoke.mjs && node scripts/plot-test.mjs && node scripts/modbus-test.mjs && node scripts/tools-test.mjs && node scripts/tools-dom-test.mjs && node scripts/tools-baseline-test.mjs && node scripts/logview-hex-rules-test.mjs",
+    "build": "node scripts/check-selectors.mjs && tsc --noEmit && vite build && node scripts/smoke.mjs && node scripts/plot-test.mjs && node scripts/modbus-test.mjs && node scripts/tools-test.mjs && node scripts/tools-dom-test.mjs && node scripts/tools-baseline-test.mjs && node scripts/logview-hex-rules-test.mjs && node scripts/ui-scale-test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -13,6 +13,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/cli": "^2.11.4",
     "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "katex": "^0.18.4",
