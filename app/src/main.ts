@@ -2194,7 +2194,6 @@ interface ExplodeTile {
 let explodeOpen = false;
 let explodeTiles: ExplodeTile[] = [];
 let explodeGrid: HTMLElement | null = null;
-let explodeDragFrom = -1;
 
 /** 收集已连接会话的目标收发/终端 page section（未连接/缺失跳过） */
 function collectExplodeTiles(): ExplodeTile[] {
@@ -2273,41 +2272,82 @@ function applyExplodeLayout() {
   explodeTiles.forEach((t, i) => applyExplodeRect(t.tileEl, rects[i]));
 }
 
-function wireExplodeDrag(tile: HTMLDivElement, idx: number) {
+function withinTile(tile: HTMLElement, x: number, y: number): boolean {
+  const r = tile.getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+function wireExplodeDrag(tile: HTMLDivElement) {
   const head = tile.querySelector<HTMLElement>(".explode-tile-head");
   if (!head) return;
-  head.addEventListener("dragstart", (e) => {
-    // HTML5 drag 必须 setData 才真正启动；否则光标显示禁止符号
-    e.dataTransfer?.setData("text/plain", `explode:${idx}`);
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
-    explodeDragFrom = idx;
+  const grid = explodeGrid!;
+
+  // ── 角部 resize 手柄：拖拽调整 tile 尺寸（占 grid %，hyprland 式随意改块大小）──
+  const rz = document.createElement("div");
+  rz.className = "explode-resize";
+  tile.appendChild(rz);
+  rz.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    const gridRect = grid.getBoundingClientRect();
+    if (gridRect.width < 2 || gridRect.height < 2) return;
+    const startX = e.clientX, startY = e.clientY;
+    const startW = tile.getBoundingClientRect().width;
+    const startH = tile.getBoundingClientRect().height;
+    rz.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      // 换算为 grid 百分比；夹在 [12, 100-left/top] 内，避免越界/重叠到边界外
+      const pctW = ((startW + ev.clientX - startX) / gridRect.width) * 100;
+      const pctH = ((startH + ev.clientY - startY) / gridRect.height) * 100;
+      tile.style.width = Math.max(12, Math.min(100, pctW)).toFixed(2) + "%";
+      tile.style.height = Math.max(12, Math.min(100, pctH)).toFixed(2) + "%";
+    };
+    const up = () => {
+      rz.removeEventListener("pointermove", move);
+      rz.removeEventListener("pointerup", up);
+    };
+    rz.addEventListener("pointermove", move);
+    rz.addEventListener("pointerup", up);
+  });
+
+  // ── 拖拽重排：pointer 捕获，实时按落点换位（hyprland 风格，绕开 WebView2 HTML5 DnD 光标禁止）──
+  let dragging = false;
+  head.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const ti = explodeTiles.findIndex((t) => t.tileEl === tile);
+    if (ti < 0) return;
+    dragging = true;
     tile.classList.add("dragging");
+    head.setPointerCapture(e.pointerId);
+    e.preventDefault();
   });
-  head.addEventListener("dragend", () => {
-    tile.classList.remove("dragging");
-    explodeDragFrom = -1;
+  head.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const target = explodeTiles.find((t) => t.tileEl !== tile && withinTile(t.tileEl, e.clientX, e.clientY));
     for (const t of explodeTiles) t.tileEl.classList.remove("drop-hover");
-  });
-  tile.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    if (!tile.classList.contains("drop-hover")) tile.classList.add("drop-hover");
-  });
-  tile.addEventListener("dragleave", () => tile.classList.remove("drop-hover"));
-  tile.addEventListener("drop", (e) => {
-    e.preventDefault();
-    tile.classList.remove("drop-hover");
-    if (explodeDragFrom < 0) return;
-    const to = explodeTiles.findIndex((t) => t.tileEl === tile);
-    if (to < 0 || to === explodeDragFrom) return;
-    const [moved] = explodeTiles.splice(explodeDragFrom, 1);
+    if (!target) return;
+    const from = explodeTiles.findIndex((t) => t.tileEl === tile);
+    const to = explodeTiles.findIndex((t) => t.tileEl === target.tileEl);
+    if (from < 0 || to < 0 || from === to) return;
+    const [moved] = explodeTiles.splice(from, 1);
     explodeTiles.splice(to, 0, moved);
     if (explodeGrid) {
       explodeGrid.replaceChildren();
       for (const t of explodeTiles) explodeGrid.appendChild(t.tileEl);
     }
     applyExplodeLayout();
-    explodeDragFrom = -1;
+  });
+  head.addEventListener("pointerup", () => {
+    if (!dragging) return;
+    dragging = false;
+    tile.classList.remove("dragging");
+    for (const t of explodeTiles) t.tileEl.classList.remove("drop-hover");
+  });
+  head.addEventListener("pointercancel", () => {
+    dragging = false;
+    tile.classList.remove("dragging");
+    for (const t of explodeTiles) t.tileEl.classList.remove("drop-hover");
   });
 }
 
@@ -2323,7 +2363,7 @@ function openExplode() {
   if (hint) {
     hint.textContent = explodeTiles.length ? t("explode.hintDrag") : t("explode.hintNone");
   }
-  explodeTiles.forEach((et, i) => {
+  explodeTiles.forEach((et) => {
     const tile = et.tileEl;
     tile.className = "explode-tile";
     // 标题头：可拖拽手柄
@@ -2345,7 +2385,7 @@ function openExplode() {
     et.pageEl.classList.remove("hidden");
     body.appendChild(et.pageEl);
     tile.append(head, body);
-    wireExplodeDrag(tile, i);
+    wireExplodeDrag(tile);
     grid.appendChild(tile);
   });
   applyExplodeLayout();
@@ -2376,7 +2416,6 @@ function closeExplode() {
     t.tileEl.remove();
   }
   explodeTiles = [];
-  explodeDragFrom = -1;
   document.getElementById("titlebar")?.classList.remove("hidden");
   document.getElementById("session-root")?.classList.remove("hidden");
   document.getElementById("explode-overlay")?.classList.add("hidden");

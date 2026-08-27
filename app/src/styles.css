@@ -1081,6 +1081,12 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
   padding: 0 6px; border-radius: 8px; line-height: 16px;
 }
 .explode-tile-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.explode-resize {
+  position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
+  cursor: nwse-resize; z-index: 3; touch-action: none;
+  background: linear-gradient(135deg, transparent 58%, var(--accent) 58% 82%, transparent 82%);
+}
+.explode-resize:hover { background-color: rgba(77,163,255,.15); border-radius: 3px 0 0 0; }
 
 /* ── 置顶弹出接收窗口（popup.html 独立入口）── */
 .popup-body {
