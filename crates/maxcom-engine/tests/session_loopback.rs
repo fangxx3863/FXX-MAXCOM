@@ -473,6 +473,71 @@ fn capture_roundtrip_to_file() {
 }
 
 #[test]
+fn capture_streams_large_payload_beyond_chunk() {
+    // 大载荷（远超 CAP_CHUNK）经多次 flush 落盘，且不再有 64MiB 内存上限。
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec);
+    mgr.connect(tcp_cfg(port)).unwrap();
+
+    mgr.start_capture();
+    let big = "x".repeat(200_000);
+    mgr.send(&SendPayload {
+        text: Some(big.clone()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    let expected = big.len() as u64 + 1;
+    assert!(
+        wait_until(|| mgr.capture_state().1 >= expected, Duration::from_secs(5)),
+        "大载荷捕获未完整 state={:?}",
+        mgr.capture_state()
+    );
+
+    let path = std::env::temp_dir().join("maxcom_capture_big.bin");
+    let n = mgr.save_capture(path.to_str().unwrap()).expect("save");
+    assert_eq!(n, expected);
+    let saved = std::fs::read(&path).unwrap();
+    assert_eq!(saved.len(), expected as usize);
+    assert_eq!(&saved[..expected as usize - 1], big.as_bytes());
+    assert_eq!(saved[expected as usize - 1], b'\n');
+    let _ = std::fs::remove_file(&path);
+    mgr.disconnect();
+}
+
+#[test]
+fn capture_cancel_discards_temp_and_stops() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec);
+    mgr.connect(tcp_cfg(port)).unwrap();
+
+    mgr.start_capture();
+    assert!(mgr.capture_state().0);
+    mgr.send(&SendPayload {
+        text: Some("x".into()),
+        hex: None,
+        newline: "\n".into(),
+    })
+    .unwrap();
+    assert!(
+        wait_until(|| mgr.capture_state().1 >= 2, Duration::from_secs(3)),
+        "未收到捕获数据 state={:?}",
+        mgr.capture_state()
+    );
+
+    mgr.cancel_capture();
+    assert!(!mgr.capture_state().0, "cancel 后不应再捕获中");
+    assert_eq!(mgr.capture_state().1, 0, "cancel 后已捕获字节应清零");
+    assert!(
+        mgr.save_capture("should_fail.bin").is_err(),
+        "cancel 后再 save 应报未在捕获中"
+    );
+    mgr.disconnect();
+}
+
+#[test]
 fn line_split_idle_flush_marks_partial() {
     // 换行分包：无结尾换行的残余（shell 提示符/最后一行）在空闲封行时刷出为
     // partial=true 的未结束部分行——前端据此续接到当前行，不把提示符与后续命令拆成两行。

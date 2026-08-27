@@ -3,8 +3,8 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
-import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices } from "./api";
-import type { ConnConfig, ConnState, DataFormat, DType, HidDeviceInfo, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
+import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile } from "./api";
+import type { ConnConfig, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
@@ -17,6 +17,7 @@ import { FlashPage, type FlashRunConfig } from "./pages/flash";
 import { RulesPanel, type RulesSnapshot } from "./pages/rules";
 import { ProtocolPage } from "./pages/protocol";
 import { ToolsPage } from "./pages/tools";
+import { LogCapture, captureStem, resolveLogFmt, type CaptureLogFormat } from "./capture";
 
 type PageId = "terminal" | "logview" | "plot" | "stats" | "flash" | "protocol" | "tools" | "settings";
 const PAGES: readonly PageId[] = ["terminal", "logview", "plot", "stats", "flash", "protocol", "tools", "settings"];
@@ -38,6 +39,8 @@ interface AppSettings {
   chartStyle: string;
   /** 界面整体缩放（DPI）：100=100%，125=125% 等 */ 
   uiScale: number;
+  /** 捕获日志时间戳格式 */
+  captureLogFormat: CaptureLogFormat;
 }
 const DEFAULT_SETTINGS: AppSettings = {
   logSize: 12.5,
@@ -46,6 +49,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   theme: "dark",
   chartStyle: "theme",
   uiScale: 100,
+  captureLogFormat: "follow",
 };
 const SETTINGS_KEY = "maxcom.settings";
 const THEME_PRESETS: Record<string, string> = {
@@ -209,6 +213,17 @@ function hex4(n: number): string {
   return n.toString(16).padStart(4, "0").toLowerCase();
 }
 
+/** 浏览器/演示模式：触发文本文件下载（Tauri 走 saveTextFile 落盘） */
+function downloadTextFile(name: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** USB 设备下拉标签 */
 function usbDeviceLabel(d: UsbDeviceInfo): string {
   const label = d.product || d.manufacturer || "USB Device";
@@ -290,6 +305,14 @@ class SessionApp {
   private pendingProbe: string | null = null;
   /** 开启 HEX 显示前用户选的分包方式：关闭 HEX 后恢复。null=未处于 HEX 锁定时 */
   private hexPreSplit: string | null = null;
+
+  /** 日志捕获累计器（进行中非 null） */
+  private logCapture: LogCapture | null = null;
+
+  /** 是否正在捕获日志（供关闭确认等模块级判断） */
+  get isLogCapturing(): boolean {
+    return this.logCapture !== null;
+  }
 
   constructor(id: string, name: string | null, snap?: Record<string, string>) {
     this.id = id;
@@ -603,6 +626,7 @@ class SessionApp {
   async refreshPorts() {
     try {
       const ports = await this.api.listPorts();
+      for (const p of ports) PORT_NAMES.set(p.device, p.description || "");
       this.portDd.setItems(
         ports.map((p) => ({ value: p.device, label: formatPortLabel(p) })),
       );
@@ -1108,8 +1132,9 @@ class SessionApp {
       }
     });
 
-    // 接收捕获
-    this.q("#capture-btn").addEventListener("click", () => void this.toggleCapture());
+    // 接收捕获（二进制 + 日志两个独立功能）
+    this.q("#capture-bin-btn").addEventListener("click", () => void this.toggleBinaryCapture());
+    this.q("#capture-log-btn").addEventListener("click", () => this.toggleLogCapture());
   }
 
   /** 定时发送：按当前开关/间隔启动、停止或重启。开关切换与间隔值变更都会调用，
@@ -1150,36 +1175,95 @@ class SessionApp {
   }
 
   private realNewline(): string {
-    return this.newlineDd.value.replace(/\\r/g, "\r").replace(/\\n/g, "\n");
+    return this.newlineDd.value.split("\\r").join(String.fromCharCode(13)).split("\\n").join(String.fromCharCode(10));
+  }
+  private captureBaseName(device: string): string {
+    return this.customName || PORT_NAMES.get(device) || shortPortName(device) || device;
   }
 
-  private async toggleCapture() {
-    const captureBtn = this.q("#capture-btn");
+  private async toggleBinaryCapture() {
+    const btn = this.q("#capture-bin-btn");
     const [capturing] = await this.api.captureState();
     if (!capturing) {
       await this.api.startCapture();
-      captureBtn.textContent = t("log.capture.stop");
-      captureBtn.classList.add("recording");
+      btn.textContent = t("log.captureBin.stop");
+      btn.classList.add("recording");
+      return;
+    }
+    // 停止并保存：默认文件名 = 串口名 + 串口号 + 开始时间(到ms)，防止重名
+    const startMs = Date.now();
+    const stem = captureStem(this.captureBaseName(this.portDd.value), this.portDd.value, startMs);
+    const defaultName = `${stem}.bin`;
+    const path = await pickSavePath(defaultName);
+    if (path) {
+      const n = await this.api.saveCapture(path as string);
+      this.setHint(t("log.captureBin.savedPath", { size: n, path }), false);
+    } else if (IS_TAURI) {
+      await this.api.cancelCapture();
+      this.setHint(t("log.captureBin.cancelled"), false);
     } else {
-      const path = await pickSavePath("maxcom_capture.bin");
-      if (!path) {
-        // 浏览器演示模式：mock 直接触发下载
-        const n = await this.api.saveCapture("maxcom_capture.bin");
-        this.setHint(t("log.capture.saved", { size: n }), false);
-      } else {
-        const n = await this.api.saveCapture(path as string);
-        this.setHint(t("log.capture.savedPath", { size: n, path }), false);
-      }
-      captureBtn.textContent = t("log.capture");
-      captureBtn.classList.remove("recording");
+      // 浏览器演示模式：mock 直接触发下载
+      const n = await this.api.saveCapture(defaultName);
+      this.setHint(t("log.captureBin.saved", { size: n }), false);
+    }
+    btn.textContent = t("log.captureBin");
+    btn.classList.remove("recording");
+  }
+
+  /** 日志捕获切换：进行中累计文本行，停止后保存为可读文本 */
+  private toggleLogCapture() {
+    const btn = this.q("#capture-log-btn");
+    if (!this.logCapture) {
+      const fmt = resolveLogFmt(currentSettings.captureLogFormat, this.tsModeDd.value);
+      this.logCapture = new LogCapture(fmt);
+      btn.textContent = t("log.captureLog.stop");
+      btn.classList.add("recording");
+      this.updateLogCaptureBadge();
+      return;
+    }
+    const content = this.logCapture.content();
+    const startMs = this.logCapture.startMs;
+    const stem = captureStem(this.captureBaseName(this.portDd.value), this.portDd.value, startMs);
+    this.logCapture = null;
+    btn.textContent = t("log.captureLog");
+    btn.classList.remove("recording");
+    void this.saveLogCapture(`${stem}.log`, content);
+  }
+
+  private async saveLogCapture(defaultName: string, content: string) {
+    const path = await pickSavePath(defaultName);
+    if (path) {
+      const n = await saveTextFile(path, content);
+      this.setHint(t("log.captureLog.savedPath", { size: n, path }), false);
+    } else if (IS_TAURI) {
+      this.setHint(t("log.captureLog.cancelled"), false);
+    } else {
+      downloadTextFile(defaultName, content);
+      this.setHint(t("log.captureLog.saved", { size: content.length }), false);
     }
   }
 
-  /** 捕获徽标（轮询刷新活动标签） */
+  /** 每批 entries 进入时喂给日志捕获累计器 */
+  feedLogCapture(batch: EntriesBatch) {
+    const lc = this.logCapture;
+    if (!lc) return;
+    lc.feed(batch);
+    this.updateLogCaptureBadge();
+  }
+
+  /** 二进制捕获徽标（轮询刷新活动标签） */
   updateCaptureBadge(size: number) {
-    const captureBtn = this.q("#capture-btn");
-    if (captureBtn.classList.contains("recording")) {
-      captureBtn.textContent = t("log.capture.stopsize", { size: (size / 1024).toFixed(1) });
+    const btn = this.q("#capture-bin-btn");
+    if (btn.classList.contains("recording")) {
+      btn.textContent = t("log.captureBin.stopsize", { size: (size / 1024).toFixed(1) });
+    }
+  }
+
+  /** 日志捕获徽标（行数） */
+  updateLogCaptureBadge() {
+    const btn = this.q("#capture-log-btn");
+    if (btn.classList.contains("recording") && this.logCapture) {
+      btn.textContent = t("log.captureLog.stopsize", { size: this.logCapture.count });
     }
   }
 
@@ -1657,6 +1741,8 @@ class SessionApp {
     if (chartStyleSel) chartStyleSel.value = st.chartStyle;
     const uiScaleSel = this.q<HTMLSelectElement>("#set-ui-scale");
     if (uiScaleSel) uiScaleSel.value = String(st.uiScale);
+    const logFmtSel = this.q<HTMLSelectElement>("#set-capture-log-fmt");
+    if (logFmtSel) logFmtSel.value = st.captureLogFormat;
   }
 
   wireSettings() {
@@ -1683,6 +1769,13 @@ class SessionApp {
         saveSettings({ ...currentSettings, uiScale: Number(uiScaleSel.value) || DEFAULT_SETTINGS.uiScale }),
       );
     }
+    // 捕获日志时间戳格式：持久化，下次捕获生效
+    const logFmtSel = this.q<HTMLSelectElement>("#set-capture-log-fmt");
+    if (logFmtSel) {
+      logFmtSel.addEventListener("change", () =>
+        saveSettings({ ...currentSettings, captureLogFormat: logFmtSel.value as CaptureLogFormat }),
+      );
+    }
     this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
     // 界面语言：全局共享，切换后整页重载（标签页/设置保留）；重载前先断开所有连接
     const langSel = this.q<HTMLSelectElement>("#set-lang");
@@ -1699,6 +1792,23 @@ let activeId = "";
 let seqCounter = 0;
 let renamingId: string | null = null;
 let lastSnapJson = "";
+
+/** 串口 device → 制造商/产品名（来自 listPorts 的 description，用于捕获文件名） */
+const PORT_NAMES = new Map<string, string>();
+
+/** 是否有会话正在捕获（二进制或日志）：捕获中关闭程序需确认 */
+async function anyCapturing(): Promise<boolean> {
+  for (const s of sessions.values()) {
+    if (s.isLogCapturing) return true;
+    try {
+      const [capturing] = await s.api.captureState();
+      if (capturing) return true;
+    } catch {
+      /* 未连接等 */
+    }
+  }
+  return false;
+}
 
 const TABS_KEY = "maxcom.tabs.v2";
 interface TabStoreEntry {
@@ -1944,7 +2054,12 @@ onRaw((e) => {
   s.terminalPage.feed(e.bytes);
   s.protocolPage.onRaw(e.bytes);
 });
-onEntries((e) => sessions.get(e.session)?.logViewPage.append(e.batch));
+onEntries((e) => {
+  const s = sessions.get(e.session);
+  if (!s) return;
+  s.logViewPage.append(e.batch);
+  s.feedLogCapture(e.batch);
+});
 onState((e) => sessions.get(e.session)?.applyConnState(e.state));
 
 // ── 轮询循环（只处理活动标签；后台标签数据由引擎缓冲，事件照常追加）──
@@ -2071,6 +2186,35 @@ if (IS_TAURI) {
     document.getElementById("win-min")?.addEventListener("click", () => void win.minimize());
     document.getElementById("win-max")?.addEventListener("click", () => void win.toggleMaximize());
     document.getElementById("win-close")?.addEventListener("click", () => void win.close());
+    // 捕获中关闭程序：先确认再退（防止丢失未保存的捕获数据）
+    let closing = false; // 处理中标志，防 async 决策期间重复点击弹二次确认
+    void (async () => {
+      const { confirm } = await import("@tauri-apps/plugin-dialog");
+      void win.onCloseRequested(async (event) => {
+        if (closing) {
+          event.preventDefault(); // 已在处理流程中：再拦一次，别弹第二个确认
+          return;
+        }
+        closing = true;
+        event.preventDefault(); // 一律先拦截，再异步判定（防 await 期间窗口已关）
+        try {
+          if (!(await anyCapturing())) {
+            await win.destroy(); // 未在捕获：destroy 直接关（不重入 onCloseRequested，无死锁）
+            return;
+          }
+          const ok = await confirm("正在捕获中，关闭将丢失未保存的捕获数据。确定要关闭吗？", {
+            title: "确认关闭",
+            okLabel: "关闭",
+            cancelLabel: "取消",
+          });
+          if (ok) {
+            await win.destroy(); // 确认：destroy 直接关（不再触发 closeRequested，规避 close() 重入不生效）
+          }
+        } finally {
+          closing = false;
+        }
+      });
+    })();
     void win.isMaximized().then((m) => document.getElementById("win-max")?.classList.toggle("maxed", m));
     void win.onResized(() => {
       void win.isMaximized().then((m) => document.getElementById("win-max")?.classList.toggle("maxed", m));

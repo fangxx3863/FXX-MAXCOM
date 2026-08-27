@@ -39,7 +39,20 @@ export class LogViewPage {
     this.getTsMode = opts.getTsMode;
     // 粘性自动滚动：滚动位置决定自动滚动开关（滚上去=关，拉到底部=开）
     this.view.addEventListener("scroll", () => this.syncAutoscroll());
+    // 从「非自动」勾成「自动」：立即拉到底一次（否则要等下一批数据才滚）。
+    // 测试桩可能传纯对象（无 addEventListener），做能力守卫。
+    if (typeof this.autoscroll.addEventListener === "function") {
+      this.autoscroll.addEventListener("change", () => {
+        if (this.autoscroll.checked) this.scrollToBottom();
+      });
+    }
     this.refreshRowHeight();
+  }
+
+  /** 立即拉到底部（取整到整数设备像素，粘性滚动要求）：自动滚动勾选/切换时调用 */
+  scrollToBottom() {
+    const el = this.view;
+    el.scrollTop = Math.round(el.scrollHeight - el.clientHeight);
   }
 
   /** 每行格子高度钉成「整数设备像素」：xterm 固定行高原理。

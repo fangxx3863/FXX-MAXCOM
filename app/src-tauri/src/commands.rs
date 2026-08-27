@@ -284,6 +284,12 @@ pub fn save_capture(
     state.with(&session, |mgr| mgr.save_capture(&path))
 }
 
+/// 取消捕获：丢弃临时文件，不保存
+#[tauri::command]
+pub fn cancel_capture(session: String, state: State<'_, AppState>) {
+    state.with(&session, |mgr| mgr.cancel_capture());
+}
+
 /// (捕获中?, 已捕获字节, 超限丢弃字节)
 #[tauri::command]
 pub fn capture_state(session: String, state: State<'_, AppState>) -> (bool, u64, u64) {

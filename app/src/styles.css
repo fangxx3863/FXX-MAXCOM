@@ -594,7 +594,8 @@ button.dd-face { justify-content: space-between; }
 .send-actions label { color: var(--fg-dim); display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
 .send-actions .unit { color: var(--fg-dim); font-size: 12px; margin-left: 2px; }
 .hint { color: var(--ok); font-size: 12px; }
-#capture-btn.recording { color: var(--err); border-color: var(--err); }
+#capture-bin-btn.recording,
+#capture-log-btn.recording { color: var(--err); border-color: var(--err); }
 
 /* 终端工具条 */
 .term-bar {

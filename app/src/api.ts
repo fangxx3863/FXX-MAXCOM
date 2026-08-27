@@ -54,6 +54,7 @@ export interface SessionApi {
   setAutoReconnect(on: boolean): Promise<void>;
   startCapture(): Promise<void>;
   saveCapture(path: string): Promise<number>;
+  cancelCapture(): Promise<void>;
   captureState(): Promise<[boolean, number, number]>;
   /** 在**当前会话连接**上做 X/Y/ZMODEM 文件传输（烧录页 BL 交互，复用顶栏连接） */
   modemTransfer(protocol: ModemProtocol, path: string): Promise<void>;
@@ -82,6 +83,7 @@ function realApi(session: string): SessionApi {
     setAutoReconnect: (on) => invoke<void>("set_auto_reconnect", { session, on }),
     startCapture: () => invoke<void>("start_capture", { session }),
     saveCapture: (path) => invoke<number>("save_capture", { session, path }),
+    cancelCapture: () => invoke<void>("cancel_capture", { session }),
     captureState: () => invoke<[boolean, number, number]>("capture_state", { session }),
     modemTransfer: (protocol, path) => invoke<void>("modem_transfer", { session, protocol, path }),
     cancelModemTransfer: () => invoke<void>("cancel_modem_transfer", { session }),

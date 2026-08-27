@@ -229,6 +229,10 @@ class MockBackend implements MockApi {
     return data.length;
   }
 
+  async cancelCapture() {
+    this.capturing = false;
+  }
+
   async captureState(): Promise<[boolean, number, number]> {
     return [this.capturing, this.captureBuf.length, 0];
   }

@@ -49,6 +49,7 @@ pub fn run() {
             commands::set_auto_reconnect,
             commands::start_capture,
             commands::save_capture,
+            commands::cancel_capture,
             commands::capture_state,
             commands::close_session,
             commands::save_text_file,

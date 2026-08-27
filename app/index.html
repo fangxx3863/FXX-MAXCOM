@@ -119,7 +119,8 @@
                   <span class="spacer"></span>
                   <button id="file-btn" title="分块发送文件原始字节" data-i18n-title="log.file.title" data-i18n="log.file">发文件</button>
                   <input id="file-input" type="file" class="hidden" />
-                  <button id="capture-btn" title="捕获接收数据并保存为文件" data-i18n-title="log.capture.title" data-i18n="log.capture">● 捕获</button>
+                  <button id="capture-bin-btn" title="捕获接收数据为原始二进制（分块写临时目录，支持 G 级数据）" data-i18n-title="log.captureBin.title" data-i18n="log.captureBin">● 捕获二进制</button>
+                  <button id="capture-log-btn" title="捕获接收日志为可读文本文件" data-i18n-title="log.captureLog.title" data-i18n="log.captureLog">▤ 捕获日志</button>
                   <button id="send-btn" class="primary" data-i18n="log.send.main">发送 Ctrl+↵</button>
                 </div>
               </div>
@@ -325,6 +326,19 @@
                   </select>
                 </div>
                 <div class="set-note" data-i18n="settings.chartStyleNote">控制右键复制/导出的图表图像风格。</div>
+              </div>
+              <div class="set-card">
+                <div class="set-card-head" data-i18n="settings.captureLogFmtCard">📝 捕获日志格式</div>
+                <div class="set-field">
+                  <span class="set-label" data-i18n="settings.captureLogFmt">保存格式</span>
+                  <select id="set-capture-log-fmt">
+                    <option value="absolute" data-i18n="captureLogFmt.absolute">年-月-日 时:分:秒.毫秒 (绝对)</option>
+                    <option value="relative" data-i18n="captureLogFmt.relative">相对时间 (+ms)</option>
+                    <option value="delta" data-i18n="captureLogFmt.delta">差值 (Δms)</option>
+                    <option value="follow" data-i18n="captureLogFmt.follow">跟随页面</option>
+                  </select>
+                </div>
+                <div class="set-note" data-i18n="settings.captureLogFmtNote">日志捕获每行的时间戳前缀。跟随页面=随当前标签页时间戳模式。</div>
               </div>
               <div class="set-card">
                 <div class="set-card-head" data-i18n="settings.langCard">🌐 语言</div>

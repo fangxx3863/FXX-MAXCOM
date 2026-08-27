@@ -19,12 +19,72 @@ use maxcom_core::plot::{ChannelMetrics, ChannelStore};
 use maxcom_core::splitter::LineSplitter;
 use maxcom_core::stats::{StatsSnapshot, StatsTracker};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// 捕获缓冲上限（64 MiB，超出丢弃并计数）
-const CAPTURE_CAP: usize = 64 * 1024 * 1024;
+/// 二进制捕获落盘：流式写入系统临时目录（分块 flush），避免 1GB 级数据驻留内存。
+/// 捕获结束后由 save_capture 将临时文件复制到用户选择的目标路径并删除临时文件。
+/// 临时文件在会话 Drop/cancel 时清理，不长期占用磁盘。
+struct CaptureSink {
+    path: PathBuf,
+    file: std::fs::File,
+    buf: Vec<u8>,
+    total: u64,
+}
+
+/// 每累计 64KB flush 一次到临时文件（控制写盘粒度，兼顾吞吐与故障丢失面）
+const CAP_CHUNK: usize = 64 * 1024;
+
+/// 保证同一毫秒内多次创建临时文件也不同名（并发会话/测试）
+static CAP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+impl CaptureSink {
+    fn new() -> std::io::Result<Self> {
+        let ms = unix_ms();
+        let seq = CAP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "maxcom_capture_{}_{}_{}.bin",
+            std::process::id(),
+            ms,
+            seq
+        ));
+        let file = std::fs::File::create(&path)?;
+        Ok(Self {
+            path,
+            file,
+            buf: Vec::with_capacity(CAP_CHUNK),
+            total: 0,
+        })
+    }
+
+    fn write(&mut self, data: &[u8]) -> std::io::Result<()> {
+        self.buf.extend_from_slice(data);
+        self.total += data.len() as u64;
+        if self.buf.len() >= CAP_CHUNK {
+            self.flush()?;
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if self.buf.is_empty() {
+            return Ok(());
+        }
+        self.file.write_all(&self.buf)?;
+        self.buf.clear();
+        Ok(())
+    }
+
+    /// 封口：flush 剩余字节并 fsync（save_capture 复制前调用）
+    fn finish(&mut self) -> std::io::Result<()> {
+        self.flush()?;
+        self.file.sync_all()?;
+        Ok(())
+    }
+}
 
 /// 长流防护：无换行/无空闲的连续数据（二进制流）累计超过该字节数即强制封行输出。
 /// 否则 splitter pending / time_buf 只涨不拆、batch 恒空，前端收不到任何 entries
@@ -144,8 +204,8 @@ pub struct SessionManager {
     auto_reconnect: Arc<AtomicBool>,
     /// 重连间隔（ms，测试可调小）
     reconnect_delay_ms: AtomicU64,
-    /// 接收捕获缓冲（Some=捕获中）
-    capture: Arc<Mutex<Option<Vec<u8>>>>,
+    /// 二进制接收捕获（Some=捕获中，流式写临时文件）
+    capture: Arc<Mutex<Option<CaptureSink>>>,
     capture_dropped: Arc<AtomicU64>,
     /// 持久化配置：连接后重放给新线程引擎（修复冷启动时因未连接被丢弃的规则）
     filters: Mutex<Vec<FilterRule>>,
@@ -229,29 +289,41 @@ impl SessionManager {
         res.map_err(|e| e.to_string())
     }
 
-    /// 开始捕获接收数据（清空缓冲从头计）
+    /// 开始捕获接收数据为二进制（清空并新建临时文件从头计）
     pub fn start_capture(&self) {
         self.capture_dropped.store(0, Ordering::Relaxed);
-        *self.capture.lock().unwrap() = Some(Vec::new());
+        match CaptureSink::new() {
+            Ok(sink) => *self.capture.lock().unwrap() = Some(sink),
+            Err(e) => {
+                eprintln!("创建捕获临时文件失败: {e}");
+                *self.capture.lock().unwrap() = None;
+            }
+        }
     }
 
     pub fn stop_capture(&self) {
-        *self.capture.lock().unwrap() = None;
+        self.cancel_capture();
     }
 
-    /// 停止捕获并把缓冲写入文件，返回字节数。
+    /// 停止捕获并把临时文件复制到目标路径，返回字节数。
     pub fn save_capture(&self, path: &str) -> Result<u64, String> {
-        let buf = self.capture.lock().unwrap().take();
-        let dropped = self.capture_dropped.load(Ordering::Relaxed);
-        let Some(buf) = buf else {
+        let sink = self.capture.lock().unwrap().take();
+        let Some(mut sink) = sink else {
             return Err("未在捕获中".into());
         };
-        let n = buf.len() as u64;
-        std::fs::write(path, &buf).map_err(|e| format!("写入失败: {e}"))?;
-        if dropped > 0 {
-            return Ok(n); // 调用方可对比 n 与预期判断截断；详细 dropped 计数经 capture_state 查询
-        }
+        sink.finish().map_err(|e| format!("落盘失败: {e}"))?;
+        let n = sink.total;
+        std::fs::copy(&sink.path, path).map_err(|e| format!("写入失败: {e}"))?;
+        let _ = std::fs::remove_file(&sink.path);
         Ok(n)
+    }
+
+    /// 取消捕获：丢弃临时文件，不保存。
+    pub fn cancel_capture(&self) {
+        let sink = self.capture.lock().unwrap().take();
+        if let Some(s) = sink {
+            let _ = std::fs::remove_file(&s.path);
+        }
     }
 
     /// 捕获状态：(是否捕获中, 已捕获字节, 因超限丢弃的字节)
@@ -259,7 +331,7 @@ impl SessionManager {
         let g = self.capture.lock().unwrap();
         (
             g.is_some(),
-            g.as_ref().map(|b| b.len() as u64).unwrap_or(0),
+            g.as_ref().map(|s| s.total).unwrap_or(0),
             self.capture_dropped.load(Ordering::Relaxed),
         )
     }
@@ -340,7 +412,6 @@ impl SessionManager {
         let auto_r = self.auto_reconnect.clone();
         let delay_ms = self.reconnect_delay_ms.load(Ordering::Relaxed);
         let capture_r = self.capture.clone();
-        let dropped_r = self.capture_dropped.clone();
         let label_r = label.clone();
         let cfg_r = config.clone();
         threads.push(
@@ -360,13 +431,16 @@ impl SessionManager {
                                     stats_r.record_rx(n);
                                     ev.raw(&buf[..n]);
                                     bus_r.publish(&buf[..n]);
-                                    // 捕获
-                                    if let Some(cap) = &mut *capture_r.lock().unwrap() {
-                                        if cap.len() + n <= CAPTURE_CAP {
-                                            cap.extend_from_slice(&buf[..n]);
-                                        } else {
-                                            dropped_r.fetch_add(n as u64, Ordering::Relaxed);
+                                    // 捕获（流式写临时文件；落盘失败则放弃本次捕获，不阻塞读循环）
+                                    let write_err = {
+                                        let mut g = capture_r.lock().unwrap();
+                                        match g.as_mut() {
+                                            Some(sink) => sink.write(&buf[..n]).is_err(),
+                                            None => false,
                                         }
+                                    };
+                                    if write_err {
+                                        *capture_r.lock().unwrap() = None;
                                     }
                                 }
                                 Err(e) => {
@@ -822,6 +896,7 @@ impl SessionManager {
 
 impl Drop for SessionManager {
     fn drop(&mut self) {
+        self.cancel_capture(); // 回收未保存的捕获临时文件
         self.disconnect();
     }
 }
@@ -879,4 +954,48 @@ pub fn unix_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod capture_sink_tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn sink_flushes_on_chunk_boundary_and_tracks_total() {
+        let mut sink = CaptureSink::new().unwrap();
+        let target = sink.path.clone();
+        // 小写累计在内存 buf，未达 CHUNK 不落盘
+        sink.write(&vec![1u8; 10]).unwrap();
+        assert_eq!(sink.total, 10);
+        // 一次写满一个 CHUNK：触发 flush 落盘
+        sink.write(&vec![2u8; CAP_CHUNK]).unwrap();
+        assert_eq!(sink.total, 10 + CAP_CHUNK as u64);
+        sink.finish().unwrap();
+
+        let mut got = Vec::new();
+        std::fs::File::open(&target)
+            .unwrap()
+            .read_to_end(&mut got)
+            .unwrap();
+        assert_eq!(got.len(), 10 + CAP_CHUNK);
+        assert!(got[..10].iter().all(|&b| b == 1));
+        assert!(got[10..].iter().all(|&b| b == 2));
+        let _ = std::fs::remove_file(&target);
+    }
+
+    #[test]
+    fn sink_write_is_best_effort_across_many_small_chunks() {
+        let mut sink = CaptureSink::new().unwrap();
+        let target = sink.path.clone();
+        let total = 100_000u32;
+        for _ in 0..total {
+            sink.write(b"ab").unwrap();
+        }
+        assert_eq!(sink.total, (total as u64) * 2);
+        sink.finish().unwrap();
+        let len = std::fs::metadata(&target).unwrap().len();
+        assert_eq!(len, (total as u64) * 2);
+        let _ = std::fs::remove_file(&target);
+    }
 }
