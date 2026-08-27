@@ -1038,3 +1038,69 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
   min-width: 96px;
   max-width: 168px;
 }
+
+/* ── 爆炸视图（顶栏右键打开；hyprland 风格平铺所有已连接会话的收发/终端）── */
+#explode-overlay {
+  position: fixed; inset: 0; z-index: 9990;
+  background: #0c0e12; display: flex; flex-direction: column;
+}
+#explode-overlay.hidden { display: none; }
+#explode-topbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  height: 40px; padding: 0 14px;
+  background: #171a20; border-bottom: 1px solid #262b33;
+}
+#explode-title { font-weight: 600; color: #dce0e8; }
+#explode-hint { flex: 1 1 auto; font-size: 12px; color: #7c8593; text-align: right; margin-right: 8px; }
+#explode-close {
+  border: none; background: transparent; color: #aeb6c2; cursor: pointer;
+  font-size: 15px; padding: 4px 8px; border-radius: 4px;
+}
+#explode-close:hover { background: #262b33; color: #fff; }
+#explode-grid {
+  flex: 1 1 auto; position: relative; overflow: hidden;
+  display: grid; gap: 6px; padding: 6px;
+}
+.explode-tile {
+  position: absolute; display: flex; flex-direction: column;
+  min-width: 0; min-height: 0;
+  background: #14161a; border: 1px solid #2a303a; border-radius: 6px; overflow: hidden;
+}
+.explode-tile.dragging { opacity: .75; border-color: var(--accent); }
+.explode-tile.drop-hover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(77,163,255,.4); }
+.explode-tile-head {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 3px 8px; font-size: 12px; color: #aeb6c2;
+  background: #1b1f26; border-bottom: 1px solid #262b33;
+  cursor: grab; user-select: none;
+}
+.explode-tile.dragging .explode-tile-head { cursor: grabbing; }
+.explode-tile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explode-tile-live {
+  flex: 0 0 auto; font-size: 10px; color: #39d97c; background: rgba(57,217,124,.12);
+  padding: 0 6px; border-radius: 8px; line-height: 16px;
+}
+.explode-tile-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* ── 置顶弹出接收窗口（popup.html 独立入口）── */
+.popup-body {
+  display: flex; flex-direction: column;
+  height: 100%; background: var(--bg); color: var(--fg);
+}
+.popup-bar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+  padding: 4px 8px; font-size: 12px; color: var(--fg-dim);
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+}
+.popup-bar .spacer { flex: 1 1 auto; }
+/* popup 内 #log-view 复用主区样式（flex:1 撑满）；TerminalPage host 需通用撑满规则 */
+.term-host { flex: 1 1 auto; min-height: 0; position: relative; }
+
+/* ── 爆炸视图 tile 内收发页：窄 tile 下控件不收缩、控制条横滚、发送面板固定 ── */
+.explode-tile .page,
+.explode-tile .logview-grid,
+.explode-tile .logview-main { min-height: 0; }
+.explode-tile #log-controls { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; }
+.explode-tile #send-panel { flex-shrink: 0; }
+.explode-tile #send-input { min-height: 2.4em; }
+.explode-tile #log-view { min-height: 0; }

@@ -341,6 +341,25 @@
                 <div class="set-note" data-i18n="settings.captureLogFmtNote">日志捕获每行的时间戳前缀。跟随页面=随当前标签页时间戳模式。</div>
               </div>
               <div class="set-card">
+                <div class="set-card-head" data-i18n="settings.explodeCard">💥 爆炸视图</div>
+                <div class="set-field">
+                  <span class="set-label" data-i18n="settings.explodeType">显示页面</span>
+                  <select id="set-explode-type">
+                    <option value="logview" data-i18n="explode.type.logview">收发</option>
+                    <option value="terminal" data-i18n="explode.type.terminal">终端</option>
+                  </select>
+                </div>
+                <div class="set-field">
+                  <span class="set-label" data-i18n="settings.explodeLayout">平铺布局</span>
+                  <select id="set-explode-layout">
+                    <option value="master" data-i18n="explode.layout.master">主从 (Master)</option>
+                    <option value="grid" data-i18n="explode.layout.grid">均分 (Grid)</option>
+                    <option value="dwindle" data-i18n="explode.layout.dwindle">斜向 (Dwindle)</option>
+                  </select>
+                </div>
+                <div class="set-note" data-i18n="settings.explodeNote">顶栏右键 → 爆炸视图，平铺所有已连接会话；拖动会话标题可换位，Esc 或 ✕ 退出。</div>
+              </div>
+              <div class="set-card">
                 <div class="set-card-head" data-i18n="settings.langCard">🌐 语言</div>
                 <div class="set-field">
                   <span class="set-label" data-i18n="settings.lang">界面语言</span>
@@ -404,6 +423,15 @@
       <span id="sb-tx">TX 0 B</span>
       <span id="sb-rate">↓ 0.00 KB/s ↑ 0.00 KB/s</span>
     </footer>
+    </div>
+    <div id="explode-overlay" class="hidden">
+      <div id="explode-topbar">
+        <span id="explode-title" data-i18n="explode.title">爆炸视图</span>
+        <span class="explode-spacer"></span>
+        <span id="explode-hint" data-i18n="explode.hint"></span>
+        <button id="explode-close" title="退出爆炸视图 (Esc)" data-i18n-title="explode.close">✕</button>
+      </div>
+      <div id="explode-grid"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -3,7 +3,7 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
-import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile } from "./api";
+import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow } from "./api";
 import type { ConnConfig, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
@@ -29,6 +29,10 @@ interface MsRow {
   delayMs: number;
 }
 
+// 爆炸视图布局类型（hyprland 风格平铺）
+type ExplodeLayout = "master" | "grid" | "dwindle";
+type ExplodeType = "terminal" | "logview";
+
 // ── 设置（全局共享：字体/字号/配色跨标签一致）──
 interface AppSettings {
   logSize: number;
@@ -41,6 +45,10 @@ interface AppSettings {
   uiScale: number;
   /** 捕获日志时间戳格式 */
   captureLogFormat: CaptureLogFormat;
+  /** 爆炸视图：显示收发页还是终端页 */
+  explodeType: ExplodeType;
+  /** 爆炸视图布局方式：master 主从 / grid 均分 / dwindle 斜向 */
+  explodeLayout: ExplodeLayout;
 }
 const DEFAULT_SETTINGS: AppSettings = {
   logSize: 12.5,
@@ -50,6 +58,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   chartStyle: "theme",
   uiScale: 100,
   captureLogFormat: "follow",
+  explodeType: "logview",
+  explodeLayout: "master",
 };
 const SETTINGS_KEY = "maxcom.settings";
 const THEME_PRESETS: Record<string, string> = {
@@ -307,6 +317,8 @@ class SessionApp {
   private hexPreSplit: string | null = null;
 
   /** 日志捕获累计器（进行中非 null） */
+  /** 本会话的收发/终端 page 容器（爆炸视图会把它们移出 this.el，缓存后 q() 仍可回退查找） */
+  private pageEls: HTMLElement[] = [];
   private logCapture: LogCapture | null = null;
 
   /** 是否正在捕获日志（供关闭确认等模块级判断） */
@@ -339,6 +351,8 @@ class SessionApp {
 
     this.wireConnectionArea();
     this.wirePages(rules0);
+    // 捕获本会话 .page 容器引用：爆炸视图移动 pageEl 后，q() 回退仍能命中
+    this.pageEls = Array.from(this.el.querySelectorAll<HTMLElement>(".page"));
     this.wireLogBar();
     this.wirePanels();
     this.wireSendArea();
@@ -353,6 +367,15 @@ class SessionApp {
   }
 
   private q<T extends HTMLElement>(sel: string): T {
+    const inRoot = this.el.querySelector<T>(sel);
+    if (inRoot) return inRoot;
+    // 爆炸视图会把本会话 .page（含 send-input / log-view / 控制条）移出 this.el，
+    // 此时 this.el.querySelector 返回 null，导致发送/数据更新等二次查询失效。
+    // 回退到捕获的 .page 容器内查找，移动后 q() 仍能命中。
+    for (const p of this.pageEls) {
+      const n = p.querySelector<T>(sel);
+      if (n) return n;
+    }
     return this.el.querySelector<T>(sel)!;
   }
 
@@ -1745,6 +1768,10 @@ class SessionApp {
     if (uiScaleSel) uiScaleSel.value = String(st.uiScale);
     const logFmtSel = this.q<HTMLSelectElement>("#set-capture-log-fmt");
     if (logFmtSel) logFmtSel.value = st.captureLogFormat;
+    const explodeTypeSel = this.q<HTMLSelectElement>("#set-explode-type");
+    if (explodeTypeSel) explodeTypeSel.value = st.explodeType;
+    const explodeLayoutSel = this.q<HTMLSelectElement>("#set-explode-layout");
+    if (explodeLayoutSel) explodeLayoutSel.value = st.explodeLayout;
   }
 
   wireSettings() {
@@ -1776,6 +1803,19 @@ class SessionApp {
     if (logFmtSel) {
       logFmtSel.addEventListener("change", () =>
         saveSettings({ ...currentSettings, captureLogFormat: logFmtSel.value as CaptureLogFormat }),
+      );
+    }
+    // 爆炸视图：显示类型 + 布局方式（即时生效，下次打开爆炸视图应用）
+    const explodeTypeSel = this.q<HTMLSelectElement>("#set-explode-type");
+    if (explodeTypeSel) {
+      explodeTypeSel.addEventListener("change", () =>
+        saveSettings({ ...currentSettings, explodeType: explodeTypeSel.value as ExplodeType }),
+      );
+    }
+    const explodeLayoutSel = this.q<HTMLSelectElement>("#set-explode-layout");
+    if (explodeLayoutSel) {
+      explodeLayoutSel.addEventListener("change", () =>
+        saveSettings({ ...currentSettings, explodeLayout: explodeLayoutSel.value as ExplodeLayout }),
       );
     }
     this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
@@ -2143,6 +2183,236 @@ async function changeLanguage(l: Lang): Promise<void> {
   window.location.reload();
 }
 
+
+// ── 爆炸视图：顶栏右键打开；hyprland 风格平铺所有已连接会话的收发/终端 ──
+interface ExplodeTile {
+  sid: string;
+  pageEl: HTMLElement;
+  tileEl: HTMLDivElement;
+}
+
+let explodeOpen = false;
+let explodeTiles: ExplodeTile[] = [];
+let explodeGrid: HTMLElement | null = null;
+let explodeDragFrom = -1;
+
+/** 收集已连接会话的目标收发/终端 page section（未连接/缺失跳过） */
+function collectExplodeTiles(): ExplodeTile[] {
+  const type = currentSettings.explodeType;
+  const sel = type === "terminal" ? "#page-terminal" : "#page-logview";
+  const out: ExplodeTile[] = [];
+  for (const s of sessions.values()) {
+    if (!s.connected) continue;
+    const page = s.el.querySelector<HTMLElement>(sel);
+    if (!page) continue;
+    out.push({ sid: s.id, pageEl: page, tileEl: document.createElement("div") });
+  }
+  return out;
+}
+
+/** 布局百分比矩形：grid 均分 / master 主从(首个大块+侧栏) / dwindle 斜向切半递减 */
+function explodeRects(
+  n: number,
+  layout: ExplodeLayout,
+): { left: number; top: number; w: number; h: number }[] {
+  const rects: { left: number; top: number; w: number; h: number }[] = [];
+  if (layout === "grid") {
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    const w = 100 / cols;
+    const h = 100 / rows;
+    for (let i = 0; i < n; i++) {
+      rects.push({ left: (i % cols) * w, top: Math.floor(i / cols) * h, w, h });
+    }
+  } else if (layout === "master") {
+    if (n === 1) {
+      rects.push({ left: 0, top: 0, w: 100, h: 100 });
+    } else {
+      rects.push({ left: 0, top: 0, w: 60, h: 100 });
+      const rest = n - 1;
+      const h2 = 100 / rest;
+      for (let i = 1; i < n; i++) rects.push({ left: 60, top: (i - 1) * h2, w: 40, h: h2 });
+    }
+  } else {
+    // dwindle：每个 tile 依次占当前剩余矩形的一半，横竖交替（斜向递减）
+    let x = 0, y = 0, w = 100, h = 100;
+    let horizontal = true;
+    for (let i = 0; i < n; i++) {
+      if (i === n - 1) {
+        rects.push({ left: x, top: y, w, h });
+        break;
+      }
+      rects.push({
+        left: x,
+        top: y,
+        w: horizontal ? w / 2 : w,
+        h: horizontal ? h : h / 2,
+      });
+      if (horizontal) {
+        x += w / 2;
+        w = w / 2;
+      } else {
+        y += h / 2;
+        h = h / 2;
+      }
+      horizontal = !horizontal;
+    }
+  }
+  return rects;
+}
+
+function applyExplodeRect(tile: HTMLElement, r: { left: number; top: number; w: number; h: number }) {
+  tile.style.left = r.left + "%";
+  tile.style.top = r.top + "%";
+  tile.style.width = r.w + "%";
+  tile.style.height = r.h + "%";
+}
+
+function applyExplodeLayout() {
+  const rects = explodeRects(explodeTiles.length, currentSettings.explodeLayout);
+  explodeTiles.forEach((t, i) => applyExplodeRect(t.tileEl, rects[i]));
+}
+
+function wireExplodeDrag(tile: HTMLDivElement, idx: number) {
+  const head = tile.querySelector<HTMLElement>(".explode-tile-head");
+  if (!head) return;
+  head.addEventListener("dragstart", (e) => {
+    // HTML5 drag 必须 setData 才真正启动；否则光标显示禁止符号
+    e.dataTransfer?.setData("text/plain", `explode:${idx}`);
+    if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+    explodeDragFrom = idx;
+    tile.classList.add("dragging");
+  });
+  head.addEventListener("dragend", () => {
+    tile.classList.remove("dragging");
+    explodeDragFrom = -1;
+    for (const t of explodeTiles) t.tileEl.classList.remove("drop-hover");
+  });
+  tile.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    if (!tile.classList.contains("drop-hover")) tile.classList.add("drop-hover");
+  });
+  tile.addEventListener("dragleave", () => tile.classList.remove("drop-hover"));
+  tile.addEventListener("drop", (e) => {
+    e.preventDefault();
+    tile.classList.remove("drop-hover");
+    if (explodeDragFrom < 0) return;
+    const to = explodeTiles.findIndex((t) => t.tileEl === tile);
+    if (to < 0 || to === explodeDragFrom) return;
+    const [moved] = explodeTiles.splice(explodeDragFrom, 1);
+    explodeTiles.splice(to, 0, moved);
+    if (explodeGrid) {
+      explodeGrid.replaceChildren();
+      for (const t of explodeTiles) explodeGrid.appendChild(t.tileEl);
+    }
+    applyExplodeLayout();
+    explodeDragFrom = -1;
+  });
+}
+
+function openExplode() {
+  if (explodeOpen) return;
+  const grid = document.getElementById("explode-grid");
+  const overlay = document.getElementById("explode-overlay");
+  if (!grid || !overlay) return;
+  explodeGrid = grid;
+  explodeTiles = collectExplodeTiles();
+  grid.replaceChildren();
+  const hint = document.getElementById("explode-hint");
+  if (hint) {
+    hint.textContent = explodeTiles.length ? t("explode.hintDrag") : t("explode.hintNone");
+  }
+  explodeTiles.forEach((et, i) => {
+    const tile = et.tileEl;
+    tile.className = "explode-tile";
+    // 标题头：可拖拽手柄
+    const head = document.createElement("div");
+    head.className = "explode-tile-head";
+    head.draggable = true;
+    const name = document.createElement("span");
+    name.className = "explode-tile-name";
+    const s = sessions.get(et.sid);
+    name.textContent = s ? tabTitle(s) : et.sid;
+    const live = document.createElement("span");
+    live.className = "explode-tile-live";
+    live.textContent = "●";
+    live.title = t("explode.live");
+    head.append(name, live);
+    // 主体：会话收发/终端 page section
+    const body = document.createElement("div");
+    body.className = "explode-tile-body";
+    et.pageEl.classList.remove("hidden");
+    body.appendChild(et.pageEl);
+    tile.append(head, body);
+    wireExplodeDrag(tile, i);
+    grid.appendChild(tile);
+  });
+  applyExplodeLayout();
+  // 屏蔽多余 UI：藏标题栏与主会话区，露出覆盖层
+  document.getElementById("titlebar")?.classList.add("hidden");
+  document.getElementById("session-root")?.classList.add("hidden");
+  // decorations:false 自绘窗口，可拖/缩放区集中在标题栏；标题栏被隐藏后窗口即失去拖动缩放。
+  // 给爆炸视图顶栏的空区（hint）补 drag-region，窗口在爆炸视图下仍能移动/调整大小。
+  // close 按钮不在 region 上，保持可点。
+  const dragHint = document.getElementById("explode-hint") as HTMLElement | null;
+  if (dragHint) {
+    dragHint.setAttribute("data-tauri-drag-region", "");
+    dragHint.style.userSelect = "none";
+  }
+  overlay.classList.remove("hidden");
+  explodeOpen = true;
+}
+
+function closeExplode() {
+  if (!explodeOpen) return;
+  for (const t of explodeTiles) {
+    const s = sessions.get(t.sid);
+    if (s) {
+      const pages = s.el.querySelector<HTMLElement>("#pages");
+      if (pages) pages.appendChild(t.pageEl);
+      s.switchPage(s.currentPage); // 恢复该会话页面显隐
+    }
+    t.tileEl.remove();
+  }
+  explodeTiles = [];
+  explodeDragFrom = -1;
+  document.getElementById("titlebar")?.classList.remove("hidden");
+  document.getElementById("session-root")?.classList.remove("hidden");
+  document.getElementById("explode-overlay")?.classList.add("hidden");
+  explodeOpen = false;
+}
+
+document.getElementById("explode-close")?.addEventListener("click", () => closeExplode());
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && explodeOpen) closeExplode();
+});
+
+// 顶栏右键 → 爆炸视图入口（避开按钮/标签格）
+{
+  const tb = document.getElementById("titlebar");
+  if (tb) {
+    tb.addEventListener("contextmenu", (e) => {
+      if (e.shiftKey) return; // 保留原生菜单调试
+      const tv = e.target as HTMLElement;
+      if (tv.closest("button") || tv.closest(".tab")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openContextMenu(
+        [
+          {
+            label: t("explode.open"),
+            hint: t("explode.open.hint"),
+            action: () => openExplode(),
+          },
+        ],
+        e.clientX,
+        e.clientY,
+      );
+    });
+  }
+}
+
 // ── 标签栏按钮 / 新建 ──
 document.getElementById("tab-new")?.addEventListener("click", () => newTab());
 
@@ -2283,6 +2553,15 @@ window.addEventListener("contextmenu", (e) => {
       }
     }
     items.push(...commonEditItems());
+  }
+  // 顶置弹出接收窗口（收发页/终端页右键）：独立置顶小窗实时显示本会话接收区
+  if (S && S.connected && (S.currentPage === "terminal" || S.currentPage === "logview")) {
+    items.push({ sep: true });
+    items.push({
+      label: t("ctx.popupReceive"),
+      hint: t("ctx.popupReceive.hint"),
+      action: () => void openPopupWindow(S.id, S.currentPage === "terminal" ? "terminal" : "logview"),
+    });
   }
   openContextMenu(items, me.clientX, me.clientY);
 });

@@ -239,3 +239,19 @@ function b64ToBytes(b64: string): Uint8Array {
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
+
+/** 置顶弹出接收窗口（win11 任务管理器双击弹出风格）：独立置顶小窗实时显示该会话接收区 */
+export async function openPopupWindow(session: string, type: "terminal" | "logview"): Promise<void> {
+  if (!IS_TAURI) return;
+  const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+  const label = `popup-${session}-${type}-${Date.now().toString(36)}`;
+  await new WebviewWindow(label, {
+    url: `popup.html?session=${session}&type=${type}`,
+    title: type === "terminal" ? "MAXCOM 终端 · 置顶" : "MAXCOM 收发 · 置顶",
+    width: 520,
+    height: 360,
+    alwaysOnTop: true,
+    resizable: true,
+    decorations: true,
+  });
+}

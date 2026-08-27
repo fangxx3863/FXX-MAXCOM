@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/check-selectors.mjs && tsc --noEmit && vite build && node scripts/smoke.mjs && node scripts/plot-test.mjs && node scripts/modbus-test.mjs && node scripts/tools-test.mjs && node scripts/tools-dom-test.mjs && node scripts/tools-baseline-test.mjs && node scripts/logview-hex-rules-test.mjs && node scripts/ui-scale-test.mjs && node scripts/capture-test.mjs",
+    "build": "node scripts/check-selectors.mjs && tsc --noEmit && vite build && vite build --config vite.popup.config.ts && node scripts/smoke.mjs && node scripts/plot-test.mjs && node scripts/modbus-test.mjs && node scripts/tools-test.mjs && node scripts/tools-dom-test.mjs && node scripts/tools-baseline-test.mjs && node scripts/logview-hex-rules-test.mjs && node scripts/ui-scale-test.mjs && node scripts/capture-test.mjs && node scripts/explode-test.mjs && node scripts/popup-test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
