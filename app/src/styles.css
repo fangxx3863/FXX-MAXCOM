@@ -1059,12 +1059,27 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 #explode-close:hover { background: #262b33; color: #fff; }
 #explode-grid {
   flex: 1 1 auto; position: relative; overflow: hidden;
-  display: grid; gap: 6px; padding: 6px;
+  display: flex; flex-direction: column; min-height: 0; min-width: 0;
 }
+/* 平铺 split 容器：嵌套 flex，窗口间不留 padding（中缝由 gutter 显式占据） */
+.explode-split {
+  display: flex; flex: 1 1 0%; min-width: 0; min-height: 0; overflow: hidden;
+}
+.explode-split-child {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+}
+/* 中缝 gutter：可拖拽，落点高亮 */
+.explode-gutter {
+  z-index: 4; touch-action: none; background: transparent; transition: background .1s;
+}
+.explode-gutter.gutter-row { width: 6px; transform: translateX(-3px); cursor: col-resize; }
+.explode-gutter.gutter-col { height: 6px; transform: translateY(-3px); cursor: row-resize; }
+.explode-gutter:hover, .explode-gutter.dragging { background: rgba(77,163,255,.25); }
 .explode-tile {
-  position: absolute; display: flex; flex-direction: column;
+  flex: 1 1 auto; display: flex; flex-direction: column;
   min-width: 0; min-height: 0;
   background: #14161a; border: 1px solid #2a303a; border-radius: 6px; overflow: hidden;
+  margin: 2px;
 }
 .explode-tile.dragging { opacity: .75; border-color: var(--accent); }
 .explode-tile.drop-hover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(77,163,255,.4); }
@@ -1081,12 +1096,6 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
   padding: 0 6px; border-radius: 8px; line-height: 16px;
 }
 .explode-tile-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-.explode-resize {
-  position: absolute; right: 0; bottom: 0; width: 16px; height: 16px;
-  cursor: nwse-resize; z-index: 3; touch-action: none;
-  background: linear-gradient(135deg, transparent 58%, var(--accent) 58% 82%, transparent 82%);
-}
-.explode-resize:hover { background-color: rgba(77,163,255,.15); border-radius: 3px 0 0 0; }
 
 /* ── 置顶弹出接收窗口（popup.html 独立入口）── */
 .popup-body {
@@ -1106,7 +1115,16 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .explode-tile .page,
 .explode-tile .logview-grid,
 .explode-tile .logview-main { min-height: 0; }
-.explode-tile #log-controls { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; }
+.explode-tile #log-controls {
+  flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto;
+  /* 控制条内的按钮/控件绝不收缩、文字永不竖排（窄 tile 下超宽则横向滚动） */
+}
+.explode-tile #log-controls button,
+.explode-tile #log-controls .ctl,
+.explode-tile #log-controls label,
+.explode-tile #log-controls input[type="number"] {
+  flex: none; white-space: nowrap;
+}
 .explode-tile #send-panel { flex-shrink: 0; }
 .explode-tile #send-input { min-height: 2.4em; }
 .explode-tile #log-view { min-height: 0; }

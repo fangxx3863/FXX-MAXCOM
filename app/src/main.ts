@@ -2194,6 +2194,7 @@ interface ExplodeTile {
 let explodeOpen = false;
 let explodeTiles: ExplodeTile[] = [];
 let explodeGrid: HTMLElement | null = null;
+let gutterColl: HTMLDivElement[] = [];
 
 /** 收集已连接会话的目标收发/终端 page section（未连接/缺失跳过） */
 function collectExplodeTiles(): ExplodeTile[] {
@@ -2209,67 +2210,147 @@ function collectExplodeTiles(): ExplodeTile[] {
   return out;
 }
 
-/** 布局百分比矩形：grid 均分 / master 主从(首个大块+侧栏) / dwindle 斜向切半递减 */
-function explodeRects(
-  n: number,
-  layout: ExplodeLayout,
-): { left: number; top: number; w: number; h: number }[] {
-  const rects: { left: number; top: number; w: number; h: number }[] = [];
-  if (layout === "grid") {
-    const cols = Math.ceil(Math.sqrt(n));
-    const rows = Math.ceil(n / cols);
-    const w = 100 / cols;
-    const h = 100 / rows;
-    for (let i = 0; i < n; i++) {
-      rects.push({ left: (i % cols) * w, top: Math.floor(i / cols) * h, w, h });
-    }
-  } else if (layout === "master") {
-    if (n === 1) {
-      rects.push({ left: 0, top: 0, w: 100, h: 100 });
-    } else {
-      rects.push({ left: 0, top: 0, w: 60, h: 100 });
-      const rest = n - 1;
-      const h2 = 100 / rest;
-      for (let i = 1; i < n; i++) rects.push({ left: 60, top: (i - 1) * h2, w: 40, h: h2 });
-    }
-  } else {
-    // dwindle：每个 tile 依次占当前剩余矩形的一半，横竖交替（斜向递减）
-    let x = 0, y = 0, w = 100, h = 100;
-    let horizontal = true;
-    for (let i = 0; i < n; i++) {
-      if (i === n - 1) {
-        rects.push({ left: x, top: y, w, h });
-        break;
-      }
-      rects.push({
-        left: x,
-        top: y,
-        w: horizontal ? w / 2 : w,
-        h: horizontal ? h : h / 2,
-      });
-      if (horizontal) {
-        x += w / 2;
-        w = w / 2;
-      } else {
-        y += h / 2;
-        h = h / 2;
-      }
-      horizontal = !horizontal;
-    }
+/** ── 平铺式递归 split 树（i3/hyprland 模型）── */
+type SplitDir = "row" | "col";
+interface SplitLeaf {
+  tile: HTMLDivElement; // 占位叶子：实际渲染 explodeTiles[i].tileEl
+}
+type SplitTree = SplitNode | SplitLeaf;
+interface SplitNode {
+  dir: SplitDir;
+  ratio: number; // 左/上子节点占本节点 flex 的比例 0..1
+  children: [SplitTree, SplitTree];
+}
+
+/** 用 split 树表达 n 个窗口的初始平铺布局（i3/hyprland 语义：递归二分） */
+function buildSplitTree(n: number, layout: ExplodeLayout, leaves: HTMLDivElement[]): SplitTree {
+  if (n <= 1) return { tile: leaves[0] };
+  if (layout === "master" && n > 1) {
+    // 主窗口占一侧 60%，其余堆叠另一侧（col 竖排）
+    return { dir: "row", ratio: 0.6, children: [{ tile: leaves[0] }, balancedSplit(leaves.slice(1), "col")] };
   }
-  return rects;
+  if (layout === "dwindle") return dwindleSplit(leaves, "row");
+  // grid：均分网格（交错方向平衡二分，接近正方形分割）
+  return balancedSplit(leaves, "row");
 }
 
-function applyExplodeRect(tile: HTMLElement, r: { left: number; top: number; w: number; h: number }) {
-  tile.style.left = r.left + "%";
-  tile.style.top = r.top + "%";
-  tile.style.width = r.w + "%";
-  tile.style.height = r.h + "%";
+/** 平衡二分：把一段 leaves 均分成两半，递归交替方向（近正方形网格） */
+function balancedSplit(leaves: HTMLDivElement[], dir: SplitDir): SplitTree {
+  const n = leaves.length;
+  if (n <= 1) return { tile: leaves[0] };
+  const mid = Math.floor(n / 2);
+  const ratio = n === 2 ? 0.5 : mid / n;
+  return {
+    dir,
+    ratio,
+    children: [
+      balancedSplit(leaves.slice(0, mid), dir === "row" ? "col" : "row"),
+      balancedSplit(leaves.slice(mid), dir === "row" ? "col" : "row"),
+    ],
+  };
 }
 
+/** dwindle：每个后续窗口依次拿剩余一半，横竖交替（斜向递减） */
+function dwindleSplit(leaves: HTMLDivElement[], dir: SplitDir): SplitTree {
+  if (leaves.length <= 1) return { tile: leaves[0] };
+  const rest = dwindleSplit(leaves.slice(1), dir === "row" ? "col" : "row");
+  return { dir, ratio: 0.5, children: [{ tile: leaves[0] }, rest] };
+}
+
+/** 把 split 树渲染成嵌套 flex 容器；中缝 gutter 独立可拖拽 */
+function renderSplitTree(node: SplitTree, parent: HTMLElement, gutterColl: HTMLDivElement[]) {
+  if ("tile" in node) {
+    parent.appendChild(node.tile);
+    return;
+  }
+  const wrap = document.createElement("div");
+  wrap.className = "explode-split";
+  wrap.style.flexDirection = node.dir === "row" ? "row" : "column";
+  wrap.style.flex = "1 1 0%";
+  wrap.style.minWidth = "0";
+  wrap.style.minHeight = "0";
+  wrap.style.position = "relative";
+  parent.appendChild(wrap);
+  // 左右/上下两个子容器（leaf 或嵌套 split），各自 flex 分配
+  const a = document.createElement("div");
+  a.className = "explode-split-child";
+  a.style.flex = `${node.ratio} 1 0%`;
+  a.style.minWidth = "0";
+  a.style.minHeight = "0";
+  a.style.display = "flex";
+  const b = document.createElement("div");
+  b.className = "explode-split-child";
+  b.style.flex = `${1 - node.ratio} 1 0%`;
+  b.style.minWidth = "0";
+  b.style.minHeight = "0";
+  b.style.display = "flex";
+  wrap.append(a, b);
+  // 中缝 gutter：绝对定位在 a/b 交界，是唯一可拖点（调两侧比例，总量守恒）
+  const g = document.createElement("div");
+  g.className = `explode-gutter gutter-${node.dir}`;
+  g.style.position = "absolute";
+  if (node.dir === "row") {
+    g.style.top = "0";
+    g.style.bottom = "0";
+    g.style.left = `${node.ratio * 100}%`;
+    g.style.marginLeft = "0";
+  } else {
+    g.style.left = "0";
+    g.style.right = "0";
+    g.style.top = `${node.ratio * 100}%`;
+    g.style.marginTop = "0";
+  }
+  wrap.appendChild(g);
+  wireSplitGutter(g, node, a, b);
+  gutterColl.push(g);
+  renderSplitTree(node.children[0], a, gutterColl);
+  renderSplitTree(node.children[1], b, gutterColl);
+}
+
+/** 中缝 gutter 拖拽：调整当前 split 的 ratio；两侧子容器随动、总量守恒、不重叠 */
+function wireSplitGutter(g: HTMLElement, node: SplitNode, a: HTMLElement, b: HTMLElement) {
+  g.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    const wrap = g.parentElement as HTMLElement;
+    const rect = wrap.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+    const startX = e.clientX, startY = e.clientY;
+    const startRatio = node.ratio;
+    g.setPointerCapture(e.pointerId);
+    const main = (ev: PointerEvent) => {
+      // 增量换算：row 用水平位移，col 用垂直位移；结果夹在 [0.12, 0.88] 防相邻块过度压缩
+      const delta = node.dir === "row"
+        ? (ev.clientX - startX) / rect.width
+        : (ev.clientY - startY) / rect.height;
+      const nr = Math.max(0.12, Math.min(0.88, startRatio + delta));
+      node.ratio = nr;
+      a.style.flex = `${nr} 1 0%`;
+      b.style.flex = `${1 - nr} 1 0%`;
+      if (node.dir === "row") g.style.left = `${nr * 100}%`;
+      else g.style.top = `${nr * 100}%`;
+    };
+    const up = () => {
+      g.removeEventListener("pointermove", main);
+      g.removeEventListener("pointerup", up);
+      g.removeEventListener("pointercancel", up);
+    };
+    g.addEventListener("pointermove", main);
+    g.addEventListener("pointerup", up);
+    g.addEventListener("pointercancel", up);
+  });
+}
+
+/** 部署爆炸视图平铺布局（初始），挂到 explode-grid */
 function applyExplodeLayout() {
-  const rects = explodeRects(explodeTiles.length, currentSettings.explodeLayout);
-  explodeTiles.forEach((t, i) => applyExplodeRect(t.tileEl, rects[i]));
+  if (!explodeGrid) return;
+  explodeGrid.replaceChildren();
+  gutterColl = [];
+  if (explodeTiles.length === 0) return; // 无已连接会话：不渲染任何 tile（改 split 树时 leaves 可能是空）
+  const leaves = explodeTiles.map((t) => t.tileEl);
+  const tree = buildSplitTree(leaves.length, currentSettings.explodeLayout, leaves);
+  renderSplitTree(tree, explodeGrid, gutterColl);
 }
 
 function withinTile(tile: HTMLElement, x: number, y: number): boolean {
@@ -2280,36 +2361,6 @@ function withinTile(tile: HTMLElement, x: number, y: number): boolean {
 function wireExplodeDrag(tile: HTMLDivElement) {
   const head = tile.querySelector<HTMLElement>(".explode-tile-head");
   if (!head) return;
-  const grid = explodeGrid!;
-
-  // ── 角部 resize 手柄：拖拽调整 tile 尺寸（占 grid %，hyprland 式随意改块大小）──
-  const rz = document.createElement("div");
-  rz.className = "explode-resize";
-  tile.appendChild(rz);
-  rz.addEventListener("pointerdown", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.button !== 0) return;
-    const gridRect = grid.getBoundingClientRect();
-    if (gridRect.width < 2 || gridRect.height < 2) return;
-    const startX = e.clientX, startY = e.clientY;
-    const startW = tile.getBoundingClientRect().width;
-    const startH = tile.getBoundingClientRect().height;
-    rz.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => {
-      // 换算为 grid 百分比；夹在 [12, 100-left/top] 内，避免越界/重叠到边界外
-      const pctW = ((startW + ev.clientX - startX) / gridRect.width) * 100;
-      const pctH = ((startH + ev.clientY - startY) / gridRect.height) * 100;
-      tile.style.width = Math.max(12, Math.min(100, pctW)).toFixed(2) + "%";
-      tile.style.height = Math.max(12, Math.min(100, pctH)).toFixed(2) + "%";
-    };
-    const up = () => {
-      rz.removeEventListener("pointermove", move);
-      rz.removeEventListener("pointerup", up);
-    };
-    rz.addEventListener("pointermove", move);
-    rz.addEventListener("pointerup", up);
-  });
 
   // ── 拖拽重排：pointer 捕获，实时按落点换位（hyprland 风格，绕开 WebView2 HTML5 DnD 光标禁止）──
   let dragging = false;
@@ -2332,10 +2383,7 @@ function wireExplodeDrag(tile: HTMLDivElement) {
     if (from < 0 || to < 0 || from === to) return;
     const [moved] = explodeTiles.splice(from, 1);
     explodeTiles.splice(to, 0, moved);
-    if (explodeGrid) {
-      explodeGrid.replaceChildren();
-      for (const t of explodeTiles) explodeGrid.appendChild(t.tileEl);
-    }
+    // 重建 split 树（tile 现在嵌在嵌套 .explode-split-child 容器里，非 grid 顶层直接子节点）
     applyExplodeLayout();
   });
   head.addEventListener("pointerup", () => {
@@ -2386,8 +2434,8 @@ function openExplode() {
     body.appendChild(et.pageEl);
     tile.append(head, body);
     wireExplodeDrag(tile);
-    grid.appendChild(tile);
   });
+  // tile 由 split 树挂载（applyExplodeLayout 内 renderSplitTree 分配到嵌套容器）
   applyExplodeLayout();
   // 屏蔽多余 UI：藏标题栏与主会话区，露出覆盖层
   document.getElementById("titlebar")?.classList.add("hidden");
