@@ -19,6 +19,11 @@ import {
   AIR_Z0, paToSpl, splToPa, soundIntensity, paFromIntensity, intensityToSil,
   pacToLw, lwToPac, pointArea,
 } from "../tools-math";
+import {
+  CRC_VARIANTS, crcVariant as crcVariantFor, compute as checksumCompute, formatResult as checksumFormat,
+  parseHex as checksumParseHex, bytesHex as checksumBytesHex,
+  encodeString as checksumEncodeString, type ChecksumAlgo, type OutputFormat, type InputEncoding,
+} from "../tools-checksum";
 
 function math(src: string): string {
   return katex.renderToString(src, { throwOnError: false, displayMode: false });
@@ -1920,6 +1925,267 @@ function buildAudioDb(host: HTMLElement): ToolController {
   return {};
 }
 
+// ── 校验计算器（CRC / CHECKSUM / XOR / MD5 / SHA）──
+// 输入源：HEX 文本 / UTF-8 字符串 / 文件（仅 HASH 类）；算法：CRC 多变体 + CHECKSUM/XOR 位宽选择；
+// 输出格式：HEX / DEC / BIN。计算走 tools-checksum 纯函数层（可独立回归测试）。
+const CHECKSUM_WIDTHS = [8, 16, 24, 32];
+const CHECKSUM_ALGOS: { id: ChecksumAlgo; label: string }[] = [
+  { id: "crc", label: "CRC" },
+  { id: "checksum", label: "CHECKSUM" },
+  { id: "xor", label: "XOR" },
+  { id: "md5", label: "MD5" },
+  { id: "sha1", label: "SHA-1" },
+  { id: "sha256", label: "SHA-256" },
+];
+const CHECKSUM_FORMATS: { id: OutputFormat; label: string }[] = [
+  { id: "hex", label: "HEX" },
+  { id: "dec", label: "DEC" },
+  { id: "bin", label: "BIN" },
+];
+
+function buildChecksum(host: HTMLElement): ToolController {
+  host.innerHTML = `
+    <div class="tool-panel">
+      <div class="tool-grid">
+        <div class="tool-field"><label>${t("tools.checksum.algo")}</label>
+          <select id="ck-algo" class="tool-sel proto-in">${CHECKSUM_ALGOS.map((a) => `<option value="${a.id}">${a.label}</option>`).join("")}</select></div>
+        <div class="tool-field" id="ck-variant-field"><label>${t("tools.checksum.variant")}</label>
+          <select id="ck-variant" class="tool-sel proto-in">${CRC_VARIANTS.map((v) => `<option value="${v.id}">${esc(v.label)}</option>`).join("")}</select></div>
+        <div class="tool-field" id="ck-width-field" style="display:none"><label>${t("tools.checksum.width")}</label>
+          <select id="ck-width" class="tool-sel proto-in">${CHECKSUM_WIDTHS.map((w) => `<option value="${w}">${w} bit</option>`).join("")}</select></div>
+        <div class="tool-field"><label>${t("tools.checksum.fmt")}</label>
+          <select id="ck-fmt" class="tool-sel proto-in">${CHECKSUM_FORMATS.map((f) => `<option value="${f.id}">${f.label}</option>`).join("")}</select></div>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-field" id="ck-source-field"><label>${t("tools.checksum.source")}</label>
+          <select id="ck-source" class="tool-sel proto-in">
+            <option value="hex">${t("tools.checksum.sourceHex")}</option>
+            <option value="str">${t("tools.checksum.sourceStr")}</option>
+            <option value="file">${t("tools.checksum.sourceFile")}</option>
+          </select></div>
+        <div class="tool-field" id="ck-encoding-field" style="display:none"><label>${t("tools.checksum.encoding")}</label>
+          <select id="ck-encoding" class="tool-sel proto-in">
+            <option value="utf-8">UTF-8</option>
+            <option value="gbk">GBK</option>
+            <option value="gb2312">GB2312</option>
+            <option value="latin-1">Latin-1</option>
+            <option value="utf-16le">UTF-16LE</option>
+            <option value="utf-16be">UTF-16BE</option>
+          </select></div>
+      </div>
+      <div class="tool-field" id="ck-input-field">
+        <label>${t("tools.checksum.input")}</label>
+        <textarea id="ck-input" class="proto-in" rows="3" placeholder="${esc(t("tools.checksum.inputPlaceholder"))}"></textarea>
+      </div>
+      <div class="tool-field" id="ck-file-field" style="display:none">
+        <label>${t("tools.checksum.pickFile")}</label>
+        <input id="ck-file" type="file" class="proto-in" />
+      </div>
+      <div class="tool-resultline" id="ck-result"></div>
+      <div class="tool-action-row">
+        <button id="ck-copy" type="button" class="ghost">${t("tools.checksum.copy")}</button>
+        <button id="ck-copy-full" type="button" class="ghost">${t("tools.checksum.copyFull")}</button>
+      </div>
+      <div class="tool-resultline" id="ck-meta"></div>
+      <div class="tool-formula" id="ck-note" style="display:none"></div>
+    </div>`;
+  const algoEl = host.querySelector<HTMLSelectElement>("#ck-algo")!;
+  const variantEl = host.querySelector<HTMLSelectElement>("#ck-variant")!;
+  const variantField = host.querySelector<HTMLElement>("#ck-variant-field")!;
+  const widthEl = host.querySelector<HTMLSelectElement>("#ck-width")!;
+  const widthField = host.querySelector<HTMLElement>("#ck-width-field")!;
+  const fmtEl = host.querySelector<HTMLSelectElement>("#ck-fmt")!;
+  const sourceEl = host.querySelector<HTMLSelectElement>("#ck-source")!;
+  const encodingEl = host.querySelector<HTMLSelectElement>("#ck-encoding")!;
+  const encodingField = host.querySelector<HTMLElement>("#ck-encoding-field")!;
+  const inputEl = host.querySelector<HTMLTextAreaElement>("#ck-input")!;
+  const inputField = host.querySelector<HTMLElement>("#ck-input-field")!;
+  const fileEl = host.querySelector<HTMLInputElement>("#ck-file")!;
+  const fileField = host.querySelector<HTMLElement>("#ck-file-field")!;
+  const resultEl = host.querySelector<HTMLElement>("#ck-result")!;
+  const metaEl = host.querySelector<HTMLElement>("#ck-meta")!;
+  const noteEl = host.querySelector<HTMLElement>("#ck-note")!;
+  const copyEl = host.querySelector<HTMLButtonElement>("#ck-copy")!;
+  const copyFullEl = host.querySelector<HTMLButtonElement>("#ck-copy-full")!;
+
+  let fileBytes: Uint8Array | null = null;
+  let fileName = "";
+  let lastResult = "";
+
+  const show = (sel: HTMLElement, on: boolean) => { sel.style.display = on ? "" : "none"; };
+
+  const isHashAlgo = (a: ChecksumAlgo) => a === "md5" || a === "sha1" || a === "sha256";
+
+  // 字符串 → 字节：UTF 家族用浏览器原生 encodeString；GBK/GB2312 走 Tauri invoke 调 Rust。
+  const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+  let gbkInvoke: ((cmd: string, args: Record<string, unknown>) => Promise<unknown>) | null = null;
+  let stringEncodeFailed = false;
+  const encodeStringToBytes = async (text: string): Promise<Uint8Array | null> => {
+    stringEncodeFailed = false;
+    const enc = encodingEl.value;
+    // 原生编码（无 Tauri 依赖，浏览器/Node 均可）
+    if (enc === "utf-8" || enc === "latin-1" || enc === "utf-16le" || enc === "utf-16be") {
+      return checksumEncodeString(text, enc as InputEncoding);
+    }
+    // GBK / GB2312：仅真机 Tauri 可用；浏览器 mock 下提示回退 UTF-8
+    if (isTauri()) {
+      try {
+        if (!gbkInvoke) {
+          const core = await import("@tauri-apps/api/core");
+          gbkInvoke = core.invoke as (cmd: string, args: Record<string, unknown>) => Promise<unknown>;
+        }
+        const fn = gbkInvoke;
+        if (!fn) return null;
+        const res = (await fn("encode_text", { text, encoding: enc })) as [number[], boolean];
+        if (!res || !Array.isArray(res[0])) return null;
+        return new Uint8Array(res[0]);
+      } catch {
+        return null;
+      }
+    }
+    // 非真机（浏览器 mock）——提示后由 compute 的 !data 分支保留提示不清空
+    stringEncodeFailed = true;
+    return null;
+  };
+
+  // 渲染当前 CRC 变体的算法/端序说明
+  const renderCrcNote = () => {
+    const variant = crcVariantFor(variantEl.value);
+    if (!variant || algoEl.value !== "crc") {
+      show(noteEl, false);
+      return;
+    }
+    const p = variant.params;
+    const hex = (v: number) => `0x${v.toString(16).toUpperCase().padStart(p.width / 4, "0")}`;
+    const reflectTxt = p.refin || p.refout
+      ? t("tools.checksum.reflectOn")
+      : t("tools.checksum.reflectOff");
+    noteEl.innerHTML = `${esc(t("tools.checksum.noteCrc"))}<br>` +
+      `${t("tools.checksum.noteParams")}: ` +
+      `${t("tools.checksum.noteWidth")} <b>${p.width}</b>, ` +
+      `${t("tools.checksum.notePoly")} <b>${hex(p.poly)}</b>, ` +
+      `${t("tools.checksum.noteInit")} <b>${hex(p.init)}</b>, ` +
+      `${t("tools.checksum.noteXorout")} <b>${hex(p.xorout)}</b>` +
+      `<br>${t("tools.checksum.noteEndian")}: <b>${reflectTxt}</b>`;
+    show(noteEl, true);
+  };
+
+  const syncSourceFields = () => {
+    const src = sourceEl.value;
+    const algo = algoEl.value as ChecksumAlgo;
+    // 文件输入仅 HASH 类支持：若当前算法非 HASH 而被选了 file，强制回退 hex
+    if (src === "file" && !isHashAlgo(algo)) {
+      sourceEl.value = "hex";
+      show(inputField, true);
+      show(fileField, false);
+      show(encodingField, false);
+      return;
+    }
+    show(inputField, src !== "file");
+    show(fileField, src === "file");
+    show(encodingField, src === "str");
+  };
+
+  // 按当前算法联动「变体 / 位宽」字段
+  const syncAlgoFields = () => {
+    const algo = algoEl.value as ChecksumAlgo;
+    show(variantField, algo === "crc");
+    show(widthField, algo === "checksum" || algo === "xor");
+    // 文件输入仅 HASH 类支持：非 HASH 算法下若停留在 file 源，强制回退 hex
+    if (!isHashAlgo(algo) && sourceEl.value === "file") {
+      sourceEl.value = "hex";
+      syncSourceFields();
+    }
+  };
+
+  const compute = async () => {
+    const algo = algoEl.value as ChecksumAlgo;
+    const fmt = fmtEl.value as OutputFormat;
+    const isHash = algo === "md5" || algo === "sha1" || algo === "sha256";
+    let data: Uint8Array | null = null;
+    if (sourceEl.value === "file") {
+      data = fileBytes;
+    } else if (sourceEl.value === "hex") {
+      const raw = inputEl.value;
+      data = checksumParseHex(raw);
+      if (data === null) {
+        resultEl.textContent = t("tools.checksum.badHex");
+        metaEl.textContent = "";
+        lastResult = "";
+        return;
+      }
+    } else {
+      data = await encodeStringToBytes(inputEl.value);
+    }
+    if (!data) {
+      if (stringEncodeFailed) {
+        // GBK 不可用（浏览器 mock）：保留提示，清空结果
+        resultEl.textContent = t("tools.checksum.gbkUnsupported");
+        metaEl.textContent = "";
+        lastResult = "";
+        return;
+      }
+      resultEl.textContent = isHash ? t("tools.checksum.noFile") : "";
+      metaEl.textContent = "";
+      lastResult = "";
+      return;
+    }
+    try {
+      const res = algo === "crc"
+        ? checksumCompute("crc", data, variantEl.value)
+        : checksumCompute(algo, data, undefined, Number(widthEl.value));
+      lastResult = checksumFormat(res, fmt);
+      resultEl.textContent = lastResult;
+      const hexFull = checksumBytesHex(res.bytes);
+      const srcLabel = sourceEl.value === "file" ? (fileName || t("tools.checksum.file")) : `${data.length} B`;
+      metaEl.textContent = `${t("tools.checksum.hexFull")}: 0x${hexFull}   ·   ${t("tools.checksum.bytes")} ${srcLabel}`;
+    } catch {
+      resultEl.textContent = t("tools.checksum.error");
+      metaEl.textContent = "";
+      lastResult = "";
+    }
+  };
+
+  const doCopy = async (what: string) => {
+    try {
+      await navigator.clipboard.writeText(what);
+      if (!what) return;
+      const btn = what === lastResult ? copyEl : copyFullEl;
+      const old = btn.textContent;
+      btn.textContent = t("tools.checksum.copied");
+      setTimeout(() => { btn.textContent = old; }, 1200);
+    } catch {
+      // 剪贴板不可用（如非安全上下文）：静默，不阻塞
+    }
+  };
+
+  algoEl.addEventListener("change", () => { syncAlgoFields(); compute(); renderCrcNote(); });
+  variantEl.addEventListener("change", () => { compute(); renderCrcNote(); });
+  widthEl.addEventListener("change", compute);
+  fmtEl.addEventListener("change", compute);
+  sourceEl.addEventListener("change", () => { syncSourceFields(); compute(); });
+  encodingEl.addEventListener("change", compute);
+  inputEl.addEventListener("input", compute);
+  fileEl.addEventListener("change", async () => {
+    const f = fileEl.files && fileEl.files[0];
+    if (!f) { fileBytes = null; fileName = ""; compute(); return; }
+    fileName = f.name;
+    fileBytes = new Uint8Array(await f.arrayBuffer());
+    compute();
+  });
+  copyEl.addEventListener("click", () => doCopy(lastResult));
+  copyFullEl.addEventListener("click", () => {
+    const meta = metaEl.textContent || "";
+    doCopy(`${lastResult}\n${meta}`);
+  });
+
+  syncAlgoFields();
+  syncSourceFields();
+  compute();
+  renderCrcNote();
+  return {};
+}
+
 // ── 工具目录 ──
 const TOOLS: ToolDef[] = [
   { id: "555", icon: "⏱", title: "555 定时器计算器", desc: "根据 R1 和 C1 计算单稳态输出脉冲宽度", build: build555 },
@@ -1960,6 +2226,7 @@ const TOOLS: ToolDef[] = [
   { id: "power", icon: "🔌", title: "功率换算", desc: "mW/W/kW/hp/PS 互转", build: (h) => buildUnitConverter(h, UNITS.power, "w", "hp", "W") },
   { id: "inductance", icon: "🔗", title: "电感换算", desc: "nH/µH/mH/H 互转", build: (h) => buildUnitConverter(h, UNITS.inductance, "uh", "nh", "µH") },
   { id: "fraction", icon: "➗", title: "小数/分数换算", desc: "将小数转换为最接近的分数值", build: buildFraction },
+  { id: "checksum", icon: "🧮", title: "校验计算器", desc: "CRC/校验和/异或/MD5/SHA 校验值计算，支持 HEX/字符串/文件输入与 HEX/DEC/BIN 输出", build: buildChecksum },
 ];
 
 // ── 页面 ──

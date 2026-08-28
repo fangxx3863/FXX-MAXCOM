@@ -953,6 +953,8 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .tool-formula .katex { font-size: 1em; }
 .tool-formula .katex-display { margin: 0.2em 0; }
 .tool-actions { display: flex; gap: 8px; }
+.tool-action-row { display: flex; gap: 8px; align-items: center; margin-top: -6px; }
+.tool-action-row .ghost { font-size: 12px; padding: 4px 10px; }
 .tool-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .tool-tab {
   padding: 6px 14px; border-radius: 8px; border: 1px solid var(--border);

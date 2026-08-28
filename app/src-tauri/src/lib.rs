@@ -18,6 +18,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_ports,
+            commands::encode_text,
             #[cfg(feature = "desktop")]
             commands::list_probes,
             #[cfg(feature = "desktop")]

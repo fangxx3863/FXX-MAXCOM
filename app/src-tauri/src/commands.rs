@@ -82,6 +82,13 @@ pub fn list_ports() -> Vec<PortInfo> {
     maxcom_engine::transport::discover_serial_ports()
 }
 
+/// 按编码把字符串转为字节（校验计算器等工具用）。返回 (字节数组, 是否含无法编码字符)。
+/// enc 支持 utf-8 / gbk / gb2312 / latin-1（与 maxcom-core SUPPORTED_ENCODINGS 对齐）。
+#[tauri::command]
+pub fn encode_text(text: String, encoding: String) -> Result<(Vec<u8>, bool), String> {
+    Ok(maxcom_core::encoding::encode(&text, &encoding))
+}
+
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn list_probes() -> Vec<ProbeInfo> {

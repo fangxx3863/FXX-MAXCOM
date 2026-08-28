@@ -160,5 +160,118 @@ check("欧姆 R=50 (5V/0.1A)", ohmR.value === "50");
 check("欧姆 电阻框不含功率", !has(ohmR.value, "P"));
 check("欧姆 功率在 resultline P=0.5W", has(ohmLine.textContent, "P = 0.5 W"));
 
+// ── 校验计算器：CRC/算法/位宽/格式 ──
+const hCk = hostOf("checksum");
+const waitAsync = () => new Promise((r) => setTimeout(r, 20));
+const ckAlgo = hCk.querySelector("#ck-algo");
+const ckVariant = hCk.querySelector("#ck-variant");
+const ckWidth = hCk.querySelector("#ck-width");
+const ckFmt = hCk.querySelector("#ck-fmt");
+const ckSource = hCk.querySelector("#ck-source");
+const ckInput = hCk.querySelector("#ck-input");
+const ckResult = hCk.querySelector("#ck-result");
+const ckMeta = hCk.querySelector("#ck-meta");
+const ckVariantField = hCk.querySelector("#ck-variant-field");
+const ckWidthField = hCk.querySelector("#ck-width-field");
+
+// 初始：CRC 默认变体 crc8，输入默认空 → 结果空（空数据 CRC-8=0）但元信息有
+check("校验 初始算法为 CRC", ckAlgo.value === "crc");
+check("校验 CRC 变体字段可见", ckVariantField.style.display !== "none");
+check("校验 CHECKSUM/XOR 位宽字段隐藏", ckWidthField.style.display === "none");
+
+// HEX 输入 "123456789" → CRC-8 check=0xF4
+ckSource.value = "hex"; fire(ckSource, "change");
+ckInput.value = "313233343536373839"; fire(ckInput, "input");
+check("校验 HEX 输入 CRC-8=0xF4", ckResult.textContent === "F4");
+check("校验 元信息含数据长度", has(ckMeta.textContent, "9"));
+
+// CRC 变体切到 CRC-32 → CBF43926
+ckVariant.value = "crc32"; fire(ckVariant, "change");
+check("校验 CRC-32 hex=CBF43926", ckResult.textContent === "CBF43926");
+
+// 输出格式切 BIN → 32 位全零补位
+ckFmt.value = "bin"; fire(ckFmt, "change");
+check("校验 CRC-32 bin 32 位", ckResult.textContent.length === 32);
+ckFmt.value = "hex"; fire(ckFmt, "change");
+
+// 字符串输入 "abc" → MD5
+ckSource.value = "str"; fire(ckSource, "change");
+ckAlgo.value = "md5"; fire(ckAlgo, "change");
+ckInput.value = "abc"; fire(ckInput, "input");
+await waitAsync();
+check("校验 字符串 MD5=90015098...17F72", ckResult.textContent === "900150983CD24FB0D6963F7D28E17F72");
+check("校验 MD5 变体/位宽字段均隐藏", ckVariantField.style.display === "none" && ckWidthField.style.display === "none");
+
+// CHECKSUM 位宽切换：字符串改回 HEX 单字节，位宽 8/16
+ckSource.value = "hex"; fire(ckSource, "change");
+ckInput.value = "41"; fire(ckInput, "input");
+ckAlgo.value = "checksum"; fire(ckAlgo, "change");
+check("校验 checksum 位宽字段可见", ckWidthField.style.display !== "none");
+check("校验 checksum 0x41=65 (8bit)", ckResult.textContent === "41");
+ckWidth.value = "16"; fire(ckWidth, "change");
+check("校验 checksum 0x41=65 (16bit pad 0041)", ckResult.textContent === "0041");
+
+// XOR：ABC → 64 = 0x40（先重置位宽为 8，避免上一步 checksum 残留 16 位 pad 成 0040）
+ckWidth.value = "8"; fire(ckWidth, "change");
+ckAlgo.value = "xor"; fire(ckAlgo, "change");
+ckSource.value = "str"; fire(ckSource, "change");
+ckInput.value = "ABC"; fire(ckInput, "input");
+await waitAsync();
+check("校验 XOR 'ABC'=0x40", ckResult.textContent === "40");
+
+// 非法 HEX 输入给出错误提示
+ckSource.value = "hex"; fire(ckSource, "change");
+ckInput.value = "ZZ"; fire(ckInput, "input");
+check("校验 非法 HEX 提示", has(ckResult.textContent, "HEX"));
+
+// 文件源仅 HASH 类可用：CRC 下选 file 会被强制切回 hex
+ckAlgo.value = "crc"; fire(ckAlgo, "change");
+ckSource.value = "file"; fire(ckSource, "change");
+check("校验 CRC 下 file 被强制回 hex", ckSource.value === "hex");
+ckAlgo.value = "md5"; fire(ckAlgo, "change");
+ckSource.value = "file"; fire(ckSource, "change");
+check("校验 MD5 下可选文件源", ckSource.value === "file");
+
+// 复制按钮存在且可点击不崩（jsdom 无 Clipboard API，doCopy 内部 try/catch 容错）
+const ckCopy = hCk.querySelector("#ck-copy");
+const ckCopyFull = hCk.querySelector("#ck-copy-full");
+check("校验 复制按钮存在", !!ckCopy && !!ckCopyFull);
+ckCopy.click(); ckCopyFull.click(); // 不应抛异常
+check("校验 复制按钮可点击不崩", true);
+
+// CRC 说明区：切回 CRC 后显示参数 + 端序说明；MD5 时隐藏
+ckAlgo.value = "crc"; fire(ckAlgo, "change");
+ckVariant.value = "crc32"; fire(ckVariant, "change");
+const ckNote = hCk.querySelector("#ck-note");
+check("校验 CRC 说明区可见", ckNote.style.display !== "none");
+check("校验 CRC 说明含多项式", has(ckNote.textContent, "04C11DB7"));
+check("校验 CRC 说明含 init", has(ckNote.textContent, "FFFFFFFF"));
+ckAlgo.value = "md5"; fire(ckAlgo, "change");
+check("校验 MD5 说明区隐藏", ckNote.style.display === "none");
+
+// 编码下拉：字符串源时可见，UTF-8 正确算值；UTF-16LE 正确；GBK 在 mock 下提示回退
+const ckEncoding = hCk.querySelector("#ck-encoding");
+const ckEncodingField = hCk.querySelector("#ck-encoding-field");
+check("校验 编码下拉存在", !!ckEncoding);
+// 切字符串源 → 编码下拉可见
+ckSource.value = "str"; fire(ckSource, "change");
+check("校验 字符串源时编码下拉可见", ckEncodingField.style.display !== "none");
+// UTF-8 + 'abc' → MD5
+ckEncoding.value = "utf-8"; fire(ckEncoding, "change");
+ckAlgo.value = "md5"; fire(ckAlgo, "change");
+ckInput.value = "abc"; fire(ckInput, "input");
+await waitAsync();
+check("校验 字符串 UTF-8 MD5=90015098...17F72", ckResult.textContent === "900150983CD24FB0D6963F7D28E17F72");
+// UTF-16LE + 'AB' → 4 字节 => CRC8 会随数据变，改用 HEX 输入等价验证编码走通（结果非空即可）
+ckEncoding.value = "utf-16le"; fire(ckEncoding, "change");
+ckAlgo.value = "crc"; fire(ckAlgo, "change");
+ckInput.value = "AB"; fire(ckInput, "input");
+await waitAsync();
+check("校验 字符串 UTF-16LE 编码走通(结果非空)", ckResult.textContent.length > 0);
+// GBK 在 mock 下回退提示
+ckEncoding.value = "gbk"; fire(ckEncoding, "change");
+await waitAsync();
+check("校验 GBK 在 mock 下提示回退", has(ckResult.textContent, "GBK"));
+
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);
 process.exit(fail ? 1 : 0);
