@@ -966,10 +966,10 @@ mod capture_sink_tests {
         let mut sink = CaptureSink::new().unwrap();
         let target = sink.path.clone();
         // 小写累计在内存 buf，未达 CHUNK 不落盘
-        sink.write(&vec![1u8; 10]).unwrap();
+        sink.write(&[1u8; 10]).unwrap();
         assert_eq!(sink.total, 10);
         // 一次写满一个 CHUNK：触发 flush 落盘
-        sink.write(&vec![2u8; CAP_CHUNK]).unwrap();
+        sink.write(&[2u8; CAP_CHUNK]).unwrap();
         assert_eq!(sink.total, 10 + CAP_CHUNK as u64);
         sink.finish().unwrap();
 
