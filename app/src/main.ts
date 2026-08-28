@@ -424,6 +424,15 @@ class SessionApp {
       editable: true,
       placeholder: t("conn.baud.placeholder"),
       width: 120,
+      onChange: (v) => {
+        // 已连接时改波特率 → 自动断开并按新波特率重连（无需手动断开再连）
+        if (this.connected) {
+          // 重新构造配置：只改 baud，其余用「当前已建立连接的同一套参数」——toggleConnect(true)
+          // 会重读各下拉当前值，这正好把用户需调整的参数一并应用。
+          this.setHint(t("conn.baud.reconnect", { baud: v }), false);
+          void this.toggleConnect(true).catch(() => {});
+        }
+      },
     });
     this.q("#baud-dd").replaceWith(this.baudDd.el);
 
@@ -900,9 +909,29 @@ class SessionApp {
     // 工具页：纯前端计算器目录，不依赖连接
     this.toolsPage = new ToolsPage(this.q("#page-tools"));
 
+    // 控制条悬停时垂直滚轮 → 左右滚动（窄 tile 下控制条横滚更顺手）
+    this.wireControlScrollHijack();
+
     this.el.querySelectorAll<HTMLButtonElement>("#sidebar button").forEach((btn) => {
       btn.addEventListener("click", () => this.switchPage(btn.dataset.page as PageId));
     });
+  }
+
+  /** 控制条悬停劫持：垂直滚轮 → 左右滚动（窄 tile/窄窗口下控制条横滚更顺手） */
+  private wireControlScrollHijack() {
+    const controls = this.q<HTMLElement>("#log-controls");
+    if (!controls) return;
+    controls.addEventListener(
+      "wheel",
+      (e: WheelEvent) => {
+        // 仅当控制条确实横向可滚（内容溢出）时劫持，避免干扰其他纵向滚动
+        if (controls.scrollWidth <= controls.clientWidth + 1) return;
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // 原生横向滚轮不干预
+        e.preventDefault();
+        controls.scrollLeft += (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) + e.deltaX;
+      },
+      { passive: false },
+    );
   }
 
   switchPage(id: PageId) {
@@ -2441,13 +2470,15 @@ function openExplode() {
   document.getElementById("titlebar")?.classList.add("hidden");
   document.getElementById("session-root")?.classList.add("hidden");
   // decorations:false 自绘窗口，可拖/缩放区集中在标题栏；标题栏被隐藏后窗口即失去拖动缩放。
-  // 给爆炸视图顶栏的空区（hint）补 drag-region，窗口在爆炸视图下仍能移动/调整大小。
-  // close 按钮不在 region 上，保持可点。
-  const dragHint = document.getElementById("explode-hint") as HTMLElement | null;
-  if (dragHint) {
-    dragHint.setAttribute("data-tauri-drag-region", "");
-    dragHint.style.userSelect = "none";
-  }
+  // 给爆炸视图顶栏的可拖元素补 drag-region，窗口在爆炸视图下仍能移动/调整大小。
+  // 注意：Tauri drag-region 走 closest('[data-tauri-drag-region]')，绝不能加在 #explode-close 祖先上
+  // （会把点击截成拖拽→关闭按钮失效）。只加 title / spacer / hint 三个空白元素。
+  // close 按钮保持在 region 之外，仍可点。
+  document.querySelectorAll("#explode-topbar .explode-spacer, #explode-topbar .explode-hint, #explode-topbar .explode-title").forEach((el) => {
+    const h = el as HTMLElement;
+    h.setAttribute("data-tauri-drag-region", "");
+    h.style.userSelect = "none";
+  });
   overlay.classList.remove("hidden");
   explodeOpen = true;
 }
