@@ -1,13 +1,29 @@
 // 传统收发页（模式 B）：时间戳 + 自动染色 + 过滤 + 发送面板
 // 控件所有权在 main.ts（自绘下拉），本类只收：视图、自动滚动框、时间戳模式取值器
+//
+// ── 渲染模型（超大日志不丢行、不滞后）──
+// 数据层：entries 全量保留在 this.rows（每行 { ts, tsText, text, segments, rawHex }），
+// partial 续行在入队时合并进同一行（文本/段/HEX 拼接，跨批正确），时间戳串在入队时
+// 按当时的时间戳模式生成并随行存储 → 重渲染不会污染 delta 基准。
+// DOM 层：#log-view 按 rowsPerPage 行分页（chunk），只挂载视口 ±pageBuffer 页，
+// 远端 chunk 卸载成按实测高度占位的空骨架 → 滚动高度稳定、append 成本恒定，
+// 行数再多渲染成本也不变。数据永不丢弃（原来 MAX_LINES 丢旧行的行为已废除）。
 import type { EntriesBatch, LogEntryDto } from "../types";
 import { t } from "../i18n";
-
-const MAX_LINES = 100_000; // ADR-0010：接收区上限，超出丢旧行
 
 interface QuickFilter {
   regex?: RegExp;
   text?: string;
+}
+
+/** 单行数据（partial 续行已在入队时合并） */
+interface Row {
+  ts: number;
+  /** 入队时按当时时间戳模式生成的时间戳串（none 模式为 ""） */
+  tsText: string;
+  text: string;
+  segments: LogEntryDto["segments"];
+  rawHex: string;
 }
 
 function compileQuickFilter(pattern: string): QuickFilter | null {
@@ -25,22 +41,34 @@ export class LogViewPage {
   private autoscroll: HTMLInputElement;
   private getTsMode: () => string;
   private hexDisplay = false;
-  private epochAnchor = Date.now();
   private lastTs: number | null = null;
-  private lines = 0;
   private quickFilter: QuickFilter | null = null;
-  /** 未换行结束的部分行（partial=true 的空闲封行条目）：续接到该行而非断行 */
-  private pendingLine: HTMLElement | null = null;
   private rowCss = "";
+
+  // ── 数据模型 ──
+  /** 全量行（永不丢弃） */
+  private rows: Row[] = [];
+  /** 尚未结束的行下标（-1 = 无 pending；后续 partial/结束条目续接到它） */
+  private pendingIdx = -1;
+
+  // ── 分页窗口 ──
+  /** chunk[i] = 已挂载的容器；null = 未挂载（DOM 里不存在该容器） */
+  private chunks: (HTMLElement | null)[] = [];
+  /** 卸载时实测的 chunk 高度（含换行），占位用；0 = 未测量 → 按行数×行高估算 */
+  private chunkHeights: number[] = [];
+  /** 每页行数（设置页可配） */
+  private rowsPerPage = 500;
+  /** 视口上下各预渲染页数 */
+  private pageBuffer = 2;
 
   constructor(view: HTMLElement, opts: { autoscroll: HTMLInputElement; getTsMode: () => string }) {
     this.view = view;
     this.autoscroll = opts.autoscroll;
     this.getTsMode = opts.getTsMode;
-    // 粘性自动滚动：滚动位置决定自动滚动开关（滚上去=关，拉到底部=开）
-    this.view.addEventListener("scroll", () => this.syncAutoscroll());
-    // 从「非自动」勾成「自动」：立即拉到底一次（否则要等下一批数据才滚）。
-    // 测试桩可能传纯对象（无 addEventListener），做能力守卫。
+    // 粘性自动滚动 + 懒加载窗口同挂 scroll（测试桩可能传纯对象，做能力守卫）
+    if (typeof this.view.addEventListener === "function") {
+      this.view.addEventListener("scroll", () => this.onScroll());
+    }
     if (typeof this.autoscroll.addEventListener === "function") {
       this.autoscroll.addEventListener("change", () => {
         if (this.autoscroll.checked) this.scrollToBottom();
@@ -49,16 +77,29 @@ export class LogViewPage {
     this.refreshRowHeight();
   }
 
-  /** 立即拉到底部（取整到整数设备像素，粘性滚动要求）：自动滚动勾选/切换时调用 */
+  /** 设置每页行数（设置页「每页行数」）。触发窗口重建并回到底部 */
+  setRowsPerPage(n: number): void {
+    const v = Math.max(50, Math.min(5000, Math.floor(n) || 500));
+    if (v === this.rowsPerPage) return;
+    this.rowsPerPage = v;
+    this.rebuildChunks();
+    this.scrollToBottom();
+  }
+
+  getRowsPerPage(): number {
+    return this.rowsPerPage;
+  }
+
+  /** 立即拉到底部（取整到整数设备像素，粘性滚动要求） */
   scrollToBottom() {
     const el = this.view;
-    el.scrollTop = Math.round(el.scrollHeight - el.clientHeight);
+    const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
+    const maxCss = el.scrollHeight - el.clientHeight;
+    el.scrollTop = Math.round(maxCss * dpr) / dpr;
   }
 
   /** 每行格子高度钉成「整数设备像素」：xterm 固定行高原理。
-    把 line-height 从比例(1.5)换算为向上取整到整数设备像素的固定 px，
-    这样任意 DPR/缩放下每行都占整数个设备像素 → 累计高度为整数 →
-    scrollTop 落在整数像素，永不抖。换行由浏览器排到下一行（行高仍固定）。 */
+    任意 DPR/缩放下每行都占整数个设备像素 → 累计高度为整数 → scrollTop 不抖。 */
   refreshRowHeight() {
     // 非浏览器环境（node 测试等）无 DOM/DPR，直接跳过
     if (typeof window === "undefined" || typeof window.getComputedStyle !== "function") return;
@@ -71,8 +112,7 @@ export class LogViewPage {
     if (key !== this.rowCss) {
       this.rowCss = key;
       this.view.style.lineHeight = rowCss + "px";
-      // 空行条目（时间戳=无 时 .log-line 无内容）会坍缩成 0 高，空行即消失。
-      // 用 --log-row-h 钉一行高作 min-height，让空行也占一行可见。
+      // 空行条目会坍缩成 0 高：用 --log-row-h 钉一行高作 min-height
       this.view.style.setProperty("--log-row-h", rowCss + "px");
     }
   }
@@ -83,6 +123,12 @@ export class LogViewPage {
     return el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
   }
 
+  /** 滚动事件：同步自动滚动开关 + 懒加载窗口 */
+  private onScroll(): void {
+    this.syncAutoscroll();
+    this.ensureWindow();
+  }
+
   /** 按当前滚动位置同步自动滚动开关 */
   private syncAutoscroll() {
     this.autoscroll.checked = this.isAtBottom();
@@ -90,6 +136,8 @@ export class LogViewPage {
 
   setHexDisplay(on: boolean) {
     this.hexDisplay = on;
+    // HEX/文本切换影响所有行的渲染内容 → 重建窗口（数据层 text/rawHex 都保留，可随时切）
+    this.rebuildChunks();
   }
 
   /** 当前是否 HEX 显示模式（日志捕获据此决定写 raw_hex 还是 text） */
@@ -97,116 +145,215 @@ export class LogViewPage {
     return this.hexDisplay;
   }
 
-  /** 快捷过滤：命中才显示（空 = 全显）。对已渲染与后续新行都即时生效 */
+  /** 当前总行数（测试/调试用） */
+  get lineCount(): number {
+    return this.rows.length;
+  }
+
+  /** 快捷过滤：命中才显示（空 = 全显）。只重渲染当前已挂载的 chunk */
   setQuickFilter(pattern: string) {
     this.quickFilter = compileQuickFilter(pattern);
-    const f = this.quickFilter;
-    for (const el of Array.from(this.view.children) as HTMLElement[]) {
-      if (!f) {
-        el.classList.remove("hidden");
-        continue;
-      }
-      const raw = el.dataset.raw ?? "";
-      el.classList.toggle("hidden", f.regex ? !f.regex.test(raw) : !raw.includes(f.text!));
+    for (let i = 0; i < this.chunks.length; i++) {
+      if (this.chunks[i]) this.fillChunk(i);
     }
   }
 
-  /** 时间戳模式切换后重置差值基准 */
-  resetDeltaBase() {
-    this.lastTs = null;
-  }
-
-  /** 收到批量日志条目 */
+  /** 收到批量日志条目：入队数据模型 + 追加/刷新渲染（成本恒定，与总行数无关） */
   append(batch: EntriesBatch) {
     this.refreshRowHeight();
-    this.epochAnchor = batch.epoch_anchor_ms;
     const wasBottom = this.isAtBottom();
-    const frag = document.createDocumentFragment();
+    let appendedRows = 0;
+    let mergedChunk = -1; // 本批若发生了 partial 续接，该行所在 chunk 需刷新
     for (const item of batch.items) {
       const isPartial = !!item.partial;
-      const f = this.quickFilter;
-      // partial=true：空闲封行刷出的未结束部分行 → 续接到当前行，不新起一行。
-      // partial=false/缺省：换行结束 → 若上一条是未结束的部分行，则接上并断行；否则新起一行。
-      if (this.pendingLine) {
-        this.appendContentTo(this.contentOf(this.pendingLine), item);
-        const raw = (this.pendingLine.dataset.raw ?? "") + item.text;
-        this.pendingLine.dataset.raw = raw;
-        const hide = f && (f.regex ? !f.regex.test(raw) : !raw.includes(f.text!));
-        this.pendingLine.classList.toggle("hidden", !!hide);
-        if (!isPartial) this.pendingLine = null; // 断行，关闭当前部分行
+      if (this.pendingIdx >= 0 && this.pendingIdx < this.rows.length) {
+        // 续接 pending 行（文本/段/HEX 都累积，渲染模式切换时两种数据都在）
+        const row = this.rows[this.pendingIdx];
+        row.text += item.text;
+        if (row.rawHex && item.raw_hex) row.rawHex += " ";
+        row.rawHex += item.raw_hex;
+        row.segments.push(...item.segments);
+        mergedChunk = Math.floor(this.pendingIdx / this.rowsPerPage);
+        if (!isPartial) this.pendingIdx = -1;
         continue;
       }
-      const line = this.createLine(item);
-      line.dataset.raw = item.text;
-      const hide = f && (f.regex ? !f.regex.test(item.text) : !item.text.includes(f.text!));
-      line.classList.toggle("hidden", !!hide);
-      frag.appendChild(line);
-      this.lines++;
-      if (isPartial) this.pendingLine = line;
+      // 新行：时间戳串按入队时刻的模式生成（与旧行为一致：模式切换只影响新行）
+      const row: Row = {
+        ts: item.ts_ms,
+        tsText: this.formatTs(item.ts_ms, batch.epoch_anchor_ms),
+        text: item.text,
+        segments: item.segments.slice(),
+        rawHex: item.raw_hex,
+      };
+      this.rows.push(row);
+      if (isPartial) this.pendingIdx = this.rows.length - 1;
+      appendedRows++;
     }
-    this.view.appendChild(frag);
-    while (this.lines > MAX_LINES && this.view.firstChild) {
-      this.view.removeChild(this.view.firstChild);
-      this.lines--;
+    if (appendedRows > 0) {
+      this.growChunks();
+      this.renderTail();
     }
-    // 粘底：用户原本在底部（或自动滚动已开）才维持贴底；否则不打扰用户。
-    // 取整贴底必须换算到「整数设备像素」：CSS 像素取整在 DPR=1.5 时会把
-    // 整数 CSS px(奇数) 变成 .5 设备像素，浏览器对该值来回吸附 → 整块 ±1px 抖。
-    // 200% 时 1 CSS px = 2 设备像素恒为整数故不抖(与每行抖动同源)。
-    if (this.autoscroll.checked || wasBottom) {
-      const dpr = (typeof window !== "undefined" && window.devicePixelRatio) || 1;
-      const maxCss = this.view.scrollHeight - this.view.clientHeight;
-      this.view.scrollTop = Math.round(maxCss * dpr) / dpr;
+    if (mergedChunk >= 0 && this.chunks[mergedChunk]) {
+      this.fillChunk(mergedChunk);
+    }
+    // 粘底：用户原本在底部（或自动滚动已开）才维持贴底；否则不打扰用户
+    if (appendedRows > 0 && (this.autoscroll.checked || wasBottom)) {
+      this.scrollToBottom();
     }
   }
 
-  /** 新建一行：换行结束的条目（或部分行条目首次到达时） */
-  private createLine(e: LogEntryDto): HTMLElement {
+  /** rows 增长后补齐 chunk 高度表与槽位数组 */
+  private growChunks() {
+    const need = Math.ceil(this.rows.length / this.rowsPerPage);
+    while (this.chunks.length < need) {
+      this.chunks.push(null);
+      this.chunkHeights.push(0);
+    }
+  }
+
+  /** 尾页保证挂载且内容最新（贴底实时流的高频路径；已挂载也重渲染以纳入新行） */
+  private renderTail() {
+    const last = this.chunks.length - 1;
+    if (last >= 0) this.fillChunk(last);
+  }
+
+  /** 渲染 chunk ci：容器不存在则创建并按序插入，然后填入该页全部行 */
+  private fillChunk(ci: number) {
+    let el = this.chunks[ci];
+    if (!el) {
+      // 卸载时占位容器仍保留在 DOM（稳住滚动高度）；先复用，顺序天然正确。
+      const existing = Array.from(this.view.children).find(
+        (c) => c instanceof HTMLElement && c.dataset.chunk === String(ci),
+      ) as HTMLElement | undefined;
+      if (existing) {
+        el = existing;
+      } else {
+        el = document.createElement("div");
+        el.className = "log-chunk";
+        el.dataset.chunk = String(ci);
+        // 按序插入：找第一个已挂载且序号更大的兄弟插它前面；否则追加到末尾
+        let inserted = false;
+        for (const child of Array.from(this.view.children) as HTMLElement[]) {
+          const other = Number(child.dataset.chunk);
+          if (Number.isFinite(other) && other > ci) {
+            this.view.insertBefore(el, child);
+            inserted = true;
+            break;
+          }
+        }
+        if (!inserted) this.view.appendChild(el);
+      }
+      this.chunks[ci] = el;
+    }
+    el.style.minHeight = "";
+    const f = this.quickFilter;
+    const start = ci * this.rowsPerPage;
+    const end = Math.min(start + this.rowsPerPage, this.rows.length);
+    const frag = document.createDocumentFragment();
+    for (let i = start; i < end; i++) {
+      const row = this.rows[i];
+      const line = this.createLine(row);
+      const hide = !!f && (f.regex ? !f.regex.test(row.text) : !row.text.includes(f.text!));
+      if (hide) line.classList.add("hidden");
+      frag.appendChild(line);
+    }
+    el.replaceChildren(frag);
+  }
+
+  /** 卸载 chunk：清空内容保留容器，高度改为实测（首查）或估算占位 */
+  private unmountChunk(ci: number) {
+    const el = this.chunks[ci];
+    if (!el) return;
+    let h = this.chunkHeights[ci];
+    if (!h) {
+      h = el.offsetHeight || this.estimateChunkHeight(ci);
+      this.chunkHeights[ci] = h;
+    }
+    el.replaceChildren();
+    el.style.minHeight = h > 0 ? `${h}px` : "";
+    // 关键：槽位置空，让 ensureWindow 能重新挂载；占位容器留在 DOM 稳住滚动高度，
+    // fillChunk 会优先复用该容器重新填充内容，避免向上翻页出现空白。
+    this.chunks[ci] = null;
+  }
+
+  /** 估算 chunk 高度：行数 × 行高（未测量时的兜底） */
+  private estimateChunkHeight(ci: number): number {
+    const rh = parseFloat(this.rowCss || "0") || 0;
+    const start = ci * this.rowsPerPage;
+    const count = Math.max(0, Math.min(this.rowsPerPage, this.rows.length - start));
+    return rh > 0 ? count * rh : 0;
+  }
+
+  /** 懒加载窗口：视口 ±pageBuffer 页内装载，页外卸载 */
+  private ensureWindow() {
+    const el = this.view;
+    if (!el.clientHeight || !this.chunks.length) return;
+    const chunkH = el.scrollHeight / this.chunks.length; // 行高恒定 → 每页近等高
+    const first = Math.max(0, Math.floor(el.scrollTop / chunkH) - this.pageBuffer);
+    const last = Math.min(this.chunks.length - 1, Math.ceil((el.scrollTop + el.clientHeight) / chunkH) + this.pageBuffer);
+    for (let i = 0; i < this.chunks.length; i++) {
+      const inWin = i >= first && i <= last;
+      if (inWin && this.chunks[i] === null) this.fillChunk(i);
+      else if (!inWin && this.chunks[i] !== null) this.unmountChunk(i);
+    }
+  }
+
+  /** rowsPerPage 变更 / HEX 切换后重建：清空 DOM 全部重排，按滚动比例恢复位置 */
+  private rebuildChunks() {
+    const el = this.view;
+    const total = el.scrollHeight;
+    const keepRatio = total > 0 ? el.scrollTop / total : 0;
+    el.replaceChildren();
+    this.chunks = [];
+    this.chunkHeights = [];
+    this.growChunks();
+    for (let i = 0; i < this.chunks.length; i++) {
+      if (this.chunks[i] === null) this.fillChunk(i);
+    }
+    el.scrollTop = keepRatio * el.scrollHeight;
+    this.ensureWindow();
+  }
+
+  /** 新建一行 DOM（dataset.raw 供快捷过滤/测试用） */
+  private createLine(row: Row): HTMLElement {
     const div = document.createElement("div");
     div.className = "log-line";
-    const mode = this.getTsMode();
-    if (mode !== "none") {
+    div.dataset.raw = row.text;
+    if (row.tsText) {
       const ts = document.createElement("span");
       ts.className = "log-ts";
-      ts.textContent = this.formatTs(e.ts_ms);
+      ts.textContent = row.tsText;
       div.appendChild(ts);
     }
     const content = document.createElement("div");
     content.className = "log-content";
     div.appendChild(content);
-    this.appendContentTo(content, e);
+    this.appendContentTo(content, row);
     return div;
   }
 
-  /** 取某行 .log-line 的内容块（用于续行追加；由 createLine 保证存在） */
-  private contentOf(line: HTMLElement): HTMLElement {
-    const c = line.querySelector<HTMLElement>(".log-content");
-    if (!c) throw new Error("log-content missing");
-    return c;
-  }
-
-  /** 把条目内容（HEX 或染色段）追加到给定行 */
-  private appendContentTo(line: HTMLElement, e: LogEntryDto) {
+  /** 把行内容（HEX 或染色段）追加到给定内容块 */
+  private appendContentTo(content: HTMLElement, row: Row) {
     if (this.hexDisplay) {
       // HEX 模式：原始字节十六进制（染色让位——二进制没有"颜色语义"）
       const s = document.createElement("span");
       s.className = "log-hex";
-      s.textContent = e.raw_hex || t("log.empty");
-      line.appendChild(s);
+      s.textContent = row.rawHex || t("log.empty");
+      content.appendChild(s);
       return;
     }
-    for (const seg of e.segments) {
+    for (const seg of row.segments) {
       const s = document.createElement("span");
       s.textContent = seg.text;
       if (seg.fg) s.style.color = cssColor(seg.fg);
       if (seg.bg) s.style.backgroundColor = cssColor(seg.bg);
       if (seg.bold) s.classList.add("seg-bold");
-      line.appendChild(s);
+      content.appendChild(s);
     }
   }
 
-
-  private formatTs(tsMs: number): string {
+  /** 生成时间戳串（入队时调用一次；重渲染复用 row.tsText，不重算 delta 基准） */
+  private formatTs(tsMs: number, anchorMs: number): string {
     switch (this.getTsMode()) {
       case "relative":
         return `+${tsMs}ms`;
@@ -216,20 +363,29 @@ export class LogViewPage {
         this.lastTs = tsMs;
         return d >= 0 ? `Δ+${d}ms` : `Δ${d}ms`;
       }
+      case "none":
+        return "";
       default: {
         // absolute：anchor(墙钟) + monotonic 偏移
-        const wall = new Date(this.epochAnchor + tsMs);
+        const wall = new Date(anchorMs + tsMs);
         const p = (n: number, w = 2) => String(n).padStart(w, "0");
         return `${p(wall.getHours())}:${p(wall.getMinutes())}:${p(wall.getSeconds())}.${p(wall.getMilliseconds(), 3)}`;
       }
     }
   }
 
+  /** 时间戳模式切换后重置差值基准 */
+  resetDeltaBase() {
+    this.lastTs = null;
+  }
+
   clear() {
     this.view.replaceChildren();
-    this.lines = 0;
+    this.rows = [];
+    this.chunks = [];
+    this.chunkHeights = [];
+    this.pendingIdx = -1;
     this.lastTs = null;
-    this.pendingLine = null;
   }
 }
 

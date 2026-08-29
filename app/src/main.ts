@@ -41,7 +41,7 @@ interface AppSettings {
   theme: string;
   /** 图表导出样式：theme=跟随主题；paper=论文风格（白底仿 LaTeX） */
   chartStyle: string;
-  /** 界面整体缩放（DPI）：100=100%，125=125% 等 */ 
+  /** 界面整体缩放（DPI）：100=100%，125=125% 等 */
   uiScale: number;
   /** 捕获日志时间戳格式 */
   captureLogFormat: CaptureLogFormat;
@@ -49,6 +49,8 @@ interface AppSettings {
   explodeType: ExplodeType;
   /** 爆炸视图布局方式：master 主从 / grid 均分 / dwindle 斜向 */
   explodeLayout: ExplodeLayout;
+  /** 收发区懒加载每页行数（超大日志虚拟滚动的窗口粒度） */
+  logPageRows: number;
 }
 const DEFAULT_SETTINGS: AppSettings = {
   logSize: 12.5,
@@ -60,6 +62,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   captureLogFormat: "follow",
   explodeType: "logview",
   explodeLayout: "master",
+  logPageRows: 500,
 };
 const SETTINGS_KEY = "maxcom.settings";
 const THEME_PRESETS: Record<string, string> = {
@@ -1233,6 +1236,36 @@ class SessionApp {
     return this.customName || PORT_NAMES.get(device) || shortPortName(device) || device;
   }
 
+  /** 捕获文件名里的设备标识：按当前实际连接类型取，而非串口下拉的残留值。
+   *  - 已连接：用引擎返回的连接标签（RTT→"RTT 芯片#通道"、TCP→"host:port"、串口→"COMx @ baud"），
+   *    截掉 @ 之后的波特率段，保留类型/设备主体；
+   *  - 未连接：回退按当前连接类型下拉构造（串口→短口名、RTT→探针+芯片、USB→VID:PID、网络→host:port）。 */
+  private captureDeviceToken(): string {
+    const kind = this.connKind;
+    if (this.connected && this.stateLabel) {
+      // "COM14 @ 115200" → COM14；"RTT nRF52840#0" 原样；"TCP host:port" 原样
+      return this.stateLabel.split(" @ ")[0].trim();
+    }
+    if (kind === "serial") {
+      const dev = this.portDd.value;
+      return shortPortName(dev) || dev || "serial";
+    }
+    if (kind === "rtt") {
+      const probe = this.probeDd.value.trim();
+      const chip = this.chipDd.value.trim();
+      const probeShort = probe ? probe.split(":").slice(0, 2).join(":") : ""; // VID:PID（截掉 serial，避免文件名过长）
+      return ["RTT", chip || "auto", probeShort].filter(Boolean).join("_") || "RTT";
+    }
+    if (kind === "winusb" || kind === "hid") {
+      const key = (kind === "winusb" ? this.usbDeviceDd.value : this.hidDeviceDd.value).trim();
+      return key ? `${kind.toUpperCase()}_${key.split(":").slice(0, 2).join(":")}` : kind.toUpperCase();
+    }
+    const host = this.tcpHostDd.value.trim();
+    const port = this.q<HTMLInputElement>("#tcp-port").value.trim();
+    const tag = kind === "ssh" ? "SSH" : kind === "telnet" ? "Telnet" : kind === "udp_client" ? "UDP" : "TCP";
+    return host ? `${tag}_${host}${port ? `_${port}` : ""}` : tag;
+  }
+
   private async toggleBinaryCapture() {
     const btn = this.q("#capture-bin-btn");
     const [capturing] = await this.api.captureState();
@@ -1242,9 +1275,9 @@ class SessionApp {
       btn.classList.add("recording");
       return;
     }
-    // 停止并保存：默认文件名 = 串口名 + 串口号 + 开始时间(到ms)，防止重名
+    // 停止并保存：默认文件名 = 连接标识 + 开始时间(到ms)，防止重名
     const startMs = Date.now();
-    const stem = captureStem(this.captureBaseName(this.portDd.value), this.portDd.value, startMs);
+    const stem = captureStem(this.captureBaseName(""), this.captureDeviceToken(), startMs);
     const defaultName = `${stem}.bin`;
     const path = await pickSavePath(defaultName);
     if (path) {
@@ -1275,7 +1308,7 @@ class SessionApp {
     }
     const content = this.logCapture.content();
     const startMs = this.logCapture.startMs;
-    const stem = captureStem(this.captureBaseName(this.portDd.value), this.portDd.value, startMs);
+    const stem = captureStem(this.captureBaseName(""), this.captureDeviceToken(), startMs);
     this.logCapture = null;
     btn.textContent = t("log.captureLog");
     btn.classList.remove("recording");
@@ -1801,6 +1834,8 @@ class SessionApp {
     if (explodeTypeSel) explodeTypeSel.value = st.explodeType;
     const explodeLayoutSel = this.q<HTMLSelectElement>("#set-explode-layout");
     if (explodeLayoutSel) explodeLayoutSel.value = st.explodeLayout;
+    const pageRowsInput = this.q<HTMLInputElement>("#set-log-page-rows");
+    if (pageRowsInput) pageRowsInput.value = String(st.logPageRows);
   }
 
   wireSettings() {
@@ -1833,6 +1868,14 @@ class SessionApp {
       logFmtSel.addEventListener("change", () =>
         saveSettings({ ...currentSettings, captureLogFormat: logFmtSel.value as CaptureLogFormat }),
       );
+    }
+    // 收发区懒加载每页行数：持久化 + 即时生效（重建窗口）
+    const pageRowsInput = this.q<HTMLInputElement>("#set-log-page-rows");
+    if (pageRowsInput) {
+      pageRowsInput.addEventListener("change", () => {
+        saveSettings({ ...currentSettings, logPageRows: Number(pageRowsInput.value) || DEFAULT_SETTINGS.logPageRows });
+        this.logViewPage.setRowsPerPage(currentSettings.logPageRows);
+      });
     }
     // 爆炸视图：显示类型 + 布局方式（即时生效，下次打开爆炸视图应用）
     const explodeTypeSel = this.q<HTMLSelectElement>("#set-explode-type");
@@ -2192,6 +2235,7 @@ function applySettingsToAll() {
     s.terminalPage.setFontSize(currentSettings.termSize);
     s.terminalPage.setTheme(termTheme);
     s.logViewPage.refreshRowHeight();
+    s.logViewPage.setRowsPerPage(currentSettings.logPageRows);
   }
 }
 

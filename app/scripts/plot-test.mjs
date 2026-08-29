@@ -198,21 +198,43 @@ check("同屏单通道柱状表在右侧", holder.querySelectorAll(".plot-cell.s
 check("柱状嵌入右侧后波形高度 (h=546)", wavePlot.height === 546);
 
 // 10) 收发页快捷过滤：命中才显示，新旧数据即时生效
+// （虚拟化后行挂在 .log-chunk 分页容器里，用辅助函数按序取行 DOM）
 const lvView = document.createElement("div");
 const lv = new globalThis.LogViewPage(lvView, { autoscroll: { checked: false }, getTsMode: () => "none" });
+const lvRows = () => Array.from(lvView.querySelectorAll(".log-line"));
 const mkItem = (text) => ({ ts_ms: 1, text, segments: [], raw_hex: "" });
 lv.append({ epoch_anchor_ms: 0, items: [mkItem("ERROR: boom"), mkItem("INFO: ok")] });
-check("无过滤两行可见", lvView.children.length === 2 && !lvView.children[0].classList.contains("hidden"));
-lv.setQuickFilter("ERROR");
-check("正则过滤仅匹配行可见", !lvView.children[0].classList.contains("hidden") && lvView.children[1].classList.contains("hidden"));
-lv.append({ epoch_anchor_ms: 0, items: [mkItem("ERROR: again"), mkItem("WARN: x")] });
-check("新行同样受过滤约束", lvView.children[2].classList.contains("hidden") === false && lvView.children[3].classList.contains("hidden"));
-lv.setQuickFilter("");
-check("清空过滤全部恢复", [...lvView.children].every((c) => !c.classList.contains("hidden")));
-lv.setQuickFilter("["); // 非法正则 → 子串匹配
-check("非法正则回退子串", [...lvView.children].every((c) => c.classList.contains("hidden")));
-lv.setQuickFilter("boom");
-check("子串匹配生效", !lvView.children[0].classList.contains("hidden"));
+{
+  const rows = lvRows();
+  check("无过滤两行可见", rows.length === 2 && !rows[0].classList.contains("hidden"));
+  lv.setQuickFilter("ERROR");
+  const rowsF = lvRows(); // setQuickFilter 重渲染 chunk，重新取行引用
+  check("正则过滤仅匹配行可见", !rowsF[0].classList.contains("hidden") && rowsF[1].classList.contains("hidden"));
+  lv.append({ epoch_anchor_ms: 0, items: [mkItem("ERROR: again"), mkItem("WARN: x")] });
+  const rows2 = lvRows();
+  check("新行同样受过滤约束", rows2.length === 4 && rows2[2].classList.contains("hidden") === false && rows2[3].classList.contains("hidden"));
+  lv.setQuickFilter("");
+  check("清空过滤全部恢复", lvRows().every((c) => !c.classList.contains("hidden")));
+  lv.setQuickFilter("["); // 非法正则 → 子串匹配
+  check("非法正则回退子串", lvRows().every((c) => c.classList.contains("hidden")));
+  lv.setQuickFilter("boom");
+  check("子串匹配生效", lvRows()[0].classList.contains("hidden") === false);
+}
+
+// 11) 虚拟化：大数据量不丢行、窗口恒定（Bug1 治本验证）
+{
+  const N = 2000;
+  const items = [];
+  for (let i = 0; i < N; i++) items.push(mkItem("line-" + i));
+  lv.append({ epoch_anchor_ms: 0, items });
+  check("虚拟化: 2000 行全部保留(不丢行)", lv.lineCount === N + 4);
+  const rendered = lvRows().length;
+  check("虚拟化: DOM 行数远小于总行数(窗口渲染)", rendered < 1200 && rendered > 0);
+  // 每页行数 setter 生效（50 下限保护）
+  lv.setRowsPerPage(200);
+  check("虚拟化: rowsPerPage setter 生效", lv.getRowsPerPage() === 200);
+  lv.setRowsPerPage(500);
+}
 
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);
 process.exit(fail ? 1 : 0);
