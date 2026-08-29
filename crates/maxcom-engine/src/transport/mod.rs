@@ -233,6 +233,15 @@ pub trait TransportWrite: Send {
     }
 }
 
+/// 断线占位写端：自动重连期间替换掉旧写句柄（释放底层设备），send 报错直至重连成功。
+pub struct DeadWrite;
+
+impl TransportWrite for DeadWrite {
+    fn write_all(&mut self, _data: &[u8]) -> io::Result<()> {
+        Err(io::Error::other("未连接（自动重连中）"))
+    }
+}
+
 /// 打开一次连接产出（读端 + 写端）。
 pub struct ConnPair {
     pub read: Box<dyn TransportRead>,

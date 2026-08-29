@@ -454,6 +454,16 @@ impl SessionManager {
                             }
                         }
                         // ── 掉线：自动重连循环 ──
+                        // 先释放旧连接句柄：RttState/串口句柄等被读/写两侧共享持有，
+                        // 不 drop 会让重连的 open() 因「设备被占用」一直失败
+                        // （RTT 场景：拔 SWD 线后调试器 USB 仍在，旧 probe-rs Session
+                        // 仍独占探针 USB 句柄 → 插回 SWD 也重连不上；手点连接成功是因为
+                        // disconnect() 已 join 线程、句柄全部 drop）。
+                        {
+                            drop(read_half);
+                            let mut w = write_r.lock().unwrap();
+                            *w = Box::new(super::transport::DeadWrite);
+                        }
                         loop {
                             if stop_r.load(Ordering::Relaxed) {
                                 break 'session;
