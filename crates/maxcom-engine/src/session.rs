@@ -11,7 +11,7 @@ use crossbeam_channel::{bounded, select, tick, Sender};
 use maxcom_core::ansistrip::strip_ansi;
 use maxcom_core::bus::Bus;
 use maxcom_core::colorize::{ColorRule, ColorizeEngine};
-use maxcom_core::encoding::EncodingDetector;
+use maxcom_core::encoding::EncodingHistory;
 use maxcom_core::filter::{FilterEngine, FilterRule};
 use maxcom_core::framing::TimestampMode;
 use maxcom_core::plot::parser::{make_parser, FrameParser};
@@ -522,7 +522,7 @@ impl SessionManager {
         let (init_master, init_ansi_yield, init_rules) = self.colors.lock().unwrap().clone();
         let init_lopts = self.log_options.lock().unwrap().clone();
         threads.push(std::thread::Builder::new().name("logview".into()).spawn(move || {
-            let detector = EncodingDetector;
+            let mut detector = EncodingHistory::default();
             let mut splitter = LineSplitter::new();
             splitter.split_on_bare_cr = false; // line mode: split only on LF or CRLF; bare CR is line data
             let mut colorize = ColorizeEngine::new(true);
@@ -557,7 +557,7 @@ impl SessionManager {
                                 colorize.reset();
                                 for r in rules { colorize.register(r); }
                             }
-                            Ok(Cmd::ClearLog) => { splitter.clear(); time_buf.clear(); }
+                            Ok(Cmd::ClearLog) => { splitter.clear(); time_buf.clear(); detector.reset(); }
                             Err(_) => break,
                         }
                     }
@@ -567,7 +567,7 @@ impl SessionManager {
                             last_data_ms = now;
                             if options.split_mode == "line" {
                         for raw in splitter.feed(&data) {
-                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let raw_text = detector.decode_line(&raw, &options.encoding);
                             let segments = colorize.process_line(&raw_text); // 见 ANSI → 产出颜色段
                             let text = strip_ansi(&raw_text); // DTO.text/过滤/raw 用干净文本
                             if filter.should_show(&text) {
@@ -585,7 +585,7 @@ impl SessionManager {
                             if !excess.is_empty() {
                                 let _ = splitter.feed(&excess); // 尾段无换行，feed 仅回填 pending
                             }
-                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let raw_text = detector.decode_line(&raw, &options.encoding);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -602,7 +602,7 @@ impl SessionManager {
                             if raw.len() > PARTIAL_FLUSH_CAP {
                                 time_buf.extend_from_slice(&raw.split_off(PARTIAL_FLUSH_CAP));
                             }
-                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let raw_text = detector.decode_line(&raw, &options.encoding);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -620,7 +620,7 @@ impl SessionManager {
                         if options.split_mode == "line" {
                             if splitter.pending_bytes() > 0 && idle_elapsed {
                                 let raw = splitter.flush_pending_line();
-                                let raw_text = detector.decode(&raw, &options.encoding);
+                                let raw_text = detector.decode_line(&raw, &options.encoding);
                                 let segments = colorize.process_line(&raw_text);
                                 let text = strip_ansi(&raw_text);
                                 if filter.should_show(&text) {
@@ -629,7 +629,7 @@ impl SessionManager {
                             }
                         } else if !time_buf.is_empty() && idle_elapsed {
                             let raw = std::mem::take(&mut time_buf);
-                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let raw_text = detector.decode_line(&raw, &options.encoding);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -646,7 +646,7 @@ impl SessionManager {
                 if stop_l.load(Ordering::Relaxed) {
                     if options.split_mode == "line" {
                         for raw in splitter.flush() {
-                            let raw_text = detector.decode(&raw, &options.encoding);
+                            let raw_text = detector.decode_line(&raw, &options.encoding);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -655,7 +655,7 @@ impl SessionManager {
                         }
                     } else if !time_buf.is_empty() {
                         let raw = std::mem::take(&mut time_buf);
-                        let raw_text = detector.decode(&raw, &options.encoding);
+                        let raw_text = detector.decode_line(&raw, &options.encoding);
                         let segments = colorize.process_line(&raw_text);
                         let text = strip_ansi(&raw_text);
                         if filter.should_show(&text) {
