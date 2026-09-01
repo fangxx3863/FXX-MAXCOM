@@ -2045,7 +2045,10 @@ function renderTabs() {
 function scrollActiveTabIntoView() {
   const strip = document.getElementById("tabstrip");
   const active = strip?.querySelector<HTMLElement>(".tab.active");
-  if (active) active.scrollIntoView({ block: "nearest", inline: "nearest" });
+  // JSDOM/无头环境未实现 scrollIntoView，需判存在再调用，否则冒烟测试抛 TypeError。
+  if (active && typeof active.scrollIntoView === "function") {
+    active.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
 }
 
 function makeRenameInput(s: SessionApp): HTMLInputElement {
