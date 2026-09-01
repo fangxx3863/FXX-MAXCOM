@@ -396,6 +396,12 @@ export function compute(algo: ChecksumAlgo, data: Uint8Array, param?: string, wi
   }
 }
 
+/** 用显式参数计算 CRC 并构造结果（校验计算器“自定义”模式用）。 */
+export function crcResult(data: Uint8Array, p: CrcParams): ChecksumResult {
+  const v = crc(data, p);
+  return { bytes: valueToBytes(v, p.width), value: BigInt(v), width: p.width };
+}
+
 // ── 输出格式化 ──
 export type OutputFormat = "hex" | "dec" | "bin";
 

@@ -21,7 +21,7 @@ import {
 } from "../tools-math";
 import {
   CRC_VARIANTS, crcVariant as crcVariantFor, compute as checksumCompute, formatResult as checksumFormat,
-  parseHex as checksumParseHex, bytesHex as checksumBytesHex,
+  parseHex as checksumParseHex, bytesHex as checksumBytesHex, crcResult as checksumCrcResult, type CrcParams,
   encodeString as checksumEncodeString, type ChecksumAlgo, type OutputFormat, type InputEncoding,
 } from "../tools-checksum";
 
@@ -2029,7 +2029,7 @@ function buildChecksum(host: HTMLElement): ToolController {
         <div class="tool-field"><label>${t("tools.checksum.algo")}</label>
           <select id="ck-algo" class="tool-sel proto-in">${CHECKSUM_ALGOS.map((a) => `<option value="${a.id}">${a.label}</option>`).join("")}</select></div>
         <div class="tool-field" id="ck-variant-field"><label>${t("tools.checksum.variant")}</label>
-          <select id="ck-variant" class="tool-sel proto-in">${CRC_VARIANTS.map((v) => `<option value="${v.id}">${esc(v.label)}</option>`).join("")}</select></div>
+          <select id="ck-variant" class="tool-sel proto-in">${CRC_VARIANTS.map((v) => `<option value="${v.id}">${esc(v.label)}</option>`).join("")}<option value="custom">${esc(t("tools.checksum.custom"))}</option></select></div>
         <div class="tool-field" id="ck-width-field" style="display:none"><label>${t("tools.checksum.width")}</label>
           <select id="ck-width" class="tool-sel proto-in">${CHECKSUM_WIDTHS.map((w) => `<option value="${w}">${w} bit</option>`).join("")}</select></div>
         <div class="tool-field"><label>${t("tools.checksum.fmt")}</label>
@@ -2040,7 +2040,7 @@ function buildChecksum(host: HTMLElement): ToolController {
           <select id="ck-source" class="tool-sel proto-in">
             <option value="hex">${t("tools.checksum.sourceHex")}</option>
             <option value="str">${t("tools.checksum.sourceStr")}</option>
-            <option value="file">${t("tools.checksum.sourceFile")}</option>
+            <option value="file" id="ck-file-opt">${t("tools.checksum.sourceFile")}</option>
           </select></div>
         <div class="tool-field" id="ck-encoding-field" style="display:none"><label>${t("tools.checksum.encoding")}</label>
           <select id="ck-encoding" class="tool-sel proto-in">
@@ -2051,6 +2051,12 @@ function buildChecksum(host: HTMLElement): ToolController {
             <option value="utf-16le">UTF-16LE</option>
             <option value="utf-16be">UTF-16BE</option>
           </select></div>
+      </div>
+      <div class="tool-grid" id="ck-custom-field" style="display:none">
+        <div class="tool-field"><label>${t("tools.checksum.notePoly")}</label><input id="ckc-poly" class="proto-in" type="text" value="0x07" placeholder="0x07" /></div>
+        <div class="tool-field"><label>${t("tools.checksum.noteInit")}</label><input id="ckc-init" class="proto-in" type="text" value="0x00" placeholder="0x00" /></div>
+        <div class="tool-field"><label>${t("tools.checksum.noteXorout")}</label><input id="ckc-xor" class="proto-in" type="text" value="0x00" placeholder="0x00" /></div>
+        <div class="tool-field"><label>${t("tools.checksum.noteEndian")}</label><select id="ckc-end" class="tool-sel proto-in"><option value="0">${t("tools.checksum.endMsb")}</option><option value="1">${t("tools.checksum.endLsb")}</option></select></div>
       </div>
       <div class="tool-field" id="ck-input-field">
         <label>${t("tools.checksum.input")}</label>
@@ -2075,8 +2081,10 @@ function buildChecksum(host: HTMLElement): ToolController {
   const widthField = host.querySelector<HTMLElement>("#ck-width-field")!;
   const fmtEl = host.querySelector<HTMLSelectElement>("#ck-fmt")!;
   const sourceEl = host.querySelector<HTMLSelectElement>("#ck-source")!;
+  const fileOpt = host.querySelector<HTMLOptionElement>("#ck-file-opt")!;
   const encodingEl = host.querySelector<HTMLSelectElement>("#ck-encoding")!;
   const encodingField = host.querySelector<HTMLElement>("#ck-encoding-field")!;
+  const customField = host.querySelector<HTMLElement>("#ck-custom-field")!;
   const inputEl = host.querySelector<HTMLTextAreaElement>("#ck-input")!;
   const inputField = host.querySelector<HTMLElement>("#ck-input-field")!;
   const fileEl = host.querySelector<HTMLInputElement>("#ck-file")!;
@@ -2094,6 +2102,29 @@ function buildChecksum(host: HTMLElement): ToolController {
   const show = (sel: HTMLElement, on: boolean) => { sel.style.display = on ? "" : "none"; };
 
   const isHashAlgo = (a: ChecksumAlgo) => a === "md5" || a === "sha1" || a === "sha256";
+
+  // 自定义 CRC 的数值输入：兼容 0x 前缀十六进制与普通十进制。
+  const parseNum = (s: string): number | null => {
+    const v = s.trim();
+    if (!v) return null;
+    if (/^0[xX]/.test(v)) {
+      const n = Number.parseInt(v.slice(2), 16);
+      return Number.isFinite(n) ? n : null;
+    }
+    const d = Number(v);
+    return Number.isFinite(d) ? d : null;
+  };
+  const isCustomCrc = () => algoEl.value === "crc" && variantEl.value === "custom";
+  const buildCustomParams = (): CrcParams | null => {
+    const w = Number(widthEl.value);
+    const max = w === 32 ? 0xffffffff : (1 << w) - 1;
+    const poly = parseNum((host.querySelector("#ckc-poly") as HTMLInputElement).value);
+    const init = parseNum((host.querySelector("#ckc-init") as HTMLInputElement).value);
+    const xorv = parseNum((host.querySelector("#ckc-xor") as HTMLInputElement).value);
+    if (poly === null || init === null || xorv === null || poly > max || init > max || xorv > max) return null;
+    const reflect = (host.querySelector("#ckc-end") as HTMLSelectElement).value === "1";
+    return { width: w, poly, init, refin: reflect, refout: reflect, xorout: xorv };
+  };
 
   // 字符串 → 字节：UTF 家族用浏览器原生 encodeString；GBK/GB2312 走 Tauri invoke 调 Rust。
   const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -2127,16 +2158,39 @@ function buildChecksum(host: HTMLElement): ToolController {
     return null;
   };
 
-  // 渲染当前 CRC 变体的算法/端序说明
+  // 渲染当前 CRC 变体/自定义参数的算法与端序说明
   const renderCrcNote = () => {
+    if (algoEl.value !== "crc") {
+      show(noteEl, false);
+      return;
+    }
+    const reflectTxt = (refin: boolean | undefined, refout: boolean | undefined) =>
+      (refin || refout) ? t("tools.checksum.reflectOn") : t("tools.checksum.reflectOff");
+    if (isCustomCrc()) {
+      const p = buildCustomParams();
+      if (!p) {
+        show(noteEl, false);
+        return;
+      }
+      const hexW = (v: number) => `0x${v.toString(16).toUpperCase().padStart(p.width / 4, "0")}`;
+      noteEl.innerHTML = `${esc(t("tools.checksum.noteCrc"))}<br>` +
+        `${t("tools.checksum.noteParams")}: ` +
+        `${t("tools.checksum.noteWidth")} <b>${p.width}</b>, ` +
+        `${t("tools.checksum.notePoly")} <b>${hexW(p.poly)}</b>, ` +
+        `${t("tools.checksum.noteInit")} <b>${hexW(p.init)}</b>, ` +
+        `${t("tools.checksum.noteXorout")} <b>${hexW(p.xorout)}</b>` +
+        `<br>${t("tools.checksum.noteEndian")}: <b>${reflectTxt(p.refin, p.refout)}</b>`;
+      show(noteEl, true);
+      return;
+    }
     const variant = crcVariantFor(variantEl.value);
-    if (!variant || algoEl.value !== "crc") {
+    if (!variant) {
       show(noteEl, false);
       return;
     }
     const p = variant.params;
     const hex = (v: number) => `0x${v.toString(16).toUpperCase().padStart(p.width / 4, "0")}`;
-    const reflectTxt = p.refin || p.refout
+    const refl = p.refin || p.refout
       ? t("tools.checksum.reflectOn")
       : t("tools.checksum.reflectOff");
     noteEl.innerHTML = `${esc(t("tools.checksum.noteCrc"))}<br>` +
@@ -2145,7 +2199,7 @@ function buildChecksum(host: HTMLElement): ToolController {
       `${t("tools.checksum.notePoly")} <b>${hex(p.poly)}</b>, ` +
       `${t("tools.checksum.noteInit")} <b>${hex(p.init)}</b>, ` +
       `${t("tools.checksum.noteXorout")} <b>${hex(p.xorout)}</b>` +
-      `<br>${t("tools.checksum.noteEndian")}: <b>${reflectTxt}</b>`;
+      `<br>${t("tools.checksum.noteEndian")}: <b>${refl}</b>`;
     show(noteEl, true);
   };
 
@@ -2165,12 +2219,15 @@ function buildChecksum(host: HTMLElement): ToolController {
     show(encodingField, src === "str");
   };
 
-  // 按当前算法联动「变体 / 位宽」字段
+  // 按当前算法联动「变体 / 位宽 / 自定义CRC / 文件来源」字段
   const syncAlgoFields = () => {
     const algo = algoEl.value as ChecksumAlgo;
+    const custom = isCustomCrc();
     show(variantField, algo === "crc");
-    show(widthField, algo === "checksum" || algo === "xor");
-    // 文件输入仅 HASH 类支持：非 HASH 算法下若停留在 file 源，强制回退 hex
+    show(widthField, algo === "checksum" || algo === "xor" || custom);
+    show(customField, custom);
+    // 文件输入仅 HASH 类支持：非 HASH 算法隐藏“文件”选项，若停留在 file 源则强制回退 hex
+    show(fileOpt, isHashAlgo(algo));
     if (!isHashAlgo(algo) && sourceEl.value === "file") {
       sourceEl.value = "hex";
       syncSourceFields();
@@ -2210,9 +2267,17 @@ function buildChecksum(host: HTMLElement): ToolController {
       return;
     }
     try {
-      const res = algo === "crc"
-        ? checksumCompute("crc", data, variantEl.value)
-        : checksumCompute(algo, data, undefined, Number(widthEl.value));
+      const res = (() => {
+        if (algo === "crc") {
+          if (isCustomCrc()) {
+            const p = buildCustomParams();
+            if (!p) throw new Error("custom crc params");
+            return checksumCrcResult(data, p);
+          }
+          return checksumCompute("crc", data, variantEl.value);
+        }
+        return checksumCompute(algo, data, undefined, Number(widthEl.value));
+      })();
       lastResult = checksumFormat(res, fmt);
       resultEl.textContent = lastResult;
       const hexFull = checksumBytesHex(res.bytes);
@@ -2239,12 +2304,16 @@ function buildChecksum(host: HTMLElement): ToolController {
   };
 
   algoEl.addEventListener("change", () => { syncAlgoFields(); compute(); renderCrcNote(); });
-  variantEl.addEventListener("change", () => { compute(); renderCrcNote(); });
+  variantEl.addEventListener("change", () => { syncAlgoFields(); compute(); renderCrcNote(); });
   widthEl.addEventListener("change", compute);
   fmtEl.addEventListener("change", compute);
   sourceEl.addEventListener("change", () => { syncSourceFields(); compute(); });
   encodingEl.addEventListener("change", compute);
   inputEl.addEventListener("input", compute);
+  // 自定义 CRC 参数
+  [("ckc-poly"), ("ckc-init"), ("ckc-xor")].forEach((id) =>
+    host.querySelector<HTMLInputElement>(`#${id}`)!.addEventListener("input", () => { compute(); renderCrcNote(); }));
+  host.querySelector<HTMLSelectElement>("#ckc-end")!.addEventListener("change", () => { compute(); renderCrcNote(); });
   fileEl.addEventListener("change", async () => {
     const f = fileEl.files && fileEl.files[0];
     if (!f) { fileBytes = null; fileName = ""; compute(); return; }

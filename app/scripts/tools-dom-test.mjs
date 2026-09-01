@@ -231,6 +231,13 @@ check("校验 CRC 下 file 被强制回 hex", ckSource.value === "hex");
 ckAlgo.value = "md5"; fire(ckAlgo, "change");
 ckSource.value = "file"; fire(ckSource, "change");
 check("校验 MD5 下可选文件源", ckSource.value === "file");
+// 非 HASH 算法（CRC/checksum/xor）应在来源下拉中隐藏“文件”选项
+check("校验 MD5 下文件选项显示", hCk.querySelector("#ck-file-opt").style.display !== "none");
+ckAlgo.value = "crc"; fire(ckAlgo, "change");
+check("校验 CRC 下文件选项隐藏", hCk.querySelector("#ck-file-opt").style.display === "none");
+ckAlgo.value = "checksum"; fire(ckAlgo, "change");
+check("校验 checksum 下文件选项隐藏", hCk.querySelector("#ck-file-opt").style.display === "none");
+ckAlgo.value = "md5"; fire(ckAlgo, "change");
 
 // 复制按钮存在且可点击不崩（jsdom 无 Clipboard API，doCopy 内部 try/catch 容错）
 const ckCopy = hCk.querySelector("#ck-copy");
@@ -272,6 +279,23 @@ check("校验 字符串 UTF-16LE 编码走通(结果非空)", ckResult.textConte
 ckEncoding.value = "gbk"; fire(ckEncoding, "change");
 await waitAsync();
 check("校验 GBK 在 mock 下提示回退", has(ckResult.textContent, "GBK"));
+
+// ── CRC 自定义模式：位宽8/多项式0x07/初值0x00/输出异或0x00/非反射 = 等价 CRC-8 ──
+ckAlgo.value = "crc"; fire(ckAlgo, "change");
+ckVariant.value = "custom"; fire(ckVariant, "change");
+check("校验 自定义CRC 位宽字段可见", ckWidthField.style.display !== "none");
+const ckCustom = hCk.querySelector("#ck-custom-field");
+check("校验 自定义CRC 参数组可见", ckCustom.style.display !== "none");
+hCk.querySelector("#ckc-poly").value = "0x07";
+hCk.querySelector("#ckc-init").value = "0x00";
+hCk.querySelector("#ckc-xor").value = "0x00";
+hCk.querySelector("#ckc-end").value = "0"; fire(hCk.querySelector("#ckc-end"), "change");
+ckSource.value = "hex"; fire(ckSource, "change");
+ckInput.value = "313233343536373839"; fire(ckInput, "input");
+check("校验 自定义CRC-8(等价CRC8)=0xF4", ckResult.textContent === "F4");
+// 切回内置变体：自定义参数组隐藏
+ckVariant.value = "crc8"; fire(ckVariant, "change");
+check("校验 自定义CRC 参数组复隐", ckCustom.style.display === "none");
 
 console.log(`\n结果: ${pass} 过, ${fail} 挂`);
 process.exit(fail ? 1 : 0);

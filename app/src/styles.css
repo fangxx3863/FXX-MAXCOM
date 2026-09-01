@@ -943,6 +943,8 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .tool-inline { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .tool-inline .proto-in { flex: 1; }
 .tool-sel { flex: none !important; width: auto !important; max-width: 200px; }
+/* 校验计算器：数据来源/编码下拉在网格中撑满单元格，避免宽度不一导致编码框错位 */
+#ck-source, #ck-encoding { width: 100% !important; max-width: none !important; }
 .tool-suffix { flex: none; color: var(--fg-dim); font-size: 12px; white-space: nowrap; }
 .tool-output { color: var(--accent) !important; }
 .tool-resultline {

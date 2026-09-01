@@ -154,5 +154,9 @@ check("compute xor width 8", M.compute("xor", ascii("ABC"), undefined, 8).value.
 check("compute xor width 16", M.compute("xor", ascii("ABC"), undefined, 16).value.toString(), (0x4142 ^ 0x0043).toString());
 check("compute unknown crc variant throws", (() => { try { M.compute("crc", INPUT, "nope"); return false; } catch { return true; } })(), true);
 
+// ── crcResult（“自定义”CRC：显式参数，等价 CRC-8）──
+const custom = M.crcResult(ascii("123456789"), { width: 8, poly: 0x07, init: 0x00, refin: false, refout: false, xorout: 0x00 });
+check("crcResult 等价CRC-8=0xF4", custom.value.toString(), "244");
+
 console.log(`\nchecksum: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
