@@ -935,8 +935,11 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
   display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px 14px; align-items: end;
 }
-.tool-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.tool-field label { color: var(--fg-dim); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 工具页内用 data-* 包裹的区块（如分压器的 calc/fit 面板）：grid 与下方公式在同层内是
+   块级兄弟、拿不到 .tool-panel 的 gap，导致公式盒紧贴字段。给这些内层同样加 flex 间距。 */
+[data-vdpanel] { display: flex; flex-direction: column; gap: 14px; }
+.tool-field { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.tool-field label { color: var(--fg-dim); font-size: 12px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-inline { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .tool-inline .proto-in { flex: 1; }
 .tool-sel { flex: none !important; width: auto !important; max-width: 200px; }
