@@ -711,15 +711,15 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 #tabstrip {
   display: flex; align-items: flex-end; gap: 2px;
   overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
-  max-width: 55vw;
+  flex: 1 1 auto; min-width: 0; max-width: none;
 }
 #tabstrip::-webkit-scrollbar { display: none; }
 .tab {
   display: flex; align-items: center; gap: 6px;
-  padding: 0 8px 0 10px; height: 31px; min-width: 110px; max-width: 200px;
+  padding: 0 8px 0 10px; height: 31px; min-width: 110px;
   background: transparent; border: 1px solid transparent; border-bottom: none;
   border-radius: 7px 7px 0 0; color: var(--fg-dim);
-  cursor: pointer; flex: 0 1 auto; position: relative;
+  cursor: pointer; flex: 1 1 0; position: relative;
 }
 .tab:hover { background: var(--bg3); }
 .tab.active {
@@ -757,7 +757,7 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
   border-radius: 5px;
 }
 #tab-new:hover { background: var(--bg3); color: var(--fg); }
-.tb-drag { flex: 1; }
+.tb-drag { flex: 0 0 auto; width: 36px; }
 #win-controls { display: flex; align-items: stretch; }
 #win-controls button {
   width: 44px; border: none; border-radius: 0; background: transparent;

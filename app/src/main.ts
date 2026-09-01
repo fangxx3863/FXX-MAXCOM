@@ -1969,6 +1969,8 @@ function tabTitle(s: SessionApp): string {
 
 function renderTabs() {
   const strip = document.getElementById("tabstrip")!;
+  // 标签条重绘会 replaceChildren 重置 scrollLeft；先记录再回填，避免数据刷新时跳回开头
+  const prevScroll = strip.scrollLeft;
   strip.replaceChildren();
   for (const [id, s] of sessions) {
     const tab = document.createElement("div");
@@ -2034,8 +2036,16 @@ function renderTabs() {
     });
     strip.appendChild(tab);
   }
+  strip.scrollLeft = prevScroll; // 回填滚动位置（内容收缩时浏览器自动钳制）
   const act = sessions.get(activeId);
   document.title = act ? `${tabTitle(act)} · MAXCOM` : "MAXCOM";
+}
+
+/** 切换/新建标签后把活动标签滚入可视区；仅当它被横溢出去时做最小滚动，不打扰已可见的标签 */
+function scrollActiveTabIntoView() {
+  const strip = document.getElementById("tabstrip");
+  const active = strip?.querySelector<HTMLElement>(".tab.active");
+  if (active) active.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function makeRenameInput(s: SessionApp): HTMLInputElement {
@@ -2082,6 +2092,7 @@ function activate(id: string) {
   saveTabs();
   markSnapBaseline();
   renderTabs();
+  scrollActiveTabIntoView();
 }
 
 function newTab(): void {
@@ -2577,6 +2588,22 @@ window.addEventListener("keydown", (e) => {
 
 // ── 标签栏按钮 / 新建 ──
 document.getElementById("tab-new")?.addEventListener("click", () => newTab());
+
+// ── 标签条横滚：标签溢出时，把垂直滚轮转为左右滚动，滚到被遮挡的标签 ──
+{
+  const strip = document.getElementById("tabstrip");
+  strip?.addEventListener(
+    "wheel",
+    (e: WheelEvent) => {
+      // 仅当标签条确实横向可滚（内容溢出）时才劫持，避免干扰页面其他纵向滚动
+      if (strip.scrollWidth <= strip.clientWidth + 1) return;
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // 原生横向滚轮不干预
+      e.preventDefault();
+      strip.scrollLeft += (e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) + e.deltaX;
+    },
+    { passive: false },
+  );
+}
 
 // ── 外链打开逻辑──桌面 Tauri WebView 默认不响应 target=_blank 的 <a>，需经 opener
 //    插件调系统浏览器（桌面：默认浏览器；移动端：对应 intent）。浏览器/演示模式走 window.open。
