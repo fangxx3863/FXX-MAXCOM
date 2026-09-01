@@ -18,8 +18,11 @@ interface QuickFilter {
 
 /** 单行数据（partial 续行已在入队时合并） */
 interface Row {
+  /** 单调时间戳偏移(ms)：wall = anchor + ts */
   ts: number;
-  /** 入队时按当时时间戳模式生成的时间戳串（none 模式为 ""） */
+  /** 该行所属 batch 的墙钟锚点(ms)：absolute 模式据此转墙钟，改格式历史重算也需要 */
+  anchor: number;
+  /** 当前时间戳模式下的时间戳串（none 模式为 ""）；切换模式时按 anchor+ts 重算 */
   tsText: string;
   text: string;
   segments: LogEntryDto["segments"];
@@ -177,9 +180,10 @@ export class LogViewPage {
         if (!isPartial) this.pendingIdx = -1;
         continue;
       }
-      // 新行：时间戳串按入队时刻的模式生成（与旧行为一致：模式切换只影响新行）
+      // 新行：初始时间戳串按入队时刻的模式生成；anchor 一并记录以便切换模式时重算历史
       const row: Row = {
         ts: item.ts_ms,
+        anchor: batch.epoch_anchor_ms,
         tsText: this.formatTs(item.ts_ms, batch.epoch_anchor_ms),
         text: item.text,
         segments: item.segments.slice(),
@@ -374,9 +378,14 @@ export class LogViewPage {
     }
   }
 
-  /** 时间戳模式切换后重置差值基准 */
-  resetDeltaBase() {
+  /** 时间戳模式切换：对全量历史按新模式重算时间戳串并重渲染（改格式对历史数据也生效）。
+     delta 模式按行到达顺序重算差值链；链尾 lastTs 保留，新来的行继续接在链尾。 */
+  setTsMode() {
     this.lastTs = null;
+    for (const row of this.rows) {
+      row.tsText = this.formatTs(row.ts, row.anchor);
+    }
+    this.rebuildChunks();
   }
 
   clear() {

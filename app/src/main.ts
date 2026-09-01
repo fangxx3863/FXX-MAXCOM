@@ -479,7 +479,7 @@ class SessionApp {
       ],
       value: "absolute",
       onChange: () => {
-        this.logViewPage.resetDeltaBase();
+        this.logViewPage.setTsMode(); // 改时间戳格式对历史数据也生效
         this.applyLogOptions();
       },
     });
