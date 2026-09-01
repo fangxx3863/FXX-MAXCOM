@@ -814,9 +814,9 @@ function buildFilter(host: HTMLElement): ToolController {
       <div class="tool-grid">
         <div class="tool-field"><label>${t("tools.filter.type")}</label><select id="flt-type" class="proto-in"><option value="rc" selected>RC</option><option value="rl">RL</option><option value="lc">LC</option></select></div>
         <div class="tool-field"><label>${t("tools.filter.band")}</label><select id="flt-band" class="proto-in"><option value="lp" selected>${t("tools.filter.lp")}</option><option value="hp">${t("tools.filter.hp")}</option></select></div>
-        <div class="tool-field"><label>${t("tools.filter.r")}</label><div class="tool-inline"><input id="flt-r" class="proto-in" type="number" min="0" value="1000" /><select id="flt-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
-        <div class="tool-field"><label>${t("tools.filter.c")}</label><div class="tool-inline"><input id="flt-c" class="proto-in" type="number" min="0" value="100" /><select id="flt-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
-        <div class="tool-field"><label>${t("tools.filter.l")}</label><div class="tool-inline"><input id="flt-l" class="proto-in" type="number" min="0" value="10" /><select id="flt-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
+        <div class="tool-field" id="flt-r-field"><label>${t("tools.filter.r")}</label><div class="tool-inline"><input id="flt-r" class="proto-in" type="number" min="0" value="1000" /><select id="flt-ru" class="tool-sel proto-in"><option value="1">Ω</option><option value="1e3" selected>kΩ</option><option value="1e6">MΩ</option></select></div></div>
+        <div class="tool-field" id="flt-c-field"><label>${t("tools.filter.c")}</label><div class="tool-inline"><input id="flt-c" class="proto-in" type="number" min="0" value="100" /><select id="flt-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
+        <div class="tool-field" id="flt-l-field"><label>${t("tools.filter.l")}</label><div class="tool-inline"><input id="flt-l" class="proto-in" type="number" min="0" value="10" /><select id="flt-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
         <div class="tool-field"><label>${t("tools.filter.fc")}</label><div class="tool-inline"><input id="flt-f" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Hz</span></div></div>
       </div>
       <div class="tool-formula" id="flt-formula"></div>
@@ -826,8 +826,18 @@ function buildFilter(host: HTMLElement): ToolController {
   const formula = host.querySelector<HTMLElement>("#flt-formula")!;
   const diagram = host.querySelector<HTMLElement>("#flt-diagram")!;
   const diagImg = diagram.querySelector<HTMLImageElement>("img")!;
+  const rField = host.querySelector<HTMLElement>("#flt-r-field")!;
+  const cField = host.querySelector<HTMLElement>("#flt-c-field")!;
+  const lField = host.querySelector<HTMLElement>("#flt-l-field")!;
   const update = () => {
     const ftype = type.value;
+    // 按滤波类型只显示相关元件：RC→R/C、RL→R/L、LC→L（C），隐藏无关的输入框。
+    const showR = ftype === "rc" || ftype === "rl";
+    const showC = ftype === "rc" || ftype === "lc";
+    const showL = ftype === "rl" || ftype === "lc";
+    rField.style.display = showR ? "" : "none";
+    cField.style.display = showC ? "" : "none";
+    lField.style.display = showL ? "" : "none";
     const src = toolDiagramVariant("filter", `${ftype}_${band.value}`);
     if (src) { diagImg.src = src; diagram.style.display = ""; }
     else { diagram.style.display = "none"; }

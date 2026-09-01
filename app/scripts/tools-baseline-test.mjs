@@ -119,6 +119,13 @@ check("filter lowpass label", has(val(h, "#flt-formula"), "低通"));
 h = set("filter", [["#flt-type", "rc"], ["#flt-band", "hp"], ["#flt-r", "1000"], ["#flt-ru", "1"], ["#flt-c", "1"], ["#flt-cu", "1e-6"]]);
 check("filter highpass rc 159.155Hz", val(h, "#flt-f").startsWith("159.154"));
 check("filter highpass label", has(val(h, "#flt-formula"), "高通"));
+// 按滤波类型只显示相关元件输入框（RC 隐藏 L、RL 隐藏 C、LC 隐藏 R）
+h = set("filter", [["#flt-type", "rc"]]);
+check("filter rc 隐藏L", h.querySelector("#flt-l-field").style.display === "none" && h.querySelector("#flt-r-field").style.display !== "none" && h.querySelector("#flt-c-field").style.display !== "none");
+h = set("filter", [["#flt-type", "rl"]]);
+check("filter rl 隐藏C", h.querySelector("#flt-c-field").style.display === "none" && h.querySelector("#flt-r-field").style.display !== "none" && h.querySelector("#flt-l-field").style.display !== "none");
+h = set("filter", [["#flt-type", "lc"]]);
+check("filter lc 隐藏R", h.querySelector("#flt-r-field").style.display === "none" && h.querySelector("#flt-c-field").style.display !== "none" && h.querySelector("#flt-l-field").style.display !== "none");
 
 // ── 线径（AWG24 → 0.0201in / 0.5106mm / 404cmil）─
 h = set("wire-gauge", [["#wg-awg", "24"]]);
