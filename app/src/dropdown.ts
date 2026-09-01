@@ -23,14 +23,26 @@ export interface DropdownOptions {
 }
 
 let openDropdown: HTMLElement | null = null;
+let openRoot: HTMLElement | null = null;
 
 function closeOpen() {
   // 隐藏而非移除：remove 会让节点游离出 DOM，二次 open 操作的是游离节点 → 永远打不开
-  openDropdown?.classList.add("hidden");
+  if (openDropdown && openRoot) {
+    openDropdown.classList.add("hidden");
+    // 若弹层被 portal 到 body（爆炸视图 tile 内裁剪问题），还原回 .dd，避免游离孤儿节点
+    if (openDropdown.parentElement !== openRoot) openRoot.appendChild(openDropdown);
+    // 清掉 portal 时写入的内联定位，避免下次以非 portal 方式打开时残留 fixed/left/zIndex
+    openDropdown.style.position = "";
+    openDropdown.style.left = "";
+    openDropdown.style.minWidth = "";
+    openDropdown.style.zIndex = "";
+  }
   openDropdown = null;
+  openRoot = null;
 }
 document.addEventListener("click", (e) => {
-  if (openDropdown && !openDropdown.parentElement?.contains(e.target as Node)) closeOpen();
+  // 点在 .dd 根或弹层内部都视为菜单内，不关闭
+  if (openDropdown && !openRoot?.contains(e.target as Node) && !openDropdown.contains(e.target as Node)) closeOpen();
 });
 
 export function createDropdown(opts: DropdownOptions): DropdownHandle {
@@ -93,14 +105,42 @@ export function createDropdown(opts: DropdownOptions): DropdownHandle {
     renderPopup(filter);
     popup.classList.remove("hidden");
     openDropdown = popup;
-    // 弹层朝下展开；贴近视口底部时朝上
+    openRoot = root;
+    // 弹层默认留在 .dd 内 absolute 定位；但爆炸视图 tile 给 #log-controls 设了 overflow-x:auto，
+    // 会把朝下的弹层裁剪在控制条框内（看不见选项）。此时 portal 到 #explode-overlay。
+    // 用 absolute 相对覆盖层定位（而非 body 的 fixed + 视口坐标）：因为界面有 CSS zoom(UI 缩放)，
+    // fixed 走未缩放的视口坐标、getBoundingClientRect 返回缩放后的坐标，两者相乘会偏移(偏上/偏下)。
+    // 而 .dd 与覆盖层同处一个 zoom 坐标系，相减抵消缩放，任意缩放比例下位置都准确。
+    const overlay = root.closest<HTMLElement>("#explode-overlay");
+    if (overlay) {
+      popup.style.position = "absolute";
+      popup.style.minWidth = `${root.offsetWidth}px`;
+      popup.style.zIndex = "10000";
+      overlay.appendChild(popup);
+    } else {
+      popup.style.position = "";
+      popup.style.minWidth = "";
+      popup.style.zIndex = "";
+    }
     const rect = root.getBoundingClientRect();
     popup.style.top = "";
     popup.style.bottom = "";
-    if (rect.bottom + popup.offsetHeight > window.innerHeight - 8) {
-      popup.style.bottom = "calc(100% + 2px)";
+    if (overlay) {
+      const or = overlay.getBoundingClientRect();
+      popup.style.left = `${rect.left - or.left}px`;
+      if (rect.bottom + popup.offsetHeight > window.innerHeight - 8) {
+        // 贴近视口底部→弹层朝上（相对覆盖层底边）
+        popup.style.bottom = `${or.bottom - rect.top + 2}px`;
+      } else {
+        popup.style.top = `${rect.bottom + 2 - or.top}px`;
+      }
     } else {
-      popup.style.top = "calc(100% + 2px)";
+      popup.style.left = "";
+      if (rect.bottom + popup.offsetHeight > window.innerHeight - 8) {
+        popup.style.bottom = "calc(100% + 2px)";
+      } else {
+        popup.style.top = "calc(100% + 2px)";
+      }
     }
   };
 

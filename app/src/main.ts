@@ -2533,8 +2533,9 @@ function openExplode() {
   // 给爆炸视图顶栏的可拖元素补 drag-region，窗口在爆炸视图下仍能移动/调整大小。
   // 注意：Tauri drag-region 走 closest('[data-tauri-drag-region]')，绝不能加在 #explode-close 祖先上
   // （会把点击截成拖拽→关闭按钮失效）。只加 title / spacer / hint 三个空白元素。
+  // 它们分别是 id/class：explode-title、explode-hint 是 id，explode-spacer 是 class——选择器必须区分。
   // close 按钮保持在 region 之外，仍可点。
-  document.querySelectorAll("#explode-topbar .explode-spacer, #explode-topbar .explode-hint, #explode-topbar .explode-title").forEach((el) => {
+  document.querySelectorAll("#explode-topbar .explode-spacer, #explode-topbar #explode-hint, #explode-topbar #explode-title").forEach((el) => {
     const h = el as HTMLElement;
     h.setAttribute("data-tauri-drag-region", "");
     h.style.userSelect = "none";

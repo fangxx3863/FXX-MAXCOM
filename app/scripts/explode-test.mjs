@@ -131,6 +131,12 @@ function partD() {
   check("爆炸视图打开时窗口控制搬进顶栏", overlay && !overlay.classList.contains("hidden") && hasWinCtl(topbar));
   check("窗口控制已移出标题栏", titlebar && !titlebar.contains(winCtl));
 
+  // 拖拽区：title/hint 是 id，spacer 是 class；必须都带上 data-tauri-drag-region 才有可拖动面
+  const hasDrag = (sel) => !!topbar?.querySelector(sel)?.getAttribute("data-tauri-drag-region") !== null;
+  check("标题栏标题可拖(drag-region on #explode-title)", hasDrag("#explode-title"));
+  check("空白提示可拖(drag-region on #explode-hint)", hasDrag("#explode-hint"));
+  check("spacer 可拖(drag-region on .explode-spacer)", hasDrag(".explode-spacer"));
+
   const closeBtn = w.document.getElementById("explode-close");
   if (closeBtn) {
     closeBtn.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
