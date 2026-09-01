@@ -2282,6 +2282,8 @@ let explodeOpen = false;
 let explodeTiles: ExplodeTile[] = [];
 let explodeGrid: HTMLElement | null = null;
 let gutterColl: HTMLDivElement[] = [];
+/** #win-controls 在标题栏的原始下一位兄弟节点；爆炸视图把窗口控制搬进顶栏，关闭时按此还原 */
+let winCtlAnchor: Node | null = null;
 
 /** 收集已连接会话的目标收发/终端 page section（未连接/缺失跳过） */
 function collectExplodeTiles(): ExplodeTile[] {
@@ -2537,6 +2539,15 @@ function openExplode() {
     h.setAttribute("data-tauri-drag-region", "");
     h.style.userSelect = "none";
   });
+  // 窗口控制按钮(最小化/最大化/关闭)原本在标题栏，标题栏被隐藏后即失效；
+  // 把 #win-controls 整体搬进爆炸视图顶栏，保持最小化/最大化/关闭可用，关闭时再送回标题栏。
+  // 用 insertBefore 记录原始位置，避免依赖 titlebar 子节点顺序。
+  const winCtlEl = document.getElementById("win-controls");
+  const explodeTopbar = document.getElementById("explode-topbar");
+  if (winCtlEl && explodeTopbar) {
+    winCtlAnchor = winCtlEl.nextSibling;
+    explodeTopbar.appendChild(winCtlEl);
+  }
   overlay.classList.remove("hidden");
   explodeOpen = true;
 }
@@ -2555,6 +2566,12 @@ function closeExplode() {
   explodeTiles = [];
   document.getElementById("titlebar")?.classList.remove("hidden");
   document.getElementById("session-root")?.classList.remove("hidden");
+  // 把搬进爆炸视图顶栏的窗口控制按钮送回标题栏原位（下次打开爆炸视图再搬走）
+  const winCtl = document.getElementById("win-controls");
+  const titlebar = document.getElementById("titlebar");
+  if (winCtl && titlebar) {
+    titlebar.insertBefore(winCtl, winCtlAnchor);
+  }
   document.getElementById("explode-overlay")?.classList.add("hidden");
   explodeOpen = false;
 }

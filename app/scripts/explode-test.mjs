@@ -2,6 +2,7 @@
 //  - 部分A（爆炸设置持久化）：#set-explode-type / #set-explode-layout change → localStorage maxcom.settings。
 //  - 部分B（顶栏右键入口）：顶栏空白区右键 → 菜单含「爆炸视图」；点击 → 打开覆盖层（叠盖屏蔽 UI）并隐藏标题栏/主会话区。
 //  - 部分C（覆盖层交互）：点击 ✕ → 恢复标题栏/主会话区。
+//  - 部分D（窗口控制搬移）：爆炸视图打开时 #win-controls 搬进 #explode-topbar（最小化/最大化/关闭仍可用），关闭后送回 #titlebar。
 // 验证思路：eval 构建产物（同 ui-scale-test.mjs 的 boot 桩）。
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -112,9 +113,38 @@ function partC() {
   for (const e of errors) console.error("  jsdom error:", e);
 }
 
+// ───────────────────────── 部分D：爆炸视图内窗口控制搬移 ─────────────────────────
+function partD() {
+  const { w, errors } = boot();
+  if (w.__MAXCOM_READY__ !== true) { console.error("✗ 前端初始化未完成(部分D)"); for (const e of errors) console.error("  ", e); return; }
+  const brand = w.document.getElementById("brand");
+  brand.dispatchEvent(new w.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 20 }));
+  const target = [...w.document.querySelectorAll(".ctx-item")].find((n) => n.textContent.includes("爆炸") || n.textContent.includes("Explode"));
+  if (!target) { console.error("✗ 未找到爆炸视图菜单项(部分D)"); return; }
+  target.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+
+  const overlay = w.document.getElementById("explode-overlay");
+  const topbar = w.document.getElementById("explode-topbar");
+  const titlebar = w.document.getElementById("titlebar");
+  const winCtl = w.document.getElementById("win-controls");
+  const hasWinCtl = (parent) => !!parent && !!winCtl && parent.contains(winCtl);
+  check("爆炸视图打开时窗口控制搬进顶栏", overlay && !overlay.classList.contains("hidden") && hasWinCtl(topbar));
+  check("窗口控制已移出标题栏", titlebar && !titlebar.contains(winCtl));
+
+  const closeBtn = w.document.getElementById("explode-close");
+  if (closeBtn) {
+    closeBtn.dispatchEvent(new w.MouseEvent("click", { bubbles: true }));
+    check("关闭后窗口控制送回标题栏", hasWinCtl(titlebar) && !topbar.contains(winCtl));
+  } else {
+    check("关闭后窗口控制送回标题栏", false);
+  }
+  for (const e of errors) console.error("  jsdom error:", e);
+}
+
 partA();
 partB();
 partC();
+partD();
 console.log(`\n${pass} passed, ${fail} failed`);
 // 强制退出：mock 启动的定时器会让 jsdom 环境一直保持 event loop，进程自然结束会挂住
 process.exit(fail > 0 ? 1 : 0);

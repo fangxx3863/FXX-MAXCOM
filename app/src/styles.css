@@ -540,7 +540,8 @@ button.dd-face { justify-content: space-between; }
 
 /* ── 自定义右键菜单 ── */
 .ctx-menu {
-  position: fixed; z-index: 1200; min-width: 160px;
+  /* 高于爆炸视图覆盖层(9990)，否则在爆炸视图内呼出会被叠盖遮挡 */
+  position: fixed; z-index: 10000; min-width: 160px;
   background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
   padding: 5px; user-select: none;
@@ -1046,24 +1047,25 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
   max-width: 168px;
 }
 
-/* ── 爆炸视图（顶栏右键打开；hyprland 风格平铺所有已连接会话的收发/终端）── */
+/* ── 爆炸视图（顶栏右键打开；hyprland 风格平铺所有已连接会话的收发/终端）──
+   shell 配色全部走主题变量，跟随设置切换（浅色/多彩等不改动即可换肤） */
 #explode-overlay {
   position: fixed; inset: 0; z-index: 9990;
-  background: #0c0e12; display: flex; flex-direction: column;
+  background: var(--bg); display: flex; flex-direction: column;
 }
 #explode-overlay.hidden { display: none; }
 #explode-topbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
   height: 40px; padding: 0 14px;
-  background: #171a20; border-bottom: 1px solid #262b33;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
 }
-#explode-title { font-weight: 600; color: #dce0e8; }
-#explode-hint { flex: 1 1 auto; font-size: 12px; color: #7c8593; text-align: right; margin-right: 8px; }
+#explode-title { font-weight: 600; color: var(--fg); }
+#explode-hint { flex: 1 1 auto; font-size: 12px; color: var(--fg-dim); text-align: right; margin-right: 8px; }
 #explode-close {
-  border: none; background: transparent; color: #aeb6c2; cursor: pointer;
+  border: none; background: transparent; color: var(--fg-dim); cursor: pointer;
   font-size: 15px; padding: 4px 8px; border-radius: 4px;
 }
-#explode-close:hover { background: #262b33; color: #fff; }
+#explode-close:hover { background: var(--bg3); color: var(--fg); }
 #explode-grid {
   flex: 1 1 auto; position: relative; overflow: hidden;
   display: flex; flex-direction: column; min-height: 0; min-width: 0;
@@ -1081,25 +1083,25 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 }
 .explode-gutter.gutter-row { width: 6px; transform: translateX(-3px); cursor: col-resize; }
 .explode-gutter.gutter-col { height: 6px; transform: translateY(-3px); cursor: row-resize; }
-.explode-gutter:hover, .explode-gutter.dragging { background: rgba(77,163,255,.25); }
+.explode-gutter:hover, .explode-gutter.dragging { background: color-mix(in srgb, var(--accent) 25%, transparent); }
 .explode-tile {
   flex: 1 1 auto; display: flex; flex-direction: column;
   min-width: 0; min-height: 0;
-  background: #14161a; border: 1px solid #2a303a; border-radius: 6px; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
   margin: 2px;
 }
 .explode-tile.dragging { opacity: .75; border-color: var(--accent); }
-.explode-tile.drop-hover { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(77,163,255,.4); }
+.explode-tile.drop-hover { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent); }
 .explode-tile-head {
   flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 3px 8px; font-size: 12px; color: #aeb6c2;
-  background: #1b1f26; border-bottom: 1px solid #262b33;
+  padding: 3px 8px; font-size: 12px; color: var(--fg-dim);
+  background: var(--bg3); border-bottom: 1px solid var(--border);
   cursor: grab; user-select: none;
 }
 .explode-tile.dragging .explode-tile-head { cursor: grabbing; }
 .explode-tile-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .explode-tile-live {
-  flex: 0 0 auto; font-size: 10px; color: #39d97c; background: rgba(57,217,124,.12);
+  flex: 0 0 auto; font-size: 10px; color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent);
   padding: 0 6px; border-radius: 8px; line-height: 16px;
 }
 .explode-tile-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
