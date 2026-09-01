@@ -8,6 +8,10 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+    watch: {
+      // 忽略 src-tauri（Rust 编译产物 target 下的 .exe/.pdb 处于锁定态，Vite watcher 监听会 EBUSY）
+      ignored: ["**/src-tauri/**"],
+    },
   },
   build: {
     target: "es2022",
