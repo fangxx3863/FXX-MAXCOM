@@ -142,9 +142,15 @@ h = set("smd-capacitor", [["#smdc-code", "104"]]);
 check("smdc 104=100nF", has(val(h, ".tool-resultline"), "100 nF"));
 
 // ── 电抗（公式：XL=2πfL, XC=1/(2πfC)）──
-h = set("reactance", [["#rx-f", "1000"], ["#rx-fu", "1"], ["#rx-l", "10"], ["#rx-lu", "1e-6"], ["#rx-c", "10"], ["#rx-cu", "1e-6"]]);
-check("react XL≈0.0628", has(val(h, "#rx-xl"), "0.062832"));
-check("react XC≈15.92", has(val(h, "#rx-xc"), "15.915494"));
+// ── 电抗（感抗/容抗二选一 + 导纳：f=1kHz；L=10µH → XL≈0.0628Ω/|Y|≈15.9S；C=10µF → XC≈15.92Ω/|Y|≈0.0628S）──
+h = set("reactance", [["#rx-mode", "xl"], ["#rx-f", "1000"], ["#rx-fu", "1"], ["#rx-l", "10"], ["#rx-lu", "1e-6"]]);
+check("react XL≈0.0628", val(h, "#rx-x").startsWith("0.0628"));
+check("react XL 导纳≈15.9S", val(h, "#rx-y").startsWith("15.9"));
+check("react XL 隐藏C", h.querySelector("#rx-c-field").style.display === "none" && h.querySelector("#rx-l-field").style.display !== "none");
+h = set("reactance", [["#rx-mode", "xc"], ["#rx-f", "1000"], ["#rx-fu", "1"], ["#rx-c", "10"], ["#rx-cu", "1e-6"]]);
+check("react XC≈15.92", val(h, "#rx-x").startsWith("15.915"));
+check("react XC 导纳≈0.0628S", val(h, "#rx-y").startsWith("0.0628"));
+check("react XC 隐藏L", h.querySelector("#rx-l-field").style.display === "none" && h.querySelector("#rx-c-field").style.display !== "none");
 
 // ── 色码（黄蓝棕绿：46×10=460Ω ±0.5%——四环规范）─
 h = set("color-code", [["#cc-a", "4"], ["#cc-b", "6"], ["#cc-m", "1"], ["#cc-t", "5"]]);

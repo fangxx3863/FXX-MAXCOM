@@ -6,7 +6,7 @@ import "katex/dist/katex.min.css";
 import { toolDiagram, toolDiagramVariant } from "../tools-diagrams";
 import {
   mono555, astable555, attenuator as attn,
-  capCode3, capEncode3, batteryLifeHours, ohmLaw, reactance as rx,
+  capCode3, capEncode3, batteryLifeHours, ohmLaw,
   rcTau, ledResistor, ledPower, filterFc, dbmToMwt, capDischarge,
   seriesRes, parallelRes, seriesCap, parallelCap,
   traceImpedance as tImp, type TraceTopo, type TraceDir, type TraceInput,
@@ -1630,34 +1630,73 @@ function buildParallelSeriesResistor(host: HTMLElement): ToolController {
   return {};
 }
 
-// ── 电抗计算器 ──
+// ── 电抗计算器（感抗/容抗 二选一 + 导纳）──
 function buildReactance(host: HTMLElement): ToolController {
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>${t("tools.rx.freq")}</label><div class="tool-inline"><input id="rx-f" class="proto-in" type="number" min="0" value="1000" /><select id="rx-fu" class="tool-sel proto-in"><option value="1">Hz</option><option value="1e3" selected>kHz</option><option value="1e6">MHz</option></select></div></div>
-        <div class="tool-field"><label>${t("tools.rx.l")}</label><div class="tool-inline"><input id="rx-l" class="proto-in" type="number" min="0" value="10" /><select id="rx-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
-        <div class="tool-field"><label>${t("tools.rx.c")}</label><div class="tool-inline"><input id="rx-c" class="proto-in" type="number" min="0" value="10" /><select id="rx-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
-        <div class="tool-field"><label>${t("tools.rx.xl")}</label><div class="tool-inline"><input id="rx-xl" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
-        <div class="tool-field"><label>${t("tools.rx.xc")}</label><div class="tool-inline"><input id="rx-xc" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.rx.mode")}</label>
+          <select id="rx-mode" class="proto-in"><option value="xl" selected>${t("tools.rx.xl")}</option><option value="xc">${t("tools.rx.xc")}</option></select></div>
+        <div class="tool-field"><label>${t("tools.rx.freq")}</label>
+          <div class="tool-inline"><input id="rx-f" class="proto-in" type="number" min="0" value="1000" /><select id="rx-fu" class="tool-sel proto-in"><option value="1">Hz</option><option value="1e3" selected>kHz</option><option value="1e6">MHz</option></select></div></div>
+        <div class="tool-field" id="rx-l-field"><label>${t("tools.rx.l")}</label>
+          <div class="tool-inline"><input id="rx-l" class="proto-in" type="number" min="0" value="10" /><select id="rx-lu" class="tool-sel proto-in"><option value="1e-9">nH</option><option value="1e-6" selected>µH</option><option value="1e-3">mH</option><option value="1">H</option></select></div></div>
+        <div class="tool-field" id="rx-c-field" style="display:none"><label>${t("tools.rx.c")}</label>
+          <div class="tool-inline"><input id="rx-c" class="proto-in" type="number" min="0" value="10" /><select id="rx-cu" class="tool-sel proto-in"><option value="1e-12">pF</option><option value="1e-9">nF</option><option value="1e-6" selected>µF</option></select></div></div>
+        <div class="tool-field"><label id="rx-x-label">${t("tools.rx.xl")}</label>
+          <div class="tool-inline"><input id="rx-x" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field"><label>${t("tools.rx.y")}</label>
+          <div class="tool-inline"><input id="rx-y" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">S</span></div></div>
       </div>
-      <div class="tool-formula">${math("X_L = 2\\pi f L,\\quad X_C = \\dfrac{1}{2\\pi f C}")}</div>
+      <div class="tool-formula" id="rx-formula"></div>
     </div>`;
+  const mode = host.querySelector<HTMLSelectElement>("#rx-mode")!;
+  const lField = host.querySelector<HTMLElement>("#rx-l-field")!;
+  const cField = host.querySelector<HTMLElement>("#rx-c-field")!;
+  const xLabel = host.querySelector<HTMLElement>("#rx-x-label")!;
+  const xEl = host.querySelector<HTMLInputElement>("#rx-x")!;
+  const yEl = host.querySelector<HTMLInputElement>("#rx-y")!;
+  const formula = host.querySelector<HTMLElement>("#rx-formula")!;
+  const fEl = host.querySelector<HTMLInputElement>("#rx-f")!;
+  const fuEl = host.querySelector<HTMLSelectElement>("#rx-fu")!;
+  const lEl = host.querySelector<HTMLInputElement>("#rx-l")!;
+  const luEl = host.querySelector<HTMLSelectElement>("#rx-lu")!;
+  const cEl = host.querySelector<HTMLInputElement>("#rx-c")!;
+  const cuEl = host.querySelector<HTMLSelectElement>("#rx-cu")!;
   const update = () => {
-    const f = num((host.querySelector("#rx-f") as HTMLInputElement).value);
-    const fu = Number((host.querySelector("#rx-fu") as HTMLSelectElement).value);
-    const l = num((host.querySelector("#rx-l") as HTMLInputElement).value);
-    const lu = Number((host.querySelector("#rx-lu") as HTMLSelectElement).value);
-    const c = num((host.querySelector("#rx-c") as HTMLInputElement).value);
-    const cu = Number((host.querySelector("#rx-cu") as HTMLSelectElement).value);
-    if (f === null || f * fu <= 0 || l === null || c === null) {
-      (host.querySelector("#rx-xl") as HTMLInputElement).value = "";
-      (host.querySelector("#rx-xc") as HTMLInputElement).value = "";
+    const isXl = mode.value === "xl";
+    // 按模式只显示对应元件：感抗→L、容抗→C，隐藏无关输入框
+    lField.style.display = isXl ? "" : "none";
+    cField.style.display = isXl ? "none" : "";
+    xLabel.textContent = isXl ? t("tools.rx.xl") : t("tools.rx.xc");
+    const f = num(fEl.value);
+    const F = f === null ? null : f * Number(fuEl.value);
+    let x: number | null = null;
+    if (F !== null && F > 0) {
+      if (isXl) {
+        const l = num(lEl.value);
+        if (l !== null) {
+          const L = l * Number(luEl.value);
+          if (L > 0) x = 2 * Math.PI * F * L;
+        }
+      } else {
+        const c = num(cEl.value);
+        if (c !== null) {
+          const C = c * Number(cuEl.value);
+          if (C > 0) x = 1 / (2 * Math.PI * F * C);
+        }
+      }
+    }
+    if (x === null) {
+      xEl.value = ""; yEl.value = "";
+      formula.innerHTML = isXl ? math("X_L = 2\\pi f L") : math("X_C = \\dfrac{1}{2\\pi f C}");
       return;
     }
-    const r = rx(f * fu, l * lu, c * cu);
-    setEng(host.querySelector<HTMLInputElement>("#rx-xl")!, "Ω")(r.xl);
-    setEng(host.querySelector<HTMLInputElement>("#rx-xc")!, "Ω")(r.xc);
+    setEng(xEl, "Ω")(x);
+    setEng(yEl, "S")(1 / Math.abs(x)); // 导纳 |Y| = 1/|X|
+    formula.innerHTML = isXl
+      ? math("X_L = 2\\pi f L,\\;\\left| Y \\right| = \\dfrac{1}{X_L}")
+      : math("X_C = \\dfrac{1}{2\\pi f C},\\;\\left| Y \\right| = \\dfrac{1}{X_C}");
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
