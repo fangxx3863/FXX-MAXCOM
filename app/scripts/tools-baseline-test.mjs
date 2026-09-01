@@ -157,23 +157,29 @@ h = set("parallel-series-cap", [["#cap-c1", "10"]]);
 check("pcap par=20µF", val(h, "#cap-par") === "20 µF");
 check("pcap ser=5µF", val(h, "#cap-ser") === "5 µF");
 
-// ── 单位换算（标准值）──
+// ── 单位换算（标准值）：输出只写数值，单位由结果 select 显示（不再内嵌导致重复）──
 function unit(id, from, to, input) {
   const h = hostOf(id); const inp = h.querySelector(".tool-input"); const outp = h.querySelector(".tool-output");
   const sels = h.querySelectorAll(".tool-sel"); setSel(sels[0], from); setSel(sels[1], to); setIn(inp, input);
   return outp.value;
 }
-check("temp 100C=212F", unit("temperature", "c", "f", "100") === "212 °F");
-check("temp 100C=373.15K", unit("temperature", "c", "k", "100") === "373.15 K");
-check("ind 1mH=1000µH", unit("inductance", "mh", "uh", "1") === "1000 µH");
-check("press 1atm=101325Pa", unit("pressure", "atm", "pa", "1") === "101325 Pa");
-check("press 1atm=14.696psi", unit("pressure", "atm", "psi", "1") === "14.695949 psi");
-check("eng 1BTU=1055.06J", unit("energy", "btu", "j", "1") === "1055.055853 J");
-check("len 1m=39.37in", unit("length", "m", "in", "1") === "39.370079 in");
-check("wt 1kg=2.2046lb", unit("weight", "kg", "lb", "1") === "2.204623 lb");
-check("vol 1L=0.2642gal", unit("volume", "l", "gal", "1") === "0.264172 gal (US)");
-check("force 1N=0.2248lbf", unit("force", "n", "lbf", "1") === "0.224809 lbf");
-check("pwr 1hp=745.7W", unit("power", "hp", "w", "1") === "745.699872 W");
+function unitSym(id, to) {
+  const h = hostOf(id); const sels = h.querySelectorAll(".tool-sel"); setSel(sels[1], to);
+  return sels[1].selectedOptions[0].textContent;
+}
+check("temp 100C=212F", unit("temperature", "c", "f", "100") === "212" && unitSym("temperature", "f") === "°F");
+check("temp 100C=373.15K", unit("temperature", "c", "k", "100") === "373.15" && unitSym("temperature", "k") === "K");
+check("ind 1mH=1000µH", unit("inductance", "mh", "uh", "1") === "1000" && unitSym("inductance", "uh") === "µH");
+check("press 1atm=101325Pa", unit("pressure", "atm", "pa", "1") === "101325" && unitSym("pressure", "pa") === "Pa");
+check("press 1atm=14.696psi", unit("pressure", "atm", "psi", "1") === "14.695949" && unitSym("pressure", "psi") === "psi");
+check("eng 1BTU=1055.06J", unit("energy", "btu", "j", "1") === "1055.055853" && unitSym("energy", "j") === "J");
+check("len 1m=39.37in", unit("length", "m", "in", "1") === "39.370079" && unitSym("length", "in") === "in");
+check("len 1mm=39.37mil", unit("length", "mm", "mil", "1") === "39.370079" && unitSym("length", "mil") === "mil");
+check("len 默认 mm→mil", (() => { const h = hostOf("length"); const s = h.querySelectorAll(".tool-sel"); return s[0].value === "mm" && s[1].value === "mil"; })());
+check("wt 1kg=2.2046lb", unit("weight", "kg", "lb", "1") === "2.204623" && unitSym("weight", "lb") === "lb");
+check("vol 1L=0.2642gal", unit("volume", "l", "gal", "1") === "0.264172" && unitSym("volume", "gal") === "gal (US)");
+check("force 1N=0.2248lbf", unit("force", "n", "lbf", "1") === "0.224809" && unitSym("force", "lbf") === "lbf");
+check("pwr 1hp=745.7W", unit("power", "hp", "w", "1") === "745.699872" && unitSym("power", "w") === "W");
 
 // ── dB ↔ 线性（参考 1V/1W，电压 20log、功率 10log）──
 h = set("db-linear", [["#dbl-qty", "v"], ["#dbl-dir", "db2lin"], ["#dbl-ref", "1"], ["#dbl-in", "0"]]);

@@ -139,6 +139,7 @@ const UNITS = {
     { id: "m", symbol: "m", factor: 1, offset: 0 },
     { id: "km", symbol: "km", factor: 1000, offset: 0 },
     { id: "in", symbol: "in", factor: 0.0254, offset: 0 },
+    { id: "mil", symbol: "mil", factor: 0.0000254, offset: 0 },
     { id: "ft", symbol: "ft", factor: 0.3048, offset: 0 },
     { id: "yd", symbol: "yd", factor: 0.9144, offset: 0 },
     { id: "mi", symbol: "mi", factor: 1609.344, offset: 0 },
@@ -248,7 +249,8 @@ function buildUnitConverter(
     }
     const base = n * u.factor + u.offset;
     const r = (base - v.offset) / v.factor;
-    output.value = `${fmt(r)} ${v.symbol}`;
+    // 只写数值，单位由右侧结果 select 显示（避免“39.37 in”+“in”重复）。
+    output.value = fmt(r);
   };
   input.addEventListener("input", update);
   selFrom.addEventListener("change", update);
@@ -2219,7 +2221,7 @@ const TOOLS: ToolDef[] = [
   { id: "wire-gauge", icon: "🧵", title: "线径换算器", desc: "AWG 与英寸/毫米/圆密耳换算", build: buildWireGauge },
   { id: "trace-impedance", icon: "🛤", title: "走线阻抗计算器", desc: "微带线/带状线等 7 种结构特性阻抗与线宽互算（含嵌入与耦合型）", build: buildTraceImpedance },
   { id: "pcb-trace-width", icon: "📐", title: "PCB 印制线宽度计算器", desc: "基于 IPC-2221 的载流线宽估算", build: buildPcbTraceWidth },
-  { id: "length", icon: "📏", title: "长度换算", desc: "毫米/厘米/米/英寸/英尺/码/英里互转", build: (h) => buildUnitConverter(h, UNITS.length, "mm", "in", "mm") },
+  { id: "length", icon: "📏", title: "长度换算", desc: "毫米/厘米/米/英寸/密耳/英尺/码/英里互转", build: (h) => buildUnitConverter(h, UNITS.length, "mm", "mil", "mm") },
   { id: "weight", icon: "⚖", title: "重量换算", desc: "毫克/克/千克/吨/盎司/磅互转", build: (h) => buildUnitConverter(h, UNITS.weight, "g", "oz", "g") },
   { id: "volume", icon: "🧪", title: "体积和容量换算", desc: "毫升/升/立方米/美制加仑互转", build: (h) => buildUnitConverter(h, UNITS.volume, "ml", "l", "mL") },
   { id: "temperature", icon: "🌡", title: "温度换算", desc: "摄氏/华氏/开尔文互转", build: (h) => buildUnitConverter(h, UNITS.temperature, "c", "f", "°C") },
