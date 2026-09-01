@@ -47,11 +47,19 @@ check("led W=0.06W", val(h, "#led-w") === "0.06");
 // ── PCB 线宽（I=1A, ΔT=10°C, 1oz → 外层 11.82624098mil, 内层 30.76525445mil）─
 h = set("pcb-trace-width", [["#pcb-i", "1"], ["#pcb-dt", "10"], ["#pcb-layer", "0.048"], ["#pcb-th", "1"], ["#pcb-thu", "0.035"]]);
 check("pcb outer ≈11.826mil", has(val(h, "#pcb-w"), "0.300386"));
+check("pcb outer 同时给 mil", has(val(h, "#pcb-wmil"), "11.826"));
 h = set("pcb-trace-width", [["#pcb-i", "1"], ["#pcb-dt", "10"], ["#pcb-layer", "0.024"], ["#pcb-th", "1"], ["#pcb-thu", "0.035"]]);
 check("pcb inner ≈30.765mil", has(val(h, "#pcb-w"), "0.781437"));
 // 2oz 外层应≈外层 1oz 的一半宽度（铜厚翻倍）
 h = set("pcb-trace-width", [["#pcb-i", "1"], ["#pcb-dt", "10"], ["#pcb-layer", "0.048"], ["#pcb-th", "1"], ["#pcb-thu", "0.07"]]);
 check("pcb 2oz half width", has(val(h, "#pcb-w"), "0.150193"));
+
+// ── 走线阻抗：线宽输出同时给 mm 与 mil（mm ≈ mil×0.0254 自洽，且同量级）──
+h = set("trace-impedance", [["#ti-type", "m"], ["#ti-dir", "w"], ["#ti-er", "4.5"], ["#ti-input", "50"]]);
+const tiMm = Number(val(h, "#ti-out")); const tiMil = Number(val(h, "#ti-out2"));
+check("走线阻抗 宽输出 mm/mil 均非空", Number.isFinite(tiMm) && Number.isFinite(tiMil) && tiMm > 0 && tiMil > 0);
+check("走线阻抗 mm ≈ mil×0.0254", Math.abs(tiMm - tiMil * 0.0254) < 1e-6);
+check("走线阻抗 宽度输出两框可见", h.querySelector("#ti-row-out2").style.display !== "none" && h.querySelector("#ti-row-out").style.display !== "none");
 
 // ── 衰减器四型（20dB/50Ω：Pi=61.1111/247.50000, 桥T=450.0000/5.55556, 反射=61.1111/40.90910, T=40.9091/10.10101）─
 for (const [ty, r1, r2] of [["pi", "61.111111", "247.5"], ["bridgeT", "450", "5.555556"], ["T", "40.909091", "10.10101"]]) {

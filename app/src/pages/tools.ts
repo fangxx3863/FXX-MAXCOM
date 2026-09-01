@@ -1375,6 +1375,7 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
         <div class="tool-field" id="ti-row-hb" style="display:none"><label>${t("tools.ti.hb")}</label><div class="tool-inline"><input id="ti-hb" class="proto-in" type="number" value="0.4" /><select id="ti-hb-u" class="tool-sel proto-in">${LEN_U}</select></div></div>
         <div class="tool-field"><label>${t("tools.ti.er")}</label><div class="tool-inline"><input id="ti-er" class="proto-in" type="number" step="0.1" value="4.5" /></div></div>
         <div class="tool-field" id="ti-row-out"><label id="ti-out-label">${t("tools.ti.z")}</label><div class="tool-inline"><input id="ti-out" class="tool-output proto-in" readonly placeholder="—" /><span id="ti-out-sfx" class="tool-suffix">Ω</span></div></div>
+        <div class="tool-field" id="ti-row-out2" style="display:none"><label>${t("tools.ti.wMil")}</label><div class="tool-inline"><input id="ti-out2" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mil</span></div></div>
       </div>
       <div class="tool-formula" id="ti-formula"></div>
     </div>`;
@@ -1388,6 +1389,8 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
   const outEl = host.querySelector<HTMLInputElement>("#ti-out")!;
   const outSfx = host.querySelector<HTMLElement>("#ti-out-sfx")!;
   const outLabel = host.querySelector<HTMLElement>("#ti-out-label")!;
+  const out2Row = host.querySelector<HTMLElement>("#ti-row-out2")!;
+  const out2El = host.querySelector<HTMLInputElement>("#ti-out2")!;
   const formulaEl = host.querySelector<HTMLElement>("#ti-formula")!;
   const diagram = host.querySelector<HTMLElement>("#ti-diagram")!;
   const diagImg = diagram.querySelector<HTMLImageElement>("img")!;
@@ -1412,15 +1415,19 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
     if (dir === "im") (input as unknown as Record<string, unknown>).w = p !== null ? p * unitVal(inputU) : NaN;
     else (input as unknown as Record<string, unknown>).z = p;
     formulaEl.innerHTML = math(FORMULA[topo]);
-    if (bad) { outEl.value = ""; outEl.title = ""; return; }
+    if (bad) { outEl.value = ""; outEl.title = ""; out2El.value = ""; return; }
     const res = tImp(topo, dir, input);
     if (dir === "im") {
+      out2Row.style.display = "none";
       outEl.value = res.z !== undefined ? fmt(res.z) : "";
     } else {
-      const wu = unitVal(inputU);
-      outEl.value = res.w !== undefined ? fmt(res.w / wu) : "";
+      // 线宽：同时用 mm 与 mil 两个输出框展示（res.w 为 mil 基单位）
+      out2Row.style.display = "";
+      outEl.value = res.w !== undefined ? fmt(res.w * 0.0254) : "";
+      out2El.value = res.w !== undefined ? fmt(res.w) : "";
     }
     outEl.title = res.warn ?? "";
+    out2El.title = res.warn ?? "";
   };
   const render = () => {
     const topo = typeEl.value as TraceTopo;
@@ -1436,7 +1443,8 @@ function buildTraceImpedance(host: HTMLElement): ToolController {
     inputU.style.display = im ? "" : "none";
     inputSfx.style.display = im ? "none" : "";
     outLabel.textContent = im ? t("tools.ti.z") : t("tools.ti.w");
-    outSfx.textContent = im ? "Ω" : (inputU.options[inputU.selectedIndex]?.textContent || "mm").trim();
+    outSfx.textContent = im ? "Ω" : "mm"; // 线宽：主输出框固定显示 mm
+    out2Row.style.display = im ? "none" : "";
     const src = toolDiagramVariant("trace-impedance", topo);
     if (src) { diagImg.src = src; diagram.style.display = ""; } else { diagram.style.display = "none"; }
     compute();
@@ -1460,6 +1468,7 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
         <div class="tool-field"><label>${t("tools.pcb.layer")}</label><select id="pcb-layer" class="proto-in"><option value="0.048" selected>${t("tools.pcb.outer")}</option><option value="0.024">${t("tools.pcb.inner")}</option></select></div>
         <div class="tool-field"><label>${t("tools.pcb.copper")}</label><div class="tool-inline"><input id="pcb-th" class="proto-in" type="number" min="0" value="1" /><select id="pcb-thu" class="tool-sel proto-in"><option value="0.035" selected>1 oz (35 µm)</option><option value="0.07">2 oz (70 µm)</option><option value="0.105">3 oz (105 µm)</option></select></div></div>
         <div class="tool-field"><label>${t("tools.pcb.width")}</label><div class="tool-inline"><input id="pcb-w" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mm</span></div></div>
+        <div class="tool-field"><label>${t("tools.pcb.widthMil")}</label><div class="tool-inline"><input id="pcb-wmil" class="tool-output proto-in" readonly placeholder="—" /><span class="tool-suffix">mil</span></div></div>
       </div>
       <div class="tool-formula">${math("A = \\left(\\dfrac{I}{k\\Delta T^{0.44}}\\right)^{1/0.725},\\quad W = \\dfrac{A}{T},\\quad k=0.048")}</div>
     </div>`;
@@ -1471,6 +1480,7 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
     const k = Number((host.querySelector("#pcb-layer") as HTMLSelectElement).value);
     if (i === null || dt === null || th === null || thu === null || i <= 0 || dt <= 0 || th * thu <= 0) {
       (host.querySelector("#pcb-w") as HTMLInputElement).value = "";
+      (host.querySelector("#pcb-wmil") as HTMLInputElement).value = "";
       return;
     }
     // IPC-2221: A[mils²] = (I/(k·ΔT^b))^(1/c); W = A/T. 外层走线 k=0.048, 内层 k=0.024, b=0.44, c=0.725
@@ -1480,6 +1490,7 @@ function buildPcbTraceWidth(host: HTMLElement): ToolController {
     const widthMil = areaMils2 / thickMil;
     const widthMm = widthMil * 0.0254;
     setEng(host.querySelector<HTMLInputElement>("#pcb-w")!, "mm")(widthMm);
+    setEng(host.querySelector<HTMLInputElement>("#pcb-wmil")!, "mil")(widthMil);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));
