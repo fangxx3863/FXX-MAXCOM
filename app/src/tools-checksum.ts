@@ -186,12 +186,22 @@ export function checksum(data: Uint8Array, width: number): number {
 }
 
 // ── XOR ──
-/** 所有字节逐个异或，截断到 width 位。 */
+/** 所有字节按 width 位字长分组逐个异或（大端字），截断到 width 位。
+ *  width=8 即逐字节异或；width=16/24/32 时每 2/3/4 字节合成一个大端字再异或。
+ *  末尾不足一字时按自然大端值参与（高位置零），故单字节输入在任意位宽都等于它自身。
+ *  说明：若仍是逐字节异或，则结果恒 ≤ 0xff（xor 只影响累加器低 8 位），无论位宽改成
+ *  16/24/32 都一样——位宽将形同虚设。按字分组后位宽才真实生效。 */
 export function xorSum(data: Uint8Array, width: number): number {
+  const wordBytes = width / 8;
   const mask = width === 32 ? 0xffffffff : ((1 << width) - 1);
   let acc = 0;
-  for (let i = 0; i < data.length; i++) acc = (acc ^ data[i]) & mask;
-  return width === 32 ? (acc >>> 0) : (acc & mask);
+  for (let i = 0; i < data.length; i += wordBytes) {
+    const n = Math.min(wordBytes, data.length - i);
+    let w = 0;
+    for (let j = 0; j < n; j++) w = (w << 8) | data[i + j];
+    acc = (acc ^ w) & mask;
+  }
+  return width === 32 ? (acc >>> 0) : acc;
 }
 
 // ── MD5（RFC 1321，big-endian 摘要输出） ──

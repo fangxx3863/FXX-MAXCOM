@@ -103,9 +103,19 @@ check("checksum8 overflow mod 256", M.checksum(new Uint8Array([0xff, 0x02]), 8),
 check("checksum32 'hello'", M.checksum(ascii("hello"), 32), ascii("hello").reduce((a, b) => a + b, 0));
 
 // ── XOR ──
+// XOR 必须按位宽分组（width bits 一“字”）异或；若逐字节异或，结果恒落低 8 位、位宽形同虚设。
 check("xor8 'ABC' => 65^66^67", M.xorSum(ascii("ABC"), 8), 65 ^ 66 ^ 67);
 check("xor8 self => 0", M.xorSum(new Uint8Array([0x55, 0x55]), 8), 0);
-check("xor16 'ABC' => same", M.xorSum(ascii("ABC"), 16), 65 ^ 66 ^ 67);
+// 位宽真实生效：同一数据 8/16 结果不同（16 按 2 字节一字）
+const XYZZY = new Uint8Array([0xab, 0xcd, 0x12, 0x34]);
+check("xor8 多数据", M.xorSum(XYZZY, 8), 0xab ^ 0xcd ^ 0x12 ^ 0x34);
+check("xor16 按2字节一字", M.xorSum(XYZZY, 16), 0xabcd ^ 0x1234);
+check("xor8 与 xor16 结果不同", M.xorSum(XYZZY, 8) !== M.xorSum(XYZZY, 16), true);
+// 末尾不足一字：按自然大端值参与（高位置零），单字节输入在任意位宽=它自身
+check("xor16 'ABC' 尾字高位置零", M.xorSum(ascii("ABC"), 16), 0x4142 ^ 0x0043);
+check("xor24 三字节一字", M.xorSum(ascii("ABCDEF"), 24), 0x414243 ^ 0x444546);
+check("xor16 单字节=自身", M.xorSum(new Uint8Array([0xab]), 16), 0x00ab);
+check("xor32 四字节一字", M.xorSum(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]), 32), 0x01020304 ^ 0x05060708);
 
 // ── 输入解析 ──
 check("parseHex '01 A0 FF'", M.parseHex("01 A0 FF")?.join(","), "1,160,255");
@@ -141,6 +151,7 @@ check("format md5 hex 32 chars", M.formatResult(md, "hex"), "900150983CD24FB0D69
 // ── compute 聚合 / 位宽切换 ──
 check("compute checksum width 16", M.compute("checksum", ascii("ABC"), undefined, 16).value.toString(), "198");
 check("compute xor width 8", M.compute("xor", ascii("ABC"), undefined, 8).value.toString(), (65 ^ 66 ^ 67).toString());
+check("compute xor width 16", M.compute("xor", ascii("ABC"), undefined, 16).value.toString(), (0x4142 ^ 0x0043).toString());
 check("compute unknown crc variant throws", (() => { try { M.compute("crc", INPUT, "nope"); return false; } catch { return true; } })(), true);
 
 console.log(`\nchecksum: ${pass} passed, ${fail} failed`);
