@@ -1142,7 +1142,7 @@ function buildColorCode(host: HTMLElement): ToolController {
     } else {
       value = (d1[1] * 10 + d2[1]) * 10 ** m[1];
     }
-    let msg = `${colorName(d1[0])} ${colorName(d2[0])} ${sig3}${colorName(m[0])} ${colorName(tol[0])} = ${fmt(value)} Ω ${tol[2]}`;
+    let msg = `${colorName(d1[0])} ${colorName(d2[0])} ${sig3}${colorName(m[0])} ${colorName(tol[0])} = ${fmtOhm(value)} ${tol[2]}`;
     if (cur >= 6) {
       const tc = tempcoef[g("#cc-tc")];
       msg += `（${colorName(tc[0])} ${tc[1]} ppm/K）`;

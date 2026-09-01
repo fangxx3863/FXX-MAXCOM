@@ -158,11 +158,11 @@ check("colorcode 460Ω", has(val(h, ".tool-resultline"), "460"));
 
 // ── 色码 5 环（黄蓝黑棕绿：460×10=4600Ω ±0.5%）──
 h = set("color-code", [["#cc-band", "5"], ["#cc-a", "4"], ["#cc-b", "6"], ["#cc-d3", "0"], ["#cc-m", "1"], ["#cc-t", "5"]]);
-check("colorcode 5band 4600Ω", has(val(h, ".tool-resultline"), "4600"));
+check("colorcode 5band 4600Ω", has(val(h, ".tool-resultline"), "4.6 kΩ"));
 
 // ── 色码 6 环（5 环 + 温度系数 棕=100ppm/K）──
 h = set("color-code", [["#cc-band", "6"], ["#cc-a", "4"], ["#cc-b", "6"], ["#cc-d3", "0"], ["#cc-m", "1"], ["#cc-t", "5"], ["#cc-tc", "0"]]);
-check("colorcode 6band 4600Ω+tol", has(val(h, ".tool-resultline"), "4600"));
+check("colorcode 6band 4600Ω+tol", has(val(h, ".tool-resultline"), "4.6 kΩ"));
 check("colorcode 6band tempcoef", has(val(h, ".tool-resultline"), "100 ppm/K"));
 
 // ── 并联/串联电容（2×10µF → 并联20µF, 串联5µF）─
