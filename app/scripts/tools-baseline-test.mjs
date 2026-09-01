@@ -181,6 +181,20 @@ check("vol 1L=0.2642gal", unit("volume", "l", "gal", "1") === "0.264172" && unit
 check("force 1N=0.2248lbf", unit("force", "n", "lbf", "1") === "0.224809" && unitSym("force", "lbf") === "lbf");
 check("pwr 1hp=745.7W", unit("power", "hp", "w", "1") === "745.699872" && unitSym("power", "w") === "W");
 
+// ── 电容换算（单位自选 + 三位代码联动：改输入/单位会同步更新代码）──
+h = set("capacitance-conversion", [["#cap-in", "1000"], ["#cap-inu", "pf"]]);
+check("capConv 1000pF 输出=1000", val(h, "#cap-out") === "1000");
+check("capConv 1000pF 代码=102", val(h, "#cap-code") === "102");
+h = set("capacitance-conversion", [["#cap-in", "4.7"], ["#cap-inu", "uf"]]);
+check("capConv 4.7µF 输出=4700000", val(h, "#cap-out") === "4700000");
+check("capConv 4.7µF 代码=475", val(h, "#cap-code") === "475");
+check("capConv 4.7µF 结果含 nF", has(val(h, "#cap-result"), "4700 nF"));
+check("capConv 4.7µF 输出不含单位", !has(val(h, "#cap-out"), "pF"));
+// 代码驱动：输入 475 → 4.7µF，输入/输出联动
+h = set("capacitance-conversion", [["#cap-inu", "uf"], ["#cap-code", "475"]]);
+check("capConv 代码475→输入4.7µF", val(h, "#cap-in") === "4.7");
+check("capConv 代码475→输出4700000", val(h, "#cap-out") === "4700000");
+
 // ── dB ↔ 线性（参考 1V/1W，电压 20log、功率 10log）──
 h = set("db-linear", [["#dbl-qty", "v"], ["#dbl-dir", "db2lin"], ["#dbl-ref", "1"], ["#dbl-in", "0"]]);
 check("dbl 0dB电压=1V", val(h, "#dbl-out") === "1");

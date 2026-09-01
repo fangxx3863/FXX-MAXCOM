@@ -55,6 +55,13 @@ check("cap code 104", M.capCode3("104"), 100000);
 check("cap code 472", M.capCode3("472"), 4700);
 check("cap code 100", M.capCode3("100"), 10);
 check("cap code 1xx invalid", M.capCode3("1x"), null);
+// capEncode3（pF → 三位代码）逆运算
+check("cap encode 100000pF=104", M.capEncode3(100000), "104");
+check("cap encode 4700pF=472", M.capEncode3(4700), "472");
+check("cap encode 100pF=101", M.capEncode3(100), "101");
+check("cap encode 4.7µF=475", M.capEncode3(4700000), "475");
+check("cap encode 不可编码=null", M.capEncode3(1234), null);
+check("cap encode roundtrip", M.capCode3(M.capEncode3(4700)), 4700);
 
 // ── 电池续航 ──
 check("battery 1000mAh/100mA", M.batteryLifeHours(1000, 100), 10);

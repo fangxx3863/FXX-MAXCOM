@@ -96,6 +96,20 @@ export function capCode3(code: string): number | null {
   return Number(m[1].slice(0, 2)) * 10 ** Number(m[1][2]);
 }
 
+// ── 电容三位编码：pF → 三位代码（capCode3 的逆运算）──
+// 能写成 sig×10^mult（sig∈[10,99]，mult∈[0,9]）才可编码，否则 null。
+export function capEncode3(pf: number): string | null {
+  if (!Number.isFinite(pf) || pf <= 0) return null;
+  for (let mult = 0; mult <= 9; mult++) {
+    const base = pf / 10 ** mult;
+    const sig = Math.round(base);
+    if (sig >= 10 && sig <= 99 && Math.abs(base - sig) < 1e-6) {
+      return `${String(sig).padStart(2, "0")}${mult}`;
+    }
+  }
+  return null;
+}
+
 // ── 电池续航 ──
 export function batteryLifeHours(capMah: number, curMa: number): number {
   if (curMa <= 0) return NaN;

@@ -6,7 +6,7 @@ import "katex/dist/katex.min.css";
 import { toolDiagram, toolDiagramVariant } from "../tools-diagrams";
 import {
   mono555, astable555, attenuator as attn,
-  capCode3, batteryLifeHours, ohmLaw, reactance as rx,
+  capCode3, capEncode3, batteryLifeHours, ohmLaw, reactance as rx,
   rcTau, ledResistor, ledPower, filterFc, dbmToMwt, capDischarge,
   seriesRes, parallelRes, seriesCap, parallelCap,
   traceImpedance as tImp, type TraceTopo, type TraceDir, type TraceInput,
@@ -411,65 +411,79 @@ function buildBatteryLife(host: HTMLElement): ToolController {
   return {};
 }
 
-// ── 电容换算（含代码）──
+// ── 电容换算（含代码）：与长度换算一致，由用户自选单位 ──
 function buildCapacitanceConversion(host: HTMLElement): ToolController {
+  // 电容单位（factor = 换算到 pF 的倍乘）。
+  const CAP_UNITS: UnitDef[] = [
+    { id: "pf", symbol: "pF", factor: 1, offset: 0 },
+    { id: "nf", symbol: "nF", factor: 1e3, offset: 0 },
+    { id: "uf", symbol: "µF", factor: 1e6, offset: 0 },
+    { id: "f", symbol: "F", factor: 1e12, offset: 0 },
+  ];
   host.innerHTML = `
     <div class="tool-panel">
       <div class="tool-grid">
-        <div class="tool-field"><label>${t("tools.cap.picofarad")}</label><div class="tool-inline"><input id="cap-pf" class="proto-in" type="number" min="0" placeholder="pF" /></div></div>
-        <div class="tool-field"><label>${t("tools.cap.nanofarad")}</label><div class="tool-inline"><input id="cap-nf" class="proto-in" type="number" min="0" placeholder="nF" /></div></div>
-        <div class="tool-field"><label>${t("tools.cap.microfarad")}</label><div class="tool-inline"><input id="cap-uf" class="proto-in" type="number" min="0" placeholder="µF" /></div></div>
-        <div class="tool-field"><label>${t("tools.cap.farad")}</label><div class="tool-inline"><input id="cap-f" class="proto-in" type="number" min="0" placeholder="F" /></div></div>
-        <div class="tool-field"><label>${t("tools.cap.threeDigit")}</label><div class="tool-inline"><input id="cap-code" class="proto-in" type="text" value="104" placeholder="${t("tools.cap.codePlaceholder")}" /></div></div>
+        <div class="tool-field">
+          <label>${t("tools.input")}</label>
+          <div class="tool-inline"><input id="cap-in" class="tool-input proto-in" type="number" min="0" value="4.7" /><select id="cap-inu" class="tool-sel proto-in">${optionsHtml(CAP_UNITS, "uf")}</select></div>
+        </div>
+        <div class="tool-field">
+          <label>${t("tools.result")}</label>
+          <div class="tool-inline"><input id="cap-out" class="tool-output proto-in" readonly placeholder="—" /><select id="cap-outu" class="tool-sel proto-in">${optionsHtml(CAP_UNITS, "pf")}</select></div>
+        </div>
+      </div>
+      <div class="tool-grid">
+        <div class="tool-field">
+          <label>${t("tools.cap.threeDigit")}</label>
+          <div class="tool-inline"><input id="cap-code" class="tool-input proto-in" type="text" maxlength="3" value="475" placeholder="${t("tools.cap.codePlaceholder")}" /></div>
+        </div>
       </div>
       <div class="tool-resultline" id="cap-result"></div>
     </div>`;
-  const pf = host.querySelector<HTMLInputElement>("#cap-pf")!;
-  const nf = host.querySelector<HTMLInputElement>("#cap-nf")!;
-  const uf = host.querySelector<HTMLInputElement>("#cap-uf")!;
-  const f = host.querySelector<HTMLInputElement>("#cap-f")!;
+  const input = host.querySelector<HTMLInputElement>("#cap-in")!;
+  const inu = host.querySelector<HTMLSelectElement>("#cap-inu")!;
+  const output = host.querySelector<HTMLInputElement>("#cap-out")!;
+  const outu = host.querySelector<HTMLSelectElement>("#cap-outu")!;
   const code = host.querySelector<HTMLInputElement>("#cap-code")!;
   const result = host.querySelector<HTMLElement>("#cap-result")!;
-  const setAll = (vpf: number | null) => {
-    if (vpf === null) {
-      pf.value = nf.value = uf.value = f.value = "";
+
+  const capUnit = (id: string) => CAP_UNITS.find((x) => x.id === id) ?? CAP_UNITS[0];
+
+  // 以 pF 为基准重算：输出（选单位）、等值结果行，并把三位代码联动更新。
+  // 联动修正：之前改 pF/nF/µF/F 不更新下面三位代码；现由 输入×单位 ⇒ pF ⇒ capEncode3 同步。
+  const render = (pf: number, fromCodeSrc?: string) => {
+    if (!Number.isFinite(pf) || pf <= 0) {
+      output.value = "";
+      code.value = "";
       result.textContent = "—";
       return;
     }
-    pf.value = fmt(vpf);
-    nf.value = fmt(vpf / 1e3);
-    uf.value = fmt(vpf / 1e6);
-    f.value = fmt(vpf / 1e12);
-    result.textContent = `${fmtCap(vpf)} = ${fmt(vpf)} pF / ${fmt(vpf / 1e3)} nF / ${fmt(vpf / 1e6)} µF / ${fmt(vpf / 1e12)} F`;
+    output.value = fmt(pf / capUnit(outu.value).factor);
+    const c3 = capEncode3(pf);
+    code.value = fromCodeSrc ?? (c3 ?? "");
+    result.textContent =
+      `${fmtCap(pf)} = ${fmt(pf)} pF / ${fmt(pf / 1e3)} nF / ${fmt(pf / 1e6)} µF / ${fmt(pf / 1e12)} F` +
+      (c3 ? ` · 代码 ${c3}` : " (不可编码三位代码)");
   };
-  const updateFrom = (src: HTMLInputElement, div: number) => () => {
-    const v = num(src.value);
-    if (v === null) {
-      setAll(null);
-      return;
-    }
-    setAll(v * div);
+
+  const fromInput = () => {
+    const n = num(input.value);
+    if (n === null) { output.value = ""; code.value = ""; result.textContent = "—"; return; }
+    render(n * capUnit(inu.value).factor);
   };
-  const onPf = updateFrom(pf, 1);
-  const onNf = updateFrom(nf, 1e3);
-  const onUf = updateFrom(uf, 1e6);
-  const onF = updateFrom(f, 1e12);
-  const onCode = () => {
+  const fromCode = () => {
     const m = code.value.trim().match(/^(\d{3})$/);
-    if (!m) {
-      result.textContent = "—";
-      return;
-    }
-    const vpf = capCode3(m[1])!;
-    setAll(vpf);
-    code.value = m[1];
+    if (!m) return; // 输入未完成或非法，不打断当前换算
+    const pf = capCode3(m[1])!;
+    input.value = fmt(pf / capUnit(inu.value).factor);
+    render(pf, m[1]);
   };
-  pf.addEventListener("input", onPf);
-  nf.addEventListener("input", onNf);
-  uf.addEventListener("input", onUf);
-  f.addEventListener("input", onF);
-  code.addEventListener("input", onCode);
-  onCode();
+
+  input.addEventListener("input", fromInput);
+  inu.addEventListener("change", fromInput);
+  outu.addEventListener("change", fromInput);
+  code.addEventListener("input", fromCode);
+  fromInput();
   return {};
 }
 
