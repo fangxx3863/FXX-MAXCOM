@@ -384,7 +384,7 @@ function buildBatteryLife(host: HTMLElement): ToolController {
       <div class="tool-grid">
         <div class="tool-field"><label>${t("tools.battery.capacity")}</label><div class="tool-inline"><input id="bt-cap" class="proto-in" type="number" min="0" value="1000" /><select id="bt-capu" class="tool-sel proto-in"><option value="1" selected>mAh</option><option value="1000">Ah</option><option value="0.001">µAh</option></select></div></div>
         <div class="tool-field"><label>${t("tools.battery.power")}</label><div class="tool-inline"><input id="bt-cur" class="proto-in" type="number" min="0" value="100" /><select id="bt-curu" class="tool-sel proto-in"><option value="1" selected>mA</option><option value="1000">A</option><option value="0.001">µA</option></select></div></div>
-        <div class="tool-field"><label>${t("tools.battery.runTime")}</label><div class="tool-inline"><input id="bt-out" class="tool-output proto-in" readonly placeholder="—" /><select id="bt-outu" class="tool-sel proto-in"><option value="1" selected>${t("tools.battery.hour")}</option><option value="1/24">${t("tools.battery.day")}</option><option value="1/8760">${t("tools.battery.year")}</option></select></div></div>
+        <div class="tool-field"><label>${t("tools.battery.runTime")}</label><div class="tool-inline"><input id="bt-out" class="tool-output proto-in" readonly placeholder="—" /><select id="bt-outu" class="tool-sel proto-in"><option value="1" selected>${t("tools.battery.hour")}</option><option value="24">${t("tools.battery.day")}</option><option value="8760">${t("tools.battery.year")}</option></select></div></div>
       </div>
       <div class="tool-formula">${math("Battery\\ Life = \\dfrac{Battery\\ Capacity}{Load\\ Current}")}</div>
     </div>`;
@@ -397,9 +397,11 @@ function buildBatteryLife(host: HTMLElement): ToolController {
     }
     const capu = Number((host.querySelector("#bt-capu") as HTMLSelectElement).value);
     const curu = Number((host.querySelector("#bt-curu") as HTMLSelectElement).value);
-    const outu = Number((host.querySelector("#bt-outu") as HTMLSelectElement).value);
+    const outu = Number((host.querySelector("#bt-outu") as HTMLSelectElement).value); // 每单位小时数：1(时)/24(天)/8760(年)
     const hr = batteryLifeHours(cap * capu, cur * curu);
-    (host.querySelector("#bt-out") as HTMLInputElement).value = `${fmt(hr * outu)} ${(host.querySelector("#bt-outu") as HTMLSelectElement).selectedOptions[0].textContent}`;
+    // 只写数值，单位由右侧 #bt-outu 选择器显示（与 555 输出一致），避免“12500 小时”+“小时”重复；
+    // 单位为“每单位小时数”，故除以它换算成所选单位（原用乘法但 value 是 "1/24" 等字符串 → Number 得 NaN，天/年失效）。
+    (host.querySelector("#bt-out") as HTMLInputElement).value = fmt(hr / outu);
   };
   host.querySelectorAll("input,select").forEach((el) => el.addEventListener("input", update));
   host.querySelectorAll("select").forEach((el) => el.addEventListener("change", update));

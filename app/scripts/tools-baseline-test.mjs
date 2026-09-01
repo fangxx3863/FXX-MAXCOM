@@ -64,9 +64,17 @@ h = hostOf("attenuator"); setIn(h.querySelector("#att-db"), "20"); setIn(h.query
 h.querySelector('[data-type="reflective"]').click();
 check("att reflective R1=rHi/rLo", has(val(h, "#att-r1"), "61.111111 / 40.909091"));
 
-// ── 电池续航（1000mAh/100mA → 10 Hours）─
+// ── 电池续航（1000mAh/100mA → 10 Hours ─ 时/天/年切换单位 + 单位不内嵌输出值）─
 h = set("battery-life", [["#bt-cap", "1000"], ["#bt-capu", "1"], ["#bt-cur", "100"], ["#bt-curu", "1"]]);
 check("battery 10", has(val(h, "#bt-out"), "10"));
+// 天/年：value 须为可解析数字（曾用 "1/24"、"1/8760" → Number 得 NaN 使天/年失效），且单位不重复进输出值
+h = set("battery-life", [["#bt-cap", "1000"], ["#bt-capu", "1"], ["#bt-cur", "100"], ["#bt-curu", "1"], ["#bt-outu", "24"]]);
+check("battery days=10/24", val(h, "#bt-out") === "0.416667");
+h = set("battery-life", [["#bt-cap", "1000"], ["#bt-capu", "1"], ["#bt-cur", "100"], ["#bt-curu", "1"], ["#bt-outu", "8760"]]);
+check("battery years=10/8760", val(h, "#bt-out") === "0.001142");
+// 单位只由右侧 #bt-outu 显示，输出值文本不应再含“小时/天/年”
+h = set("battery-life", [["#bt-cap", "1000"], ["#bt-capu", "1"], ["#bt-cur", "100"], ["#bt-curu", "1"]]);
+check("battery 输出不含单位文字", !has(val(h, "#bt-out"), "小时") && h.querySelector("#bt-outu").selectedOptions[0].textContent === "小时");
 
 // ── 电容器安全放电（100µF/100V→1V/100kΩ → τ=10s, 峰值功率0.1W, 能量0.5J）─
 h = set("capacitor-safe-discharge", [["#capd-c", "0.0001"], ["#capd-cu", "1"], ["#capd-v0", "100"], ["#capd-vs", "1"], ["#capd-r", "100000"], ["#capd-ru", "1"]]);
