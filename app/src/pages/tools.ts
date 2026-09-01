@@ -307,7 +307,8 @@ function build555(host: HTMLElement): ToolController {
       formula.innerHTML = math("T = 1.1 \\times R_1 \\times C_1");
       if (R1 === null || C === null) { out.value = ""; return; }
       const t = mono555(R1, C);
-      out.value = `${fmt(t / om)} ${os.selectedOptions[0].textContent}`;
+      // 只写数值，单位由右侧 #t555-os 选择器显示（与 R1/C1 输入字段一致），避免“1.1 ms”+“ms”重复。
+      out.value = fmt(t / om);
       return;
     }
     // 非稳态

@@ -62,7 +62,7 @@ const formula = h555.querySelector("#t555-formula");
 
 // 初始单稳态：100Ω + 10µF => 1.1ms，无 R2 字段
 check("555 mono: 无 R2 字段", !h555.querySelector("#t555-r2"));
-check("555 mono 输出=1.1ms", outEl.value === "1.1 ms");
+check("555 mono 输出=1.1(单位在右侧 select)", outEl.value === "1.1" && h555.querySelector("#t555-os").selectedOptions[0].textContent === "ms");
 check("555 mono 公式含 1.1", has(formula.textContent, "1.1"));
 
 // 切到非稳态
@@ -89,7 +89,7 @@ osel.value = "1e-3"; fire(osel, "change"); // 恢复 ms，避免影响后续 mon
 r1.value = "100"; r1s.value = "1"; c.value = "10"; fire(r1, "input");
 h555.querySelector('[data-mode="mono"]').click();
 check("555 mono 回退后移除 R2", !h555.querySelector("#t555-r2"));
-check("555 mono 回退输出=1.1ms", outEl.value === "1.1 ms");
+check("555 mono 回退输出=1.1", outEl.value === "1.1");
 
 // 回归（曾修复 bug）：非稳态 → 单稳态 → 非稳态 多轮往返，R2 字段须反复重建/移除且事件不丢
 h555.querySelector('[data-mode="astable"]').click();
@@ -101,7 +101,7 @@ check("555 往返: R2 事件仍绑定 f≈3.607", has(linesEl.textContent, "f = 
 h555.querySelector('[data-mode="mono"]').click();
 check("555 往返: 再回单稳态 R2 移除", !h555.querySelector("#t555-r2"));
 r1.value = "100"; r1s.value = "1"; c.value = "10"; fire(r1, "input");
-check("555 往返: 单稳态输出恢复=1.1ms", outEl.value === "1.1 ms");
+check("555 往返: 单稳态输出恢复=1.1", outEl.value === "1.1");
 
 // ── 衰减器：四个类型各自不同的电路图 + 计算 ──
 const hAtt = hostOf("attenuator");
