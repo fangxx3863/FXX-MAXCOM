@@ -59,6 +59,60 @@ fn decode_as(data: &[u8], enc: &str) -> String {
     }
 }
 
+/// UTF-8：末尾截断序列的字节数（0..=3）。完整序列或非法首字节返回 0。
+fn utf8_incomplete_tail(data: &[u8]) -> usize {
+    let max = data.len().min(4);
+    for back in 1..=max {
+        let b = data[data.len() - back];
+        if b & 0xC0 == 0x80 {
+            continue; // 续字节：继续往前找首字节
+        }
+        let need = match b {
+            0xC2..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF4 => 4,
+            _ => return 0, // ASCII 或非法首字节
+        };
+        return if back < need { back } else { 0 };
+    }
+    0
+}
+
+/// GBK/GB2312：末尾孤立的双字节首字节（无尾字节配对）返回 1，否则 0。
+/// 从头按「首字节 + 尾字节」成对扫描，避免奇偶误判。
+fn gbk_incomplete_tail(data: &[u8]) -> usize {
+    let mut i = 0usize;
+    while i < data.len() {
+        if (0x81..=0xFE).contains(&data[i]) {
+            if i + 1 >= data.len() {
+                return 1; // 首字节后没有尾字节
+            }
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    0
+}
+
+/// 末尾「不完整字符序列」的字节数（0..=3）。
+///
+/// 用途：换行分包下，设备把一行拆成多次到达时，空闲封行会把未完成行提前吐出
+/// （partial 续行）；若切点正好落在多字节字符中间，该字符会被解成两个 U+FFFD。
+/// 封行前用本函数把不完整序列留回 pending，等下一批字节补齐即可还原。
+///
+/// `encoding` 传会话当前编码；`auto` 时按 UTF-8 / GBK 两种最常见情形保守取大。
+pub fn incomplete_char_tail(data: &[u8], encoding: &str) -> usize {
+    match encoding {
+        "utf-8" => utf8_incomplete_tail(data),
+        "gbk" | "gb2312" => gbk_incomplete_tail(data),
+        // 单字节编码不存在跨包截断
+        "latin-1" => 0,
+        // auto / 未知：按 UTF-8 与 GBK 两种最常见情形保守取大
+        _ => utf8_incomplete_tail(data).max(gbk_incomplete_tail(data)),
+    }
+}
+
 /// 滑动窗口自动编码检测（有状态，按方括号内思路实现）。
 ///
 /// 背景：`EncodingDetector::detect` 对**单条**短行不可靠——`chardetng` 样本太少会把
@@ -327,6 +381,64 @@ mod tests {
         let d = EncodingDetector;
         let (bytes, _) = encode("中文测试数据", "gbk");
         assert_eq!(d.decode(&bytes, "gbk"), "中文测试数据");
+    }
+
+    // ── 空闲封行的多字节保护：切点落在汉字中间时不能产出 U+FFFD ──
+    #[test]
+    fn incomplete_tail_detects_utf8() {
+        assert_eq!(incomplete_char_tail(b"abc", "utf-8"), 0);
+        assert_eq!(incomplete_char_tail("中".as_bytes(), "utf-8"), 0); // E4 B8 AD 完整
+        assert_eq!(incomplete_char_tail(&[0xE4, 0xB8], "utf-8"), 2); // 缺 1 字节
+        assert_eq!(incomplete_char_tail(&[0xE4], "utf-8"), 1);
+        assert_eq!(incomplete_char_tail(&[0xF0, 0x9F, 0x98], "utf-8"), 3); // 4 字节缺 1
+        assert_eq!(incomplete_char_tail(&[0xFF], "utf-8"), 0); // 非法首字节不算截断
+    }
+
+    #[test]
+    fn incomplete_tail_detects_gbk() {
+        let (bytes, _) = encode("更新 AP0 参数 显示: 1", "gbk");
+        assert_eq!(incomplete_char_tail(&bytes, "gbk"), 0); // 完整行
+        let cut = bytes
+            .windows(2)
+            .position(|w| w.len() == 2 && w[0] == 0xCA && w[1] == 0xFD)
+            .expect("CA FD 应存在");
+        assert_eq!(incomplete_char_tail(&bytes[..cut + 1], "gbk"), 1); // 砍在「数」中间
+        assert_eq!(incomplete_char_tail(&bytes[..cut + 2], "gbk"), 0); // 砍在「数」之后
+
+        // 纯 ASCII 收尾不算截断
+        let (ascii, _) = encode("GATEWAY STAT On", "gbk");
+        assert_eq!(incomplete_char_tail(&ascii, "gbk"), 0);
+        // 单字节编码永不截断
+        assert_eq!(incomplete_char_tail(&[0xB2], "latin-1"), 0);
+    }
+
+    /// 复现缺陷：一行被拆成两批、中间触发空闲封行 → 汉字被劈成两个 U+FFFD。
+    /// 用 incomplete_char_tail 把不完整首字节留回 pending 后，两批拼起来应还原完整文本。
+    #[test]
+    fn idle_flush_holds_incomplete_gbk_tail() {
+        let line = "更新 AP0 参数 显示: 1";
+        let (bytes, _) = encode(line, "gbk");
+        // 切在「数」(CA FD) 的第一个字节之后
+        let cut = bytes
+            .windows(2)
+            .position(|w| w.len() == 2 && w[0] == 0xCA && w[1] == 0xFD)
+            .expect("CA FD 应存在")
+            + 1;
+        let (head, rest) = bytes.split_at(cut);
+
+        let mut h = EncodingHistory::new(1024);
+        let keep = incomplete_char_tail(head, "gbk");
+        assert_eq!(keep, 1, "末尾孤立首字节应被保留");
+        let emitted = h.decode_line(&head[..head.len() - keep], "gbk");
+        assert!(!emitted.contains('\u{FFFD}'), "封行片段不应含替换字符");
+
+        // 下一批到齐：保留字节 + 剩余字节 → 完整
+        let mut joined = head[head.len() - keep..].to_vec();
+        joined.extend_from_slice(rest);
+        let tail_text = h.decode_line(&joined, "gbk");
+        assert_eq!(tail_text, "数 显示: 1");
+        // 两段拼起来正好还原整行
+        assert_eq!(format!("{emitted}{tail_text}"), line);
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crossbeam_channel::{bounded, select, tick, Sender};
 use maxcom_core::ansistrip::strip_ansi;
 use maxcom_core::bus::Bus;
 use maxcom_core::colorize::{ColorRule, ColorizeEngine};
-use maxcom_core::encoding::EncodingHistory;
+use maxcom_core::encoding::{incomplete_char_tail, EncodingHistory, AUTO};
 use maxcom_core::filter::{FilterEngine, FilterRule};
 use maxcom_core::framing::TimestampMode;
 use maxcom_core::plot::parser::{make_parser, FrameParser};
@@ -90,6 +90,20 @@ impl CaptureSink {
 /// 否则 splitter pending / time_buf 只涨不拆、batch 恒空，前端收不到任何 entries
 /// （xterm 走 raw 通道不受影响）；且最终一次性刷出的会是超大单行，前端渲染卡死。
 const PARTIAL_FLUSH_CAP: usize = 4096;
+
+/// 空闲封行 / 超长截断前，计算行尾「不完整多字节序列」的字节数。
+///
+/// 设备把一行拆成多次到达时，空闲封行会把未完成行提前吐出（前端 partial 续行接回去）；
+/// 如果切点正好落在汉字的两个字节中间，该字会被解成两个 U+FFFD。调用方据此把末尾
+/// 这几个字节留回 pending，等下一批到齐再一起解。auto 模式优先沿用滑窗已定编码。
+fn tail_hold_len(detector: &EncodingHistory, encoding: &str, raw: &[u8]) -> usize {
+    let effective = if encoding == AUTO {
+        detector.held_encoding()
+    } else {
+        encoding
+    };
+    incomplete_char_tail(raw, effective)
+}
 
 /// 日志条目 DTO（segments 已染色；前端直接渲染）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -581,7 +595,14 @@ impl SessionManager {
                         // 产生近 8KB 的 entry，硬约束单条 ≤ CAP 更稳。
                         if splitter.pending_bytes() >= PARTIAL_FLUSH_CAP {
                             let mut raw = splitter.flush_pending_line();
-                            let excess = raw.split_off(PARTIAL_FLUSH_CAP);
+                            let mut excess = raw.split_off(PARTIAL_FLUSH_CAP);
+                            // 截断点同样不能劈开多字节字符：把不完整尾巴并回余量
+                            let keep = tail_hold_len(&detector, &options.encoding, &raw);
+                            if keep > 0 && keep < raw.len() {
+                                let mut tail = raw.split_off(raw.len() - keep);
+                                tail.extend_from_slice(&excess);
+                                excess = tail;
+                            }
                             if !excess.is_empty() {
                                 let _ = splitter.feed(&excess); // 尾段无换行，feed 仅回填 pending
                             }
@@ -600,7 +621,15 @@ impl SessionManager {
                         if time_buf.len() >= PARTIAL_FLUSH_CAP {
                             let mut raw = std::mem::take(&mut time_buf);
                             if raw.len() > PARTIAL_FLUSH_CAP {
-                                time_buf.extend_from_slice(&raw.split_off(PARTIAL_FLUSH_CAP));
+                                let mut excess = raw.split_off(PARTIAL_FLUSH_CAP);
+                                // 同上：截断点不能劈开多字节字符
+                                let keep = tail_hold_len(&detector, &options.encoding, &raw);
+                                if keep > 0 && keep < raw.len() {
+                                    let mut tail = raw.split_off(raw.len() - keep);
+                                    tail.extend_from_slice(&excess);
+                                    excess = tail;
+                                }
+                                time_buf.extend_from_slice(&excess);
                             }
                             let raw_text = detector.decode_line(&raw, &options.encoding);
                             let segments = colorize.process_line(&raw_text);
@@ -619,12 +648,21 @@ impl SessionManager {
                         let idle_elapsed = now_mono_ms().saturating_sub(last_data_ms) >= options.idle_timeout_ms;
                         if options.split_mode == "line" {
                             if splitter.pending_bytes() > 0 && idle_elapsed {
-                                let raw = splitter.flush_pending_line();
-                                let raw_text = detector.decode_line(&raw, &options.encoding);
-                                let segments = colorize.process_line(&raw_text);
-                                let text = strip_ansi(&raw_text);
-                                if filter.should_show(&text) {
-                                    batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: true });
+                                let mut raw = splitter.flush_pending_line();
+                                // 切点落在多字节字符中间时把末尾不完整序列留回 pending：
+                                // 下一批字节到齐后前端 partial 续行会把它接回同一行，避免解出 U+FFFD。
+                                let keep = tail_hold_len(&detector, &options.encoding, &raw);
+                                if keep > 0 && keep < raw.len() {
+                                    let tail = raw.split_off(raw.len() - keep);
+                                    let _ = splitter.feed(&tail);
+                                }
+                                if !raw.is_empty() {
+                                    let raw_text = detector.decode_line(&raw, &options.encoding);
+                                    let segments = colorize.process_line(&raw_text);
+                                    let text = strip_ansi(&raw_text);
+                                    if filter.should_show(&text) {
+                                        batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: true });
+                                    }
                                 }
                             }
                         } else if !time_buf.is_empty() && idle_elapsed {
