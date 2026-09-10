@@ -176,6 +176,10 @@ pub struct SendPayload {
     /// 追加换行："none" | "\n" | "\r" | "\r\n"
     #[serde(default)]
     pub newline: String,
+    /// 本次发送是否参与本地回显（设备不回显时也能在收发区看到自己发了什么）。
+    /// 默认 false：终端击键、发文件分块、Modbus 组帧等都不该被当成接收内容刷进日志。
+    #[serde(default)]
+    pub echo: bool,
 }
 
 enum Cmd {
@@ -200,6 +204,8 @@ struct Active {
     label: String,
     dtr: Arc<AtomicBool>,
     rts: Arc<AtomicBool>,
+    /// 原始流总线：本地回显按 "log" 定向投递（不进绘图订阅者）
+    bus: Arc<Bus>,
 }
 
 /// 会话管理器：同一时刻至多一个活动连接（ADR-0016 单连接，多实例满足多端口）。
@@ -808,6 +814,7 @@ impl SessionManager {
             label: label.clone(),
             dtr,
             rts,
+            bus,
         });
         self.events.state(&ConnState {
             connected: true,
@@ -846,6 +853,11 @@ impl SessionManager {
                     .write_all(&bytes)
                     .map_err(|e| e.to_string())?;
                 a.stats.record_tx(n);
+                // 本地回显：设备不回显时也能在收发区看到自己发了什么。
+                // 只投给 "log"，避免发送内容被绘图线程当成接收帧解析。
+                if payload.echo {
+                    a.bus.publish_to("log", &bytes);
+                }
                 Ok(n)
             }
             None => Err("未连接".into()),

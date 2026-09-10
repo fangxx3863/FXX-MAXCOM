@@ -40,6 +40,19 @@ impl Bus {
         }
     }
 
+    /// 只投递给指定名字的订阅者。
+    ///
+    /// 用于本地回显：把本机发送的字节按「到达」喂给日志管线，但**不能**顺带喂给
+    /// 绘图订阅者，否则发送内容会被当成接收帧解析、污染曲线。
+    pub fn publish_to(&self, name: &str, data: &[u8]) {
+        let sinks = self.sinks.lock().unwrap();
+        for (n, tx) in sinks.iter() {
+            if n == name {
+                let _ = tx.send(data.to_vec());
+            }
+        }
+    }
+
     pub fn subscriber_count(&self) -> usize {
         self.sinks.lock().unwrap().len()
     }
@@ -49,6 +62,16 @@ impl Bus {
 mod tests {
     use super::*;
     use crossbeam_channel::TryRecvError;
+
+    #[test]
+    fn publish_to_targets_single_topic() {
+        let bus = Bus::new();
+        let log = bus.subscribe("log");
+        let plot = bus.subscribe("plot");
+        bus.publish_to("log", b"tx");
+        assert_eq!(log.recv().unwrap(), b"tx");
+        assert!(plot.try_recv().is_err(), "绘图订阅者不应收到定向消息");
+    }
 
     #[test]
     fn fans_out_to_all_subscribers() {

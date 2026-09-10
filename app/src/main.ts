@@ -1121,7 +1121,7 @@ class SessionApp {
     logView.tabIndex = 0; // 可聚焦，点击后才能接收键盘
     const sendRaw = (text: string) =>
       void this.api
-        .send({ text, newline: "none" })
+        .send({ text, newline: "none", echo: this.localEchoOn() })
         .catch((e) => {
           this.q("#send-hint").textContent = t("log.send.error", { e });
         });
@@ -1214,8 +1214,8 @@ class SessionApp {
     if (!content) return;
     const payload =
       this.sendModeDd.value === "hex"
-        ? { hex: content.trim(), newline: this.realNewline() }
-        : { text: content, newline: this.realNewline() };
+        ? { hex: content.trim(), newline: this.realNewline(), echo: this.localEchoOn() }
+        : { text: content, newline: this.realNewline(), echo: this.localEchoOn() };
     try {
       await this.api.send(payload);
       if (!textOverride) {
@@ -1227,6 +1227,11 @@ class SessionApp {
       hint.textContent = t("log.send.error", { e });
       setTimeout(() => (hint.textContent = ""), 3000);
     }
+  }
+
+  /** 收发模式的本地回显开关（终端/发文件/Modbus 另有路径，不受此开关影响） */
+  private localEchoOn(): boolean {
+    return this.q<HTMLInputElement>("#local-echo").checked;
   }
 
   private realNewline(): string {
@@ -1454,9 +1459,9 @@ class SessionApp {
 
   private async sendMsRow(row: MsRow) {
     if (row.hex) {
-      await this.api.send({ hex: row.content, newline: "none" });
+      await this.api.send({ hex: row.content, newline: "none", echo: this.localEchoOn() });
     } else {
-      await this.api.send({ text: row.content, newline: this.realNewline() });
+      await this.api.send({ text: row.content, newline: this.realNewline(), echo: this.localEchoOn() });
     }
   }
 
@@ -1656,6 +1661,7 @@ class SessionApp {
     r["tsmode"] = this.tsModeDd.value;
     r["encoding"] = this.encodingDd.value;
     r["splitmode"] = this.splitModeDd.value;
+    r["localecho"] = this.q<HTMLInputElement>("#local-echo").checked ? "1" : "";
     r["idletimeout"] = (this.q("#idle-timeout") as HTMLInputElement).value;
     r["hexdisp"] = this.q<HTMLInputElement>("#hex-display").checked ? "1" : "";
     r["autoscroll"] = this.q<HTMLInputElement>("#autoscroll").checked ? "1" : "";
@@ -1744,6 +1750,7 @@ class SessionApp {
     if (g("encoding")) this.encodingDd.setValue(g("encoding"));
     if (g("idletimeout")) (this.q("#idle-timeout") as HTMLInputElement).value = g("idletimeout");
     if (g("splitmode")) this.splitModeDd.setValue(g("splitmode"));
+    if (g("localecho")) this.q<HTMLInputElement>("#local-echo").checked = true;
     this.syncIdleTimeout();
     const hexOn = !!g("hexdisp");
     {

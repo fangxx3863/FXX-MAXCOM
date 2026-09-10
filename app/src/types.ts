@@ -98,6 +98,8 @@ export interface SendPayload {
   text?: string;
   hex?: string;
   newline: string;
+  /** 本次发送是否参与本地回显（收发模式「本地回显」开关；发文件/终端/Modbus 不传） */
+  echo?: boolean;
 }
 
 export interface ColoredSegment {

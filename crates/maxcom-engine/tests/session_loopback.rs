@@ -87,6 +87,7 @@ fn full_pipeline_over_tcp_loopback() {
             text: Some("hello".into()),
             hex: None,
             newline: "\r\n".into(),
+            echo: false,
         })
         .expect("send");
     assert_eq!(n, 7);
@@ -129,12 +130,14 @@ fn full_pipeline_over_tcp_loopback() {
         text: Some("hello again".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     mgr.send(&SendPayload {
         text: Some("visible".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     wait_until(
@@ -185,12 +188,14 @@ fn filters_set_before_connect_apply_after_connect() {
         text: Some("hello world".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     mgr.send(&SendPayload {
         text: Some("keep visible".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
 
@@ -244,6 +249,7 @@ fn send_without_connection_errors() {
         text: Some("x".into()),
         hex: None,
         newline: "none".into(),
+        echo: false,
     });
     assert!(err.is_err());
 }
@@ -283,6 +289,7 @@ fn plot_ascii_package_mode_overwrites_channel() {
         text: Some("1,2,3\n4,5,6\n".into()),
         hex: None,
         newline: "none".into(),
+        echo: false,
     })
     .expect("send");
 
@@ -323,6 +330,7 @@ fn plot_format_set_after_connect_parses_frames() {
         text: Some("123456,123456\n123456,123456\n".into()),
         hex: None,
         newline: "none".into(),
+        echo: false,
     })
     .expect("send");
 
@@ -379,6 +387,7 @@ fn auto_reconnect_restores_link() {
         text: Some("ping-1".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     assert!(
@@ -398,6 +407,7 @@ fn auto_reconnect_restores_link() {
         text: Some("ping-2".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     assert!(
@@ -422,6 +432,7 @@ fn no_reconnect_when_disabled() {
         text: Some("bye".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     assert!(
@@ -455,6 +466,7 @@ fn capture_roundtrip_to_file() {
         text: Some("capture-me".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     assert!(
@@ -486,6 +498,7 @@ fn capture_streams_large_payload_beyond_chunk() {
         text: Some(big.clone()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     let expected = big.len() as u64 + 1;
@@ -519,6 +532,7 @@ fn capture_cancel_discards_temp_and_stops() {
         text: Some("x".into()),
         hex: None,
         newline: "\n".into(),
+        echo: false,
     })
     .unwrap();
     assert!(
@@ -558,6 +572,7 @@ fn line_split_idle_flush_marks_partial() {
         text: Some("prompt".into()),
         hex: None,
         newline: "none".into(),
+        echo: false,
     })
     .unwrap();
 
@@ -597,6 +612,7 @@ fn timeout_mode_chunks_whole_burst_as_single_entry() {
         text: Some("a\r\nb\r\nc".into()),
         hex: None,
         newline: "none".into(),
+        echo: false,
     })
     .unwrap();
 
@@ -639,6 +655,7 @@ fn assert_lf_free_stream_streams(rec: &Arc<Recorder>, mgr: &SessionManager, tota
             text: None,
             hex: Some(hex),
             newline: "none".into(),
+            echo: false,
         })
         .expect("send");
     assert_eq!(n, total);
@@ -697,5 +714,79 @@ fn long_lf_free_stream_streams_entries_timeout_mode() {
     });
     mgr.connect(tcp_cfg(port)).expect("connect");
     assert_lf_free_stream_streams(&rec, &mgr, 20_000);
+    mgr.disconnect();
+}
+
+/// 静止服务器：接受连接并持续读取，但从不回复（模拟"设备不回显"）。
+fn spawn_sink_server() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut s = stream;
+            let _ = s.set_read_timeout(Some(Duration::from_millis(50)));
+            let mut buf = [0u8; 1024];
+            loop {
+                match s.read(&mut buf) {
+                    Ok(0) => break,                                          // 对端关闭
+                    Ok(_) => {}                                              // 只读不回
+                    Err(_) => std::thread::sleep(Duration::from_millis(10)), // 读超时：连接保持
+                }
+            }
+        }
+    });
+    port
+}
+
+/// 本地回显：设备不回显时也能在收发区看到自己发了什么。
+/// 由 SendPayload.echo 按次决定——取 false 时不产出日志行；取 true 时产出，
+/// 且只进 "log" 订阅者（不污染终端/绘图的原始流）。
+#[test]
+fn local_echo_shows_sent_text_when_device_silent() {
+    let port = spawn_sink_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.connect(tcp_cfg(port)).expect("connect");
+
+    let payload = |text: &str, echo: bool| SendPayload {
+        text: Some(text.into()),
+        hex: None,
+        newline: "\n".into(),
+        echo,
+    };
+
+    // ── echo=false：内容照常发出，但不进收发区 ──
+    mgr.send(&payload("PING", false)).expect("send");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !rec.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| e.text.contains("PING")),
+        "echo=false 时不应产出日志行"
+    );
+    assert_eq!(mgr.stats().tx_bytes, 5, "字节应照常写出");
+
+    // ── echo=true：同一路径应产出日志行 ──
+    mgr.send(&payload("ECHO", true)).expect("send");
+    assert!(
+        wait_until(
+            || rec
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.text.contains("ECHO")),
+            Duration::from_secs(3)
+        ),
+        "echo=true 时应产出日志行"
+    );
+    assert!(
+        rec.raw.lock().unwrap().is_empty(),
+        "本地回显只进日志管线，不应进入原始流（终端/绘图）"
+    );
+    assert_eq!(mgr.stats().tx_bytes, 10, "响应回来后 TX 也不受影响");
+
     mgr.disconnect();
 }
