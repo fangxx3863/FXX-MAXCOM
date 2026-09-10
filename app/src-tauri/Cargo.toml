@@ -38,3 +38,17 @@ desktop = ["maxcom-engine/serial", "maxcom-engine/rtt", "maxcom-engine/usb"]
 # 移动端（Android/iOS）：串口枚举/RTT 不可用，仅网络传输
 mobile = []
 custom-protocol = ["tauri/custom-protocol"]
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_HiDpi",
+] }
+# 与 wry 使用的版本保持一致，用于开启 WebView2 的「非客户区支持」，
+# 这是自绘标题栏拿到 Win11 原生 Snap Layout 的前提。
+webview2-com = "0.38"
+

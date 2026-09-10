@@ -5,6 +5,9 @@
 pub mod commands;
 pub mod events;
 
+#[cfg(windows)]
+pub mod win32;
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -14,6 +17,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(commands::AppState::new(app.handle().clone()));
+
+            #[cfg(windows)]
+            win32::setup_win32_window(app.handle());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

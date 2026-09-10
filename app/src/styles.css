@@ -759,7 +759,7 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 }
 #tab-new:hover { background: var(--bg3); color: var(--fg); }
 .tb-drag { flex: 0 0 auto; width: 36px; }
-#win-controls { display: flex; align-items: stretch; }
+#win-controls { display: flex; align-items: stretch; align-self: stretch; }
 #win-controls button {
   width: 44px; border: none; border-radius: 0; background: transparent;
   color: var(--fg-dim); font-size: 12px; padding: 0; cursor: pointer;
@@ -768,6 +768,15 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 #win-controls button:hover { background: var(--bg3); color: var(--fg); }
 #win-controls #win-close:hover { background: var(--err); color: #fff; }
 #win-controls button svg { display: block; flex: none; }
+/* 窗口按钮交给系统做命中测试。
+   配合 Rust 侧开启的 WebView2 非客户区支持，这块区域会被当作非客户区交还给
+   宿主窗口，从而让 Windows 11 在悬停「最大化」时弹出原生 Snap Layout 贴靠面板。
+   app-region 只对 WebView2 生效，浏览器预览下无副作用。 */
+#win-controls,
+#win-controls button {
+  app-region: drag;
+  -webkit-app-region: drag;
+}
 #win-max .icon-restore { display: none; }
 #win-max.maxed .icon-max { display: none; }
 #win-max.maxed .icon-restore { display: block; }
@@ -1056,7 +1065,7 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 #explode-overlay.hidden { display: none; }
 #explode-topbar {
   flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
-  height: 40px; padding: 0 14px;
+  height: 38px; padding: 0 0 0 14px;
   background: var(--bg2); border-bottom: 1px solid var(--border);
 }
 #explode-title { font-weight: 600; color: var(--fg); }
