@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "maxcom"
-version = "0.2.0"
+version = "0.2.0-rc.1"
 dependencies = [
  "base64 0.22.1",
  "log 0.4.34",
@@ -2851,7 +2851,7 @@ dependencies = [
 
 [[package]]
 name = "maxcom-core"
-version = "0.2.0"
+version = "0.2.0-rc.1"
 dependencies = [
  "ansitok",
  "chardetng",
@@ -2866,7 +2866,7 @@ dependencies = [
 
 [[package]]
 name = "maxcom-engine"
-version = "0.2.0"
+version = "0.2.0-rc.1"
 dependencies = [
  "bytes",
  "crossbeam-channel",

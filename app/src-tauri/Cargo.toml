@@ -1,6 +1,6 @@
 [package]
 name = "maxcom"
-version = "0.2.0"
+version = "0.2.0-rc.1"
 edition = "2021"
 license = "MIT"
 description = "MAXCOM 桌面外壳：Tauri 薄胶水层"
@@ -51,4 +51,3 @@ windows = { version = "0.61.3", features = [
 # 与 wry 使用的版本保持一致，用于开启 WebView2 的「非客户区支持」，
 # 这是自绘标题栏拿到 Win11 原生 Snap Layout 的前提。
 webview2-com = "0.38"
-

@@ -64,6 +64,15 @@ npm run tauri dev
 npm run tauri build  # NSIS 安装包
 ```
 
+## 📦 发布产物
+
+推送 `v*` tag 会自动构建 Release；tag 中带 `-`（例如 `v0.2.0-rc.1`）会标记为 pre-release。
+
+- **Windows**：NSIS 安装器、便携单文件 `.exe`、便携单文件 `.zip`
+- **Linux**：`.deb` / `.AppImage`、便携单文件、便携单文件 `.zip`
+- **macOS**：`.dmg`、便携 `MAXCOM.app` 的 `.zip`
+- **Android**：可安装 `.apk`
+
 ## 📁 项目结构
 
 ```
@@ -150,6 +159,15 @@ npm run build        # selector validation + tsc + vite + smoke + pure-logic/DOM
 npm run tauri dev
 npm run tauri build  # NSIS installer
 ```
+
+## 📦 Release artifacts
+
+Pushing a `v*` tag creates a release automatically. Tags containing `-` (for example `v0.2.0-rc.1`) are marked as pre-releases.
+
+- **Windows**: NSIS installer, portable single-file `.exe`, and portable `.zip`
+- **Linux**: `.deb` / `.AppImage`, portable single-file, and portable `.zip`
+- **macOS**: `.dmg` and a portable `MAXCOM.app` `.zip`
+- **Android**: installable `.apk`
 
 ## 📁 Project structure
 

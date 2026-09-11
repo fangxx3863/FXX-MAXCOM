@@ -5,7 +5,7 @@ members = ["crates/maxcom-core", "crates/maxcom-engine"]
 exclude = ["app/src-tauri"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.0-rc.1"
 edition = "2021"
 license = "MIT"
 authors = ["FXX-MAXCOM contributors"]

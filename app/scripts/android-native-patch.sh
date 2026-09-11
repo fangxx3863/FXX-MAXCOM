@@ -30,7 +30,8 @@ if [ -n "$MAIN_ACT" ]; then
   cp "$SCRIPT_DIR/android/MainActivity.kt" "$MAIN_ACT"
   echo "   已用固定版 MainActivity.kt 覆盖（挂 WindowInsets 监听，把内容推回状态栏安全区）"
 else
-  echo "   警告：未找到 MainActivity.kt，跳过状态栏修复"
+  echo "错误：未找到 MainActivity.kt，无法应用状态栏修复" >&2
+  exit 1
 fi
 
 echo "== 安卓原生补丁：(2/3) 键盘 resize -> 加 windowSoftInputMode =="
@@ -50,13 +51,15 @@ else:
         s, count=1,
     )
     if s2 == s:
-        print("   警告：未找到 <activity android:exported=\"true\">，请检查 manifest")
+        print("错误：未找到 <activity android:exported=\"true\">，无法应用键盘修复", file=sys.stderr)
+        raise SystemExit(1)
     else:
         open(p, "w", encoding="utf-8").write(s2)
         print('   已注入 android:windowSoftInputMode="adjustResize"（键盘弹起时窗口缩小，文字区随之收缩）')
 PY
 else
-  echo "   警告：未找到 AndroidManifest.xml，跳过键盘修复"
+  echo "错误：未找到 AndroidManifest.xml，无法应用键盘修复" >&2
+  exit 1
 fi
 
 echo "== 安卓原生补丁：(3/3) 签名 -> release 加 signingConfig =="
@@ -80,13 +83,15 @@ else:
         s, count=1,
     )
     if s2 == s:
-        print("   警告：未找到 getByName(\"release\") 块，请检查 build.gradle.kts")
+        print("错误：未找到 getByName(\"release\") 块，无法应用 APK 签名", file=sys.stderr)
+        raise SystemExit(1)
     else:
         open(p, "w", encoding="utf-8").write(s2)
         print('   已为 release 注入 signingConfig = signingConfigs.getByName("debug")（APK 已签名、可安装）')
 PY
 else
-  echo "   警告：未找到 app/build.gradle.kts，跳过签名修复"
+  echo "错误：未找到 app/build.gradle.kts，无法应用 APK 签名" >&2
+  exit 1
 fi
 
 echo "== 安卓原生补丁完成 =="
