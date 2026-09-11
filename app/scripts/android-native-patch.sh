@@ -24,18 +24,18 @@ if [ -z "$PY" ]; then echo "错误：未找到可用的 python（python3/python�
 echo ">> 使用解释器: $PY"
 
 echo "== 安卓原生补丁：(1/3) 状态栏遮挡 -> 固定 MainActivity.kt（WindowInsets 安全区） =="
-MAIN_ACT="$(find "$GEN" -path "*app/src/main/MainActivity.kt" | head -1)"
+MAIN_ACT="$(find "$GEN" -name "MainActivity.kt" -print -quit)"
 echo "   MainActivity: ${MAIN_ACT:-未找到}"
 if [ -n "$MAIN_ACT" ]; then
   cp "$SCRIPT_DIR/android/MainActivity.kt" "$MAIN_ACT"
   echo "   已用固定版 MainActivity.kt 覆盖（挂 WindowInsets 监听，把内容推回状态栏安全区）"
 else
-  echo "错误：未找到 MainActivity.kt，无法应用状态栏修复" >&2
+  echo "错误：未找到 MainActivity.kt；请先运行 npx tauri android init --ci，并检查 Tauri 模板结构" >&2
   exit 1
 fi
 
 echo "== 安卓原生补丁：(2/3) 键盘 resize -> 加 windowSoftInputMode =="
-MANIFEST="$(find "$GEN" -path "*app/src/main/AndroidManifest.xml" | head -1)"
+MANIFEST="$(find "$GEN" -path "*/app/src/main/AndroidManifest.xml" -print -quit)"
 echo "   Manifest: ${MANIFEST:-未找到}"
 if [ -n "$MANIFEST" ]; then
   "$PY" - "$MANIFEST" <<'PY'
@@ -63,7 +63,7 @@ else
 fi
 
 echo "== 安卓原生补丁：(3/3) 签名 -> release 加 signingConfig =="
-GRADLE="$(find "$GEN" -path "*app/build.gradle.kts" | head -1)"
+GRADLE="$(find "$GEN" -path "*/app/build.gradle.kts" -print -quit)"
 echo "   Gradle: ${GRADLE:-未找到}"
 if [ -n "$GRADLE" ]; then
   "$PY" - "$GRADLE" <<'PY'
