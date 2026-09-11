@@ -157,7 +157,8 @@ globalThis.__LogViewPage = LogViewPage;
   const autoscroll = document.createElement("input");
   autoscroll.type = "checkbox";
   autoscroll.checked = false;
-  new LogViewPage(view, { autoscroll, getTsMode: () => "absolute" });
+  let tsMode = "absolute";
+  const page = new LogViewPage(view, { autoscroll, getTsMode: () => tsMode });
 
   autoscroll.dispatchEvent(new w.Event("change", { bubbles: true }));
   check("未勾选时 change 不滚动", view.scrollTop === 0);
@@ -165,6 +166,36 @@ globalThis.__LogViewPage = LogViewPage;
   autoscroll.checked = true;
   autoscroll.dispatchEvent(new w.Event("change", { bubbles: true }));
   check("勾选自动滚动→立即滚到底", view.scrollTop === 200);
+
+  // 历史快照导出：跟随当前时间戳、HEX 显示与快捷过滤。
+  const anchor = new Date(2026, 7, 27, 12, 0, 0).getTime();
+  page.append({
+    epoch_anchor_ms: anchor,
+    items: [
+      { ts_ms: 100, text: "hello", raw_hex: "48 65 6C 6C 6F", segments: [{ text: "hello" }] },
+      { ts_ms: 160, text: "world", raw_hex: "77 6F 72 6C 64", segments: [{ text: "world" }] },
+    ],
+  });
+  check(
+    "历史导出沿用绝对时间戳与文本显示",
+    page.historyText() === timeOnly(anchor + 100).padEnd(12) + " hello\n" + timeOnly(anchor + 160).padEnd(12) + " world\n",
+  );
+
+  page.setHexDisplay(true);
+  check(
+    "历史导出沿用 HEX 显示",
+    page.historyText() === timeOnly(anchor + 100).padEnd(12) + " 48 65 6C 6C 6F\n" + timeOnly(anchor + 160).padEnd(12) + " 77 6F 72 6C 64\n",
+  );
+
+  tsMode = "relative";
+  page.setTsMode();
+  check(
+    "历史导出跟随时间戳模式切换",
+    page.historyText() === "+100ms".padEnd(12) + " 48 65 6C 6C 6F\n" + "+160ms".padEnd(12) + " 77 6F 72 6C 64\n",
+  );
+
+  page.setQuickFilter("world");
+  check("历史导出遵循快捷过滤", page.historyText() === "+160ms".padEnd(12) + " 77 6F 72 6C 64\n");
 }
 
 await partA();

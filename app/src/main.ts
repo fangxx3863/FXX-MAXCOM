@@ -972,6 +972,8 @@ class SessionApp {
       void this.api.clearLog();
     });
 
+    this.q("#save-history-btn").addEventListener("click", () => void this.saveHistory());
+
     this.q("#quick-filter").addEventListener("input", (e) => {
       const v = (e.target as HTMLInputElement).value;
       if (this.quickFilterTimer !== null) window.clearTimeout(this.quickFilterTimer);
@@ -1298,6 +1300,28 @@ class SessionApp {
     }
     btn.textContent = t("log.captureBin");
     btn.classList.remove("recording");
+  }
+
+  /** 保存当前收发窗口的历史快照：直接导出 LogViewPage 已渲染语义的内容。 */
+  private async saveHistory() {
+    const content = this.logViewPage.historyText();
+    if (!content) {
+      this.setHint(t("log.saveHistory.empty"), false);
+      return;
+    }
+
+    const stem = captureStem(this.captureBaseName(""), this.captureDeviceToken(), Date.now());
+    const defaultName = `${stem}_history.log`;
+    const path = await pickSavePath(defaultName);
+    if (path) {
+      const n = await saveTextFile(path, content);
+      this.setHint(t("log.saveHistory.savedPath", { size: n, path }), false);
+    } else if (IS_TAURI) {
+      this.setHint(t("log.saveHistory.cancelled"), false);
+    } else {
+      downloadTextFile(defaultName, content);
+      this.setHint(t("log.saveHistory.saved", { size: content.length }), false);
+    }
   }
 
   /** 日志捕获切换：进行中累计文本行，停止后保存为可读文本 */

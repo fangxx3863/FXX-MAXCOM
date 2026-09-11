@@ -161,6 +161,17 @@ export class LogViewPage {
     }
   }
 
+  /** 当前窗口的历史快照：沿用当前时间戳、HEX 显示及快捷过滤状态 */
+  historyText(): string {
+    const lines: string[] = [];
+    for (const row of this.rows) {
+      if (!this.rowVisible(row)) continue;
+      const body = this.hexDisplay ? row.rawHex || t("log.empty") : row.text;
+      lines.push(row.tsText ? row.tsText.padEnd(12) + " " + body : body);
+    }
+    return lines.length ? lines.join("\n") + "\n" : "";
+  }
+
   /** 收到批量日志条目：入队数据模型 + 追加/刷新渲染（成本恒定，与总行数无关） */
   append(batch: EntriesBatch) {
     this.refreshRowHeight();
@@ -250,18 +261,23 @@ export class LogViewPage {
       this.chunks[ci] = el;
     }
     el.style.minHeight = "";
-    const f = this.quickFilter;
     const start = ci * this.rowsPerPage;
     const end = Math.min(start + this.rowsPerPage, this.rows.length);
     const frag = document.createDocumentFragment();
     for (let i = start; i < end; i++) {
       const row = this.rows[i];
       const line = this.createLine(row);
-      const hide = !!f && (f.regex ? !f.regex.test(row.text) : !row.text.includes(f.text!));
-      if (hide) line.classList.add("hidden");
+      if (!this.rowVisible(row)) line.classList.add("hidden");
       frag.appendChild(line);
     }
     el.replaceChildren(frag);
+  }
+
+  /** 快捷过滤命中判定：渲染与导出共用，保证保存内容等同当前窗口。 */
+  private rowVisible(row: Row): boolean {
+    const f = this.quickFilter;
+    if (!f) return true;
+    return f.regex ? f.regex.test(row.text) : row.text.includes(f.text!);
   }
 
   /** 卸载 chunk：清空内容保留容器，高度改为实测（首查）或估算占位 */

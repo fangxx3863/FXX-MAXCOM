@@ -101,8 +101,9 @@
                 <label><input id="autoscroll" type="checkbox" checked /><span data-i18n="log.autoscroll">自动滚动</span></label>
                 <input id="quick-filter" data-i18n-placeholder="log.filter.placeholder" data-i18n-title="log.filter.title" placeholder="过滤：仅显示匹配行" title="支持正则（非法时按子串匹配），对新旧数据即时生效" size="16" />
                 <button id="clear-log" data-i18n="common.clear">清空</button>
-                <button id="toggle-multistr" title="多字符串/HEX 发送面板" data-i18n-title="log.multistr.title" data-i18n="log.multistr">☰ 多字符串</button>
-                <button id="toggle-rules" title="过滤与染色规则" data-i18n-title="log.rules.title" data-i18n="log.rules">🎨 规则</button>
+                <button id="save-history-btn" title="保存当前收发窗口的全部内容" data-i18n-title="log.saveHistory.title" data-i18n="log.saveHistory">保存历史</button>
+                <button id="toggle-multistr" title="多字符串/HEX 发送面板" data-i18n-title="log.multistr.title" data-i18n="log.multistr">多字符串</button>
+                <button id="toggle-rules" title="过滤与染色规则" data-i18n-title="log.rules.title" data-i18n="log.rules">规则</button>
               </div>
               <div id="log-view"></div>
               <div id="send-panel">
@@ -120,8 +121,8 @@
                   <span class="spacer"></span>
                   <button id="file-btn" title="分块发送文件原始字节" data-i18n-title="log.file.title" data-i18n="log.file">发文件</button>
                   <input id="file-input" type="file" class="hidden" />
-                  <button id="capture-bin-btn" title="捕获接收数据为原始二进制（分块写临时目录，支持 G 级数据）" data-i18n-title="log.captureBin.title" data-i18n="log.captureBin">● 捕获二进制</button>
-                  <button id="capture-log-btn" title="捕获接收日志为可读文本文件" data-i18n-title="log.captureLog.title" data-i18n="log.captureLog">▤ 捕获日志</button>
+                  <button id="capture-bin-btn" title="捕获接收数据为原始二进制（分块写临时目录，支持 G 级数据）" data-i18n-title="log.captureBin.title" data-i18n="log.captureBin">捕获二进制</button>
+                  <button id="capture-log-btn" title="捕获接收日志为可读文本文件" data-i18n-title="log.captureLog.title" data-i18n="log.captureLog">捕获日志</button>
                   <button id="send-btn" class="primary" data-i18n="log.send.main">发送 Ctrl+↵</button>
                 </div>
               </div>
