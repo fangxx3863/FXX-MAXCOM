@@ -1,4 +1,4 @@
-package fun.fangxx.maxcom
+package `fun`.fangxx.maxcom
 
 import android.graphics.Color
 import android.os.Bundle

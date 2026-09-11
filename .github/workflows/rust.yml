@@ -140,8 +140,12 @@ jobs:
           mkdir -p dist-artifacts
           version="$(node -p "require('./app/src-tauri/tauri.conf.json').version")"
           arch="$(uname -m)"
-          app_dir="app/src-tauri/target/release/bundle/macos/MAXCOM.app"
-          test -d "$app_dir"
+          app_dir="$(find app/src-tauri/target -type d -name '*.app' -print -quit)"
+          if [ -z "$app_dir" ]; then
+            echo "::error::未找到 macOS .app bundle"
+            find app/src-tauri/target -type d -name '*.app' -print
+            exit 1
+          fi
           ditto -c -k --sequesterRsrc --keepParent "$app_dir" "dist-artifacts/MAXCOM_${version}_macos-${arch}-portable.zip"
           find app/src-tauri/target/release/bundle -type f \( -name "*.dmg" \) -exec cp {} dist-artifacts/ \;
       - name: 打印产物清单
