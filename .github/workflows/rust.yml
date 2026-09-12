@@ -140,14 +140,34 @@ jobs:
           mkdir -p dist-artifacts
           version="$(node -p "require('./app/src-tauri/tauri.conf.json').version")"
           arch="$(uname -m)"
-          app_dir="$(find app/src-tauri/target -type d -name '*.app' -print -quit)"
-          if [ -z "$app_dir" ]; then
-            echo "::error::未找到 macOS .app bundle"
-            find app/src-tauri/target -type d -name '*.app' -print
+          dmg="$(find app/src-tauri/target -type f -name '*.dmg' -print -quit)"
+          if [ -z "$dmg" ]; then
+            echo "::error::未找到 macOS .dmg"
+            find app/src-tauri/target -type f -name '*.dmg' -print
             exit 1
           fi
+          cp "$dmg" dist-artifacts/
+
+          app_dir="$(find app/src-tauri/target -type d -name '*.app' -print -quit)"
+          if [ -z "$app_dir" ]; then
+            mount_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/maxcom-dmg.XXXXXX")"
+            cleanup_dmg() {
+              if [ -n "${mount_dir:-}" ]; then
+                hdiutil detach "$mount_dir" >/dev/null 2>&1 || true
+                rmdir "$mount_dir" 2>/dev/null || true
+              fi
+            }
+            trap cleanup_dmg EXIT
+            hdiutil attach -nobrowse -readonly -mountpoint "$mount_dir" "$dmg" >/dev/null
+            app_dir="$(find "$mount_dir" -type d -name '*.app' -print -quit)"
+            if [ -z "$app_dir" ]; then
+              echo "::error::dmg 中未找到 .app bundle"
+              find "$mount_dir" -type d -print
+              exit 1
+            fi
+          fi
+
           ditto -c -k --sequesterRsrc --keepParent "$app_dir" "dist-artifacts/MAXCOM_${version}_macos-${arch}-portable.zip"
-          find app/src-tauri/target/release/bundle -type f \( -name "*.dmg" \) -exec cp {} dist-artifacts/ \;
       - name: 打印产物清单
         shell: bash
         run: ls -la dist-artifacts
