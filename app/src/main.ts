@@ -41,6 +41,8 @@ interface AppSettings {
   theme: string;
   /** 图表导出样式：theme=跟随主题；paper=论文风格（白底仿 LaTeX） */
   chartStyle: string;
+  /** 是否记忆上次关闭时的窗口尺寸和位置 */
+  rememberWindowState: boolean;
   /** 界面整体缩放（DPI）：100=100%，125=125% 等 */
   uiScale: number;
   /** 捕获日志时间戳格式 */
@@ -58,6 +60,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   termSize: 14,
   theme: "dark",
   chartStyle: "theme",
+  rememberWindowState: true,
   uiScale: 100,
   captureLogFormat: "follow",
   explodeType: "logview",
@@ -1857,6 +1860,8 @@ class SessionApp {
     if (themeSel) themeSel.value = st.theme;
     const chartStyleSel = this.q<HTMLSelectElement>("#set-chart-style");
     if (chartStyleSel) chartStyleSel.value = st.chartStyle;
+    const rememberWinInput = this.q<HTMLInputElement>("#set-remember-window");
+    if (rememberWinInput) rememberWinInput.checked = st.rememberWindowState ?? true;
     const uiScaleSel = this.q<HTMLSelectElement>("#set-ui-scale");
     if (uiScaleSel) uiScaleSel.value = String(st.uiScale);
     const logFmtSel = this.q<HTMLSelectElement>("#set-capture-log-fmt");
@@ -1886,6 +1891,16 @@ class SessionApp {
     chartStyleSel.addEventListener("change", () =>
       saveSettings({ ...currentSettings, chartStyle: chartStyleSel.value }),
     );
+    const rememberWinInput = this.q<HTMLInputElement>("#set-remember-window");
+    if (rememberWinInput) {
+      rememberWinInput.addEventListener("change", () => {
+        const enabled = rememberWinInput.checked;
+        saveSettings({ ...currentSettings, rememberWindowState: enabled });
+        if (!enabled) {
+          localStorage.removeItem("maxcom_window_state");
+        }
+      });
+    }
     // 界面整体缩放（DPI）：即时生效并持久化；100% 时浏览器退回默认（zoom:1）
     const uiScaleSel = this.q<HTMLSelectElement>("#set-ui-scale");
     if (uiScaleSel) {
@@ -2694,7 +2709,7 @@ window.addEventListener("keydown", (e) => {
 
 // ── 自绘标题栏：最小化 / 最大化 / 关闭（Tauri 权限已在 capabilities 开启）──
 if (IS_TAURI) {
-  void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+  void import("@tauri-apps/api/window").then(({ getCurrentWindow, availableMonitors }) => {
     const win = getCurrentWindow();
     document.getElementById("win-min")?.addEventListener("click", () => void win.minimize());
     document.getElementById("win-max")?.addEventListener("click", () => void win.toggleMaximize());
@@ -2731,7 +2746,96 @@ if (IS_TAURI) {
     void win.isMaximized().then((m) => document.getElementById("win-max")?.classList.toggle("maxed", m));
     void win.onResized(() => {
       void win.isMaximized().then((m) => document.getElementById("win-max")?.classList.toggle("maxed", m));
+      scheduleSaveWindowState();
     });
+    void win.onMoved(() => {
+      scheduleSaveWindowState();
+    });
+
+    // ── 记忆与恢复上次关闭时的窗口尺寸和位置 ──
+    const WINDOW_STATE_KEY = "maxcom_window_state";
+    interface WindowState {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      maximized: boolean;
+    }
+
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+    function scheduleSaveWindowState() {
+      if (!currentSettings.rememberWindowState) return;
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        void (async () => {
+          try {
+            const maxed = await win.isMaximized();
+            if (maxed) {
+              const raw = localStorage.getItem(WINDOW_STATE_KEY);
+              const prev: Partial<WindowState> = raw ? JSON.parse(raw) : {};
+              localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify({ ...prev, maximized: true }));
+              return;
+            }
+            const pos = await win.outerPosition();
+            const size = await win.outerSize();
+            if (size.width > 100 && size.height > 100) {
+              const state: WindowState = {
+                x: pos.x,
+                y: pos.y,
+                width: size.width,
+                height: size.height,
+                maximized: false,
+              };
+              localStorage.setItem(WINDOW_STATE_KEY, JSON.stringify(state));
+            }
+          } catch {
+            // 忽略读取或保存失败
+          }
+        })();
+      }, 300);
+    }
+
+    // 启动时恢复窗口位置与尺寸
+    void (async () => {
+      try {
+        if (!currentSettings.rememberWindowState) return;
+        const raw = localStorage.getItem(WINDOW_STATE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw) as Partial<WindowState>;
+        if (
+          typeof saved.width === "number" &&
+          typeof saved.height === "number" &&
+          typeof saved.x === "number" &&
+          typeof saved.y === "number" &&
+          saved.width >= 300 &&
+          saved.height >= 200
+        ) {
+          const monitors = await availableMonitors();
+          const isVisibleOnAnyMonitor = monitors.some((m: any) => {
+            const mx = m.position.x;
+            const my = m.position.y;
+            const mw = m.size.width;
+            const mh = m.size.height;
+            return (
+              saved.x! + saved.width! > mx + 100 &&
+              saved.x! < mx + mw - 100 &&
+              saved.y! + saved.height! > my + 100 &&
+              saved.y! < my + mh - 100
+            );
+          });
+          if (isVisibleOnAnyMonitor || monitors.length === 0) {
+            const { PhysicalPosition, PhysicalSize } = await import("@tauri-apps/api/dpi");
+            await win.setSize(new PhysicalSize(saved.width, saved.height));
+            await win.setPosition(new PhysicalPosition(saved.x, saved.y));
+          }
+        }
+        if (saved.maximized) {
+          await win.maximize();
+        }
+      } catch {
+        // 恢复失败则采用默认布局
+      }
+    })();
   });
 } else {
   document.getElementById("win-controls")?.classList.add("hidden");
