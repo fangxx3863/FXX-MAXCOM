@@ -864,6 +864,21 @@ impl SessionManager {
         }
     }
 
+    /// 调整终端/PTY 窗口尺寸（SSH 会同步向远端发送 WindowChange 报文）。
+    pub fn resize_pty(&self, cols: u16, rows: u16) -> Result<(), String> {
+        let guard = self.active.lock().unwrap();
+        match &*guard {
+            Some(a) => {
+                a.write
+                    .lock()
+                    .unwrap()
+                    .resize_pty(cols, rows)
+                    .map_err(|e| e.to_string())
+            }
+            None => Ok(()),
+        }
+    }
+
     /// 在**当前会话连接**上做 X/Y/ZMODEM 文件传输（烧录页 BL 交互）。
     ///
     /// 传输期间链路被协议独占：先断开会话（释放底层串口/连接句柄），再用同一配置

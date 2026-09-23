@@ -44,6 +44,7 @@ pub fn run() {
             commands::disconnect,
             commands::conn_state,
             commands::send,
+            commands::resize_pty,
             commands::set_log_options,
             commands::set_filters,
             commands::set_color_rules,

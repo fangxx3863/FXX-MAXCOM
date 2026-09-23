@@ -41,6 +41,8 @@ export interface SessionApi {
   /** 主动查询当前连接状态（连接/断开前同步，避免"仅允许单连接"误报） */
   connState(): Promise<ConnState>;
   send(payload: SendPayload): Promise<number>;
+  /** 调整终端/PTY 窗口尺寸（如 SSH 动态同步终端宽高） */
+  resizePty(cols: number, rows: number): Promise<void>;
   setLogOptions(o: LogOptionsDto): Promise<void>;
   setFilters(rules: unknown[]): Promise<void>;
   setColorRules(master: boolean, ansi_yield: boolean, rules: unknown[]): Promise<void>;
@@ -69,6 +71,7 @@ function realApi(session: string): SessionApi {
     disconnect: () => invoke<void>("disconnect", { session }),
     connState: () => invoke<ConnState>("conn_state", { session }),
     send: (payload) => invoke<number>("send", { session, payload }),
+    resizePty: (cols, rows) => invoke<void>("resize_pty", { session, cols, rows }),
     setLogOptions: (o) => invoke<void>("set_log_options", { session, o }),
     setFilters: (rules) => invoke<void>("set_filters", { session, rules }),
     setColorRules: (master, ansi_yield, rules) =>

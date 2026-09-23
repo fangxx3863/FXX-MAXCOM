@@ -1,7 +1,7 @@
 // 置顶弹出接收窗口（popup.html 独立入口）：仅渲染某会话的收发/终端接收区，实时镜像。
 // 由主窗口菜单「弹出并顶置接收窗口」创建（win11 任务管理器双击弹出风格）。
 import "./styles.css";
-import { makeApi, onEntries, onRaw } from "./api";
+import { IS_TAURI, makeApi, onEntries, onRaw } from "./api";
 import { LogViewPage } from "./pages/logview";
 import { TerminalPage } from "./pages/terminal";
 import { t } from "./i18n";
@@ -19,6 +19,16 @@ let themeId = "dark";
 try {
   const saved = JSON.parse(localStorage.getItem("maxcom.settings") ?? "{}");
   if (THEME_PRESETS.has(saved.theme as string)) themeId = saved.theme as string;
+  if (saved.uiScale && saved.uiScale !== 100) {
+    const factor = saved.uiScale / 100;
+    if (IS_TAURI) {
+      void import("@tauri-apps/api/webview")
+        .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(factor))
+        .catch(() => {});
+    } else {
+      document.documentElement.style.setProperty("zoom", String(factor));
+    }
+  }
 } catch {
   /* 忽略坏数据 */
 }
@@ -38,6 +48,7 @@ if (!session) {
   if (type === "terminal") {
     // 终端：完整 xterm 面板（可读可发），实时镜像该会话原始流
     const term = new TerminalPage(root, api);
+    term.syncPtySize();
     onRaw((e) => {
       if (e.session === session) term.feed(e.bytes);
     });

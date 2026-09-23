@@ -49,7 +49,14 @@ enum Rx {
     Closed,
 }
 
-pub fn open(host: &str, port: u16, username: &str, password: &str) -> io::Result<ConnPair> {
+pub fn open(
+    host: &str,
+    port: u16,
+    username: &str,
+    password: &str,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> io::Result<ConnPair> {
     if username.trim().is_empty() {
         return Err(io::Error::other("SSH 用户名不能为空"));
     }
@@ -86,8 +93,10 @@ pub fn open(host: &str, port: u16, username: &str, password: &str) -> io::Result
                 .channel_open_session()
                 .await
                 .map_err(|e| io::Error::other(format!("SSH 打开通道失败: {e}")))?;
+            let pty_cols = cols.unwrap_or(80) as u32;
+            let pty_rows = rows.unwrap_or(24) as u32;
             channel
-                .request_pty(true, "xterm", 80, 24, 0, 0, &[])
+                .request_pty(true, "xterm", pty_cols, pty_rows, 0, 0, &[])
                 .await
                 .map_err(|e| io::Error::other(format!("SSH 申请 pty 失败: {e}")))?;
             channel
@@ -254,6 +263,17 @@ where
             .block_on(async move {
                 let ch = ch.lock().await;
                 ch.data_bytes(bytes).await
+            })
+            .map_err(io::Error::other)
+    }
+
+    fn resize_pty(&mut self, cols: u16, rows: u16) -> io::Result<()> {
+        let ch = self.ch.clone();
+        self.rt
+            .handle()
+            .block_on(async move {
+                let ch = ch.lock().await;
+                ch.window_change(cols as u32, rows as u32, 0, 0).await
             })
             .map_err(io::Error::other)
     }

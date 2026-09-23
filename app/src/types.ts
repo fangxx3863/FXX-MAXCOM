@@ -8,7 +8,7 @@ export type ConnConfig =
   | { type: "serial"; port: string; baud: number; data_bits: number; parity: Parity; stop_bits: StopBits; flow_control: FlowControl }
   | { type: "tcp_client"; host: string; port: number }
   | { type: "udp_client"; host: string; port: number }
-  | { type: "ssh"; host: string; port: number; username: string; password?: string }
+  | { type: "ssh"; host: string; port: number; username: string; password?: string; cols?: number; rows?: number }
   | { type: "telnet"; host: string; port: number }
   | { type: "rtt"; probe_selector: string; chip: string; up_channel: number; down_channel: number; rtt_address?: number | null }
   // WinUSB/libusb 类原始 USB：interface=null 自动挑接口；out_ep/in_ep 0=自动

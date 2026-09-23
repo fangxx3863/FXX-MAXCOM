@@ -20,6 +20,7 @@ export interface MockApi {
   disconnect(): Promise<void>;
   connState(): Promise<ConnState>;
   send(payload: SendPayload): Promise<number>;
+  resizePty(cols: number, rows: number): Promise<void>;
   setLogOptions(o: { idle_timeout_ms: number; timestamp_mode: string; encoding: string }): Promise<void>;
   setFilters(rules: unknown[]): Promise<void>;
   setColorRules(master: boolean, ansiYield: boolean, rules: unknown[]): Promise<void>;
@@ -170,6 +171,8 @@ class MockBackend implements MockApi {
   async connState(): Promise<ConnState> {
     return { connected: this.connected, label: this.label, error: undefined };
   }
+
+  async resizePty(_cols: number, _rows: number) {}
 
   async modemTransfer(_protocol: ModemProtocol, _path: string) {
     if (!this.connected) throw t("flash.modemNotConnected");

@@ -53,6 +53,10 @@ pub enum ConnConfig {
         username: String,
         #[serde(default)]
         password: String,
+        #[serde(default)]
+        cols: Option<u16>,
+        #[serde(default)]
+        rows: Option<u16>,
     },
     Telnet {
         host: String,
@@ -231,6 +235,11 @@ pub trait TransportWrite: Send {
     fn set_rts(&mut self, _on: bool) -> io::Result<()> {
         Ok(())
     }
+
+    /// 终端 PTY 窗口尺寸调整（如 SSH 动态同步终端宽高；其余传输 no-op）
+    fn resize_pty(&mut self, _cols: u16, _rows: u16) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// 断线占位写端：自动重连期间替换掉旧写句柄（释放底层设备），send 报错直至重连成功。
@@ -259,7 +268,9 @@ pub fn open(config: &ConnConfig) -> io::Result<ConnPair> {
             port,
             username,
             password,
-        } => ssh::open(host, *port, username, password),
+            cols,
+            rows,
+        } => ssh::open(host, *port, username, password, *cols, *rows),
         ConnConfig::Telnet { host, port } => telnet::open(host, *port),
         #[cfg(feature = "rtt")]
         ConnConfig::Rtt {

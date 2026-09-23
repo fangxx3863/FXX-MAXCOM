@@ -800,6 +800,8 @@ class SessionApp {
           port,
           username: this.q<HTMLInputElement>("#ssh-user").value.trim(),
           password: this.q<HTMLInputElement>("#ssh-pass").value,
+          cols: this.terminalPage.getCols(),
+          rows: this.terminalPage.getRows(),
         };
       } else if (this.connKind === "telnet") {
         cfg = { type: "telnet", host, port };
@@ -827,6 +829,9 @@ class SessionApp {
         if (this.connKind === "serial") {
           void this.api.setDtr(this.dtrOn).catch(() => {});
           void this.api.setRts(this.rtsOn).catch(() => {});
+        }
+        if (this.connKind === "ssh") {
+          this.terminalPage.syncPtySize();
         }
         // 连接即按当前绘图控件下发格式（默认 ASCII），无需手动点应用
         void this.api.setPlotFormat(this.buildPlotFormat()).catch(() => {});
@@ -858,6 +863,7 @@ class SessionApp {
     this.stateLabel = s.label ? displayLabel(s.label) : s.label;
     this.lastError = s.error ?? null;
     if (!s.connected) this.terminalPage.clear();
+    else if (this.connKind === "ssh") this.terminalPage.syncPtySize();
     this.protocolPage.setConnected(s.connected);
     const dot = this.q("#conn-state");
     dot.className = `dot ${s.connected ? "on" : "off"}`;
@@ -947,6 +953,7 @@ class SessionApp {
       b.classList.toggle("active", b.dataset.page === id),
     );
     if (id === "plot") this.plotPage.onShow(); // 隐藏期间量不到尺寸，显示后按真实容器重建
+    if (id === "terminal") this.terminalPage.syncPtySize();
     if (id === "flash") void this.flashPage.refreshProbes();
     // 强制重新合成一层，清掉 WebView 页面切换后的右缘残影
     requestAnimationFrame(() => {
@@ -959,6 +966,7 @@ class SessionApp {
   /** 标签页被激活（从后台切到前台）：隐藏期尺寸失真，重建图表 */
   onActivated() {
     if (this.currentPage === "plot" || this.currentPage === "stats") this.plotPage.onShow();
+    if (this.currentPage === "terminal") this.terminalPage.syncPtySize();
   }
 
   // ── 日志控制条 ──
@@ -2284,9 +2292,18 @@ function applySettingsToAll() {
   const rootStyle = document.documentElement.style;
   rootStyle.setProperty("--log-size", `${currentSettings.logSize}px`);
   rootStyle.setProperty("--log-family", currentSettings.logFamily);
-  // 界面整体缩放（DPI）：CSS zoom 等比缩放 WebView 全部内容。桌面 UA 的移动端媒体查询已
-  // 平台门控，故缩放压窄 CSS 视口也不会吃掉顶部标题/连接栏。
-  rootStyle.setProperty("zoom", String(currentSettings.uiScale / 100));
+  // 界面整体缩放（DPI）：优先使用 Tauri 2 原生 WebView setZoom
+  // 原生缩放由浏览器引擎处理视口缩放与 DPI，不影响 CSS 像素到视口坐标的映射，
+  // 彻底避免 CSS zoom 导致鼠标事件坐标与 DOM getBoundingClientRect 错位（如 uPlot 十字线偏移、xterm 文本选中偏离等）
+  const scaleFactor = (currentSettings.uiScale || 100) / 100;
+  if (IS_TAURI) {
+    void import("@tauri-apps/api/webview")
+      .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(scaleFactor))
+      .catch((e) => console.error("setZoom failed:", e));
+    rootStyle.removeProperty("zoom");
+  } else {
+    rootStyle.setProperty("zoom", String(scaleFactor));
+  }
   applyTheme();
   const resolved = resolveThemeId();
   const termTheme = TERMINAL_THEMES[resolved] ?? TERMINAL_THEMES.dark;

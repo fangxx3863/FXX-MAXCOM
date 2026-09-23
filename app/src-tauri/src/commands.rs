@@ -210,6 +210,16 @@ pub fn send(
 }
 
 #[tauri::command]
+pub fn resize_pty(
+    session: String,
+    cols: u16,
+    rows: u16,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.with(&session, |mgr| mgr.resize_pty(cols, rows))
+}
+
+#[tauri::command]
 pub fn set_log_options(session: String, o: LogOptionsDto, state: State<'_, AppState>) {
     state.with(&session, |mgr| mgr.set_log_options(o.into()));
 }

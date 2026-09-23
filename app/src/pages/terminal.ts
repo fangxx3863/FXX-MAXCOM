@@ -20,6 +20,8 @@ export class TerminalPage {
     scrollback: 10000,
   });
   private fit = new FitAddon();
+  private lastCols = 0;
+  private lastRows = 0;
 
   constructor(el: HTMLElement, private api: SessionApi, private onSendError?: (msg: string) => void) {
     // 宿主容器占工具条以下剩余空间；FitAddon 按 parentElement 测量，
@@ -30,8 +32,16 @@ export class TerminalPage {
 
     this.term.loadAddon(this.fit);
     this.term.open(host);
-    this.fit.fit();
-    new ResizeObserver(() => this.fit.fit()).observe(host);
+    this.syncPtySize();
+    new ResizeObserver(() => this.syncPtySize()).observe(host);
+
+    this.term.onResize(({ cols, rows }) => {
+      if (cols > 0 && rows > 0 && (cols !== this.lastCols || rows !== this.lastRows)) {
+        this.lastCols = cols;
+        this.lastRows = rows;
+        this.api.resizePty(cols, rows).catch(() => {});
+      }
+    });
 
     // 击键直传：xterm 给出完整转义序列（方向键等），原样发往端口
     let localEcho = false;
@@ -77,7 +87,28 @@ export class TerminalPage {
 
   setFontSize(px: number) {
     this.term.options.fontSize = px;
-    this.fit.fit();
+    this.syncPtySize();
+  }
+
+  getCols(): number {
+    return this.term.cols || 80;
+  }
+
+  getRows(): number {
+    return this.term.rows || 24;
+  }
+
+  syncPtySize() {
+    try {
+      this.fit.fit();
+    } catch {}
+    const cols = this.term.cols;
+    const rows = this.term.rows;
+    if (cols > 0 && rows > 0 && (cols !== this.lastCols || rows !== this.lastRows)) {
+      this.lastCols = cols;
+      this.lastRows = rows;
+      this.api.resizePty(cols, rows).catch(() => {});
+    }
   }
 
   setTheme(theme: { background: string; foreground: string; cursor: string }) {
