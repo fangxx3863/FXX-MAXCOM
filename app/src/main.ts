@@ -2021,6 +2021,76 @@ function tabTitle(s: SessionApp): string {
   return t("tab.newDefault", { n: s.seqNo });
 }
 
+function clearTabDragIndicators(strip?: HTMLElement | null) {
+  const el = strip ?? document.getElementById("tabstrip");
+  if (!el) return;
+  for (const t of el.querySelectorAll(".tab")) {
+    t.classList.remove("drag-over-left", "drag-over-right", "tab-dragging");
+  }
+}
+
+function updateTabDropIndicator(
+  strip: HTMLElement,
+  draggedTab: HTMLElement,
+  clientX: number,
+): { targetId: string; side: "left" | "right" } | null {
+  const tabs = [...strip.querySelectorAll<HTMLElement>(".tab")].filter((t) => t !== draggedTab);
+  for (const t of strip.querySelectorAll(".tab")) {
+    t.classList.remove("drag-over-left", "drag-over-right");
+  }
+  if (!tabs.length) return null;
+
+  // 1. 如果光标在第一个其余 tab 的左半边，或更靠左
+  const firstRect = tabs[0].getBoundingClientRect();
+  if (clientX < firstRect.left + firstRect.width / 2) {
+    tabs[0].classList.add("drag-over-left");
+    return { targetId: tabs[0].dataset.sessionId!, side: "left" };
+  }
+
+  // 2. 如果光标在最后一个其余 tab 的右半边，或更靠右（包括末尾空白区域）
+  const lastRect = tabs[tabs.length - 1].getBoundingClientRect();
+  if (clientX > lastRect.left + lastRect.width / 2) {
+    tabs[tabs.length - 1].classList.add("drag-over-right");
+    return { targetId: tabs[tabs.length - 1].dataset.sessionId!, side: "right" };
+  }
+
+  // 3. 遍历中间各 tab
+  for (const t of tabs) {
+    const rect = t.getBoundingClientRect();
+    if (clientX >= rect.left && clientX <= rect.right) {
+      const isLeft = clientX < rect.left + rect.width / 2;
+      t.classList.add(isLeft ? "drag-over-left" : "drag-over-right");
+      return { targetId: t.dataset.sessionId!, side: isLeft ? "left" : "right" };
+    }
+  }
+
+  return null;
+}
+
+function reorderSessions(sourceId: string, targetId: string, side: "left" | "right") {
+  if (sourceId === targetId) return;
+  const entries = [...sessions.entries()];
+  const fromIdx = entries.findIndex(([id]) => id === sourceId);
+  if (fromIdx < 0) return;
+
+  const [moved] = entries.splice(fromIdx, 1);
+  const targetIdx = entries.findIndex(([id]) => id === targetId);
+  if (targetIdx < 0) return;
+
+  const insertIdx = side === "left" ? targetIdx : targetIdx + 1;
+  entries.splice(insertIdx, 0, moved);
+
+  sessions.clear();
+  for (const [k, v] of entries) {
+    sessions.set(k, v);
+    if (v.el.parentElement === rootEl) {
+      rootEl.appendChild(v.el);
+    }
+  }
+  saveTabs();
+  renderTabs();
+}
+
 function renderTabs() {
   const strip = document.getElementById("tabstrip")!;
   // 标签条重绘会 replaceChildren 重置 scrollLeft；先记录再回填，避免数据刷新时跳回开头
@@ -2029,6 +2099,7 @@ function renderTabs() {
   for (const [id, s] of sessions) {
     const tab = document.createElement("div");
     tab.className = `tab${id === activeId ? " active" : ""}`;
+    tab.dataset.sessionId = id;
     tab.title = s.lastError ? t("state.error", { e: s.lastError }) : tabTitle(s);
 
     const dot = document.createElement("span");
@@ -2057,6 +2128,92 @@ function renderTabs() {
     close.addEventListener("auxclick", (e) => e.stopPropagation());
 
     tab.append(dot, label, close);
+
+    // ── 标签页拖拽重排（Pointer Capture 保证 WebView2 / 浏览器环境均流畅无阻）──
+    tab.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      if (sessions.size <= 1) return;
+      if (renamingId === id) return;
+      if ((e.target as HTMLElement)?.closest(".tab-close, input")) return;
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let isDragging = false;
+      let dropTarget: { targetId: string; side: "left" | "right" } | null = null;
+
+      const onKeyDown = (ke: KeyboardEvent) => {
+        if (ke.key === "Escape" && isDragging) {
+          cleanup(false);
+        }
+      };
+
+      const cleanup = (applyDrop: boolean) => {
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerCancel);
+        window.removeEventListener("keydown", onKeyDown);
+
+        if (isDragging) {
+          tab.classList.remove("tab-dragging");
+          tab.style.transform = "";
+          document.body.classList.remove("tabs-reordering");
+          clearTabDragIndicators(strip);
+
+          // 阻断拖拽释放可能触发的冒泡 click，避免误激活其他标签
+          const captureClick = (clickEv: MouseEvent) => {
+            clickEv.stopPropagation();
+            clickEv.preventDefault();
+            window.removeEventListener("click", captureClick, true);
+          };
+          window.addEventListener("click", captureClick, true);
+
+          if (applyDrop && dropTarget) {
+            reorderSessions(id, dropTarget.targetId, dropTarget.side);
+            activate(id);
+          }
+        }
+      };
+
+      const onPointerMove = (ev: PointerEvent) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!isDragging) {
+          if (Math.hypot(dx, dy) >= 6) {
+            isDragging = true;
+            tab.classList.add("tab-dragging");
+            document.body.classList.add("tabs-reordering");
+          } else {
+            return;
+          }
+        }
+
+        tab.style.transform = `translateX(${dx}px)`;
+
+        // 标签栏边缘自动横向平滑滚动
+        const stripRect = strip.getBoundingClientRect();
+        if (ev.clientX < stripRect.left + 24) {
+          strip.scrollLeft -= 6;
+        } else if (ev.clientX > stripRect.right - 24) {
+          strip.scrollLeft += 6;
+        }
+
+        dropTarget = updateTabDropIndicator(strip, tab, ev.clientX);
+      };
+
+      const onPointerUp = (_ev: PointerEvent) => {
+        cleanup(true);
+      };
+
+      const onPointerCancel = (_ev: PointerEvent) => {
+        cleanup(false);
+      };
+
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerCancel);
+      window.addEventListener("keydown", onKeyDown);
+    });
+
     tab.addEventListener("click", () => activate(id));
     tab.addEventListener("auxclick", (e) => {
       if (e.button === 1) closeTabById(id); // 中键关闭
