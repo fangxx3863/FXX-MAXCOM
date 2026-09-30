@@ -8,6 +8,11 @@
 // DOM 层：#log-view 按 rowsPerPage 行分页（chunk），只挂载视口 ±pageBuffer 页，
 // 远端 chunk 卸载成按实测高度占位的空骨架 → 滚动高度稳定、append 成本恒定，
 // 行数再多渲染成本也不变。数据永不丢弃（原来 MAX_LINES 丢旧行的行为已废除）。
+//
+// ── 粘底（自动滚动）──
+// 「自动滚动」复选框是唯一权威状态，只在用户主动表态时改写：滚轮/触屏向上、↑、PageUp、Home
+// → 解锁；滚轮/触屏向下且已在底部 → 恢复跟随；拖滚动条期间跟手；手动勾选/取消即时生效。
+// 数据增长、程序性 scrollToBottom、分页装卸产生的 scroll 一律不改开关，突发数据冲不掉它。
 import type { EntriesBatch, LogEntryDto } from "../types";
 import { t } from "../i18n";
 
@@ -48,6 +53,25 @@ export class LogViewPage {
   private quickFilter: QuickFilter | null = null;
   private rowCss = "";
 
+  // ── 粘底（自动滚动）状态机 ──
+  // autoscroll.checked 是「是否跟随最新数据」的唯一权威状态，只在**用户主动表态**时改写：
+  //   · 手动勾选 / 取消勾选（change）
+  //   · 滚轮 / 触屏滑动 向上 → 解锁（用户要看历史）
+  //   · 滚轮 / 触屏滑动 向下且此刻已在底部 → 恢复跟随
+  //   · 按住原生滚动条拖拽期间随位置实时跟手（拖拽一定是用户造成的）
+  // 判定全部在输入事件内部同步完成，不依赖后续 scroll 事件 → 不存在"这次 scroll 到底是谁
+  // 造成的"归因歧义。数据增长、程序性 scrollToBottom、分页装卸引发的 scroll 一律不改开关：
+  // 否则突发数据会在「内容已变高、尚未重新贴底」的那一帧被误判为离开底部，把开关冲掉。
+  /** 是否正按住原生滚动条拖拽（拖拽期间 scroll 均由用户造成） */
+  private dragging = false;
+  /** 拖拽兜底定时器：万一收不到 pointerup，到时自动解除 dragging */
+  private dragGuard: number | null = null;
+  /** 是否允许「滚回底部即恢复跟随」。手动取消勾选时置否，用户确实离开过底部后置是，
+   *  避免刚取消就在原地被一次不产生位移的滚轮悄悄勾回去。 */
+  private relockAllowed = true;
+  /** 上一次触屏触点 Y（判定滑动方向；手指下移 = 内容上移 = 看历史） */
+  private lastTouchY = 0;
+
   // ── 数据模型 ──
   /** 全量行（永不丢弃） */
   private rows: Row[] = [];
@@ -68,14 +92,28 @@ export class LogViewPage {
     this.view = view;
     this.autoscroll = opts.autoscroll;
     this.getTsMode = opts.getTsMode;
-    // 粘性自动滚动 + 懒加载窗口同挂 scroll（测试桩可能传纯对象，做能力守卫）
+    // scroll 只用于懒加载窗口对齐；粘底开关的改判另看输入事件（测试桩可能传纯对象，做能力守卫）
     if (typeof this.view.addEventListener === "function") {
       this.view.addEventListener("scroll", () => this.onScroll());
+      this.view.addEventListener("wheel", (e: WheelEvent) => this.onUserWheel(e), { passive: true });
+      this.view.addEventListener("keydown", (e: KeyboardEvent) => this.onUserKey(e));
+      this.view.addEventListener("pointerdown", (e: PointerEvent) => this.onUserPointerDown(e));
+      this.view.addEventListener("touchstart", (e: TouchEvent) => this.onUserTouchStart(e), { passive: true });
+      this.view.addEventListener("touchmove", (e: TouchEvent) => this.onUserTouchMove(e), { passive: true });
     }
     if (typeof this.autoscroll.addEventListener === "function") {
       this.autoscroll.addEventListener("change", () => {
+        // 手动勾选/取消 = 用户显式表态。程序性赋值 .checked 不派发 change，不会自激。
+        this.relockAllowed = this.autoscroll.checked;
         if (this.autoscroll.checked) this.scrollToBottom();
       });
+    }
+    // 松手/失焦即结束滚动条拖拽（此后残留的 scroll 不再当作拖拽）
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      const endDrag = () => this.endDrag();
+      window.addEventListener("pointerup", endDrag);
+      window.addEventListener("pointercancel", endDrag);
+      window.addEventListener("blur", endDrag);
     }
     this.refreshRowHeight();
   }
@@ -126,15 +164,97 @@ export class LogViewPage {
     return el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
   }
 
-  /** 滚动事件：同步自动滚动开关 + 懒加载窗口 */
+  // ── 用户意图 ──
+
+  /**
+   * 统一的「想往上翻 / 想往下翻」判定。全部在输入事件内同步完成，不依赖后续 scroll 事件，
+   * 因此内容增长不会污染结论。
+   *   up=true  → 用户要看历史：解锁
+   *   up=false → 用户要看最新：仅当此刻确实已在底部、且此前确实离开过底部时才恢复跟随
+   */
+  private onUserScrollIntent(up: boolean): void {
+    const atBottom = this.isAtBottom();
+    if (!atBottom) this.relockAllowed = true; // 确实离开过底部 → 允许"滚回底部即恢复跟随"
+    if (up) this.setSticky(false);
+    else if (atBottom && this.relockAllowed) this.setSticky(true);
+  }
+
+  private onUserWheel(e: WheelEvent): void {
+    if (!e.deltaX && !e.deltaY) return;
+    this.onUserScrollIntent(e.deltaY < 0);
+  }
+
+  /** 键盘翻页（视图可聚焦时） */
+  private onUserKey(e: KeyboardEvent): void {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    switch (e.key) {
+      case "PageUp":
+      case "ArrowUp":
+      case "Home":
+        this.onUserScrollIntent(true);
+        break;
+      case "PageDown":
+      case "ArrowDown":
+      case "End":
+      case " ":
+        this.onUserScrollIntent(false);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** 触屏滑动：手指下移 = 内容上移 = 看历史（与滚轮同构） */
+  private onUserTouchStart(e: TouchEvent): void {
+    const t = e.touches?.[0];
+    if (t) this.lastTouchY = t.clientY;
+  }
+
+  private onUserTouchMove(e: TouchEvent): void {
+    const t = e.touches?.[0];
+    if (!t) return;
+    const dy = t.clientY - this.lastTouchY;
+    this.lastTouchY = t.clientY;
+    if (Math.abs(dy) < 1) return;
+    this.onUserScrollIntent(dy > 0);
+  }
+
+  /** 按住原生滚动条时，随后的 scroll 才算用户手势（点正文/选文本不当作滚动意图） */
+  private onUserPointerDown(e: PointerEvent): void {
+    const rect = typeof this.view.getBoundingClientRect === "function" ? this.view.getBoundingClientRect() : null;
+    if (!rect) return;
+    const onVertBar = e.clientX - rect.left >= this.view.clientWidth; // 右缘竖向滚动条
+    const onHorzBar = e.clientY - rect.top >= this.view.clientHeight;
+    if (!onVertBar && !onHorzBar) return;
+    this.dragging = true;
+    // 兜底：拖拽被系统接管等异常下收不到 pointerup，超时自动解除，
+    // 否则「scroll 改判开关」这条路径会常开 → 正是本次要修掉的病症。
+    if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+      if (this.dragGuard !== null) window.clearTimeout(this.dragGuard);
+      this.dragGuard = window.setTimeout(() => this.endDrag(), 10_000);
+    }
+  }
+
+  private endDrag(): void {
+    this.dragging = false;
+    if (this.dragGuard !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.dragGuard);
+      this.dragGuard = null;
+    }
+  }
+
+  /** 滚动事件：懒加载窗口对齐 + 仅「拖拽滚动条」期间跟手改判粘底开关 */
   private onScroll(): void {
-    this.syncAutoscroll();
+    const atBottom = this.isAtBottom();
+    if (!atBottom) this.relockAllowed = true;
+    // 非拖拽产生的 scroll（程序性贴底、数据增长、分页装卸）一律不改开关
+    if (this.dragging) this.setSticky(atBottom && this.relockAllowed);
     this.ensureWindow();
   }
 
-  /** 按当前滚动位置同步自动滚动开关 */
-  private syncAutoscroll() {
-    this.autoscroll.checked = this.isAtBottom();
+  /** 设置粘底开关（幂等）。程序性赋值 .checked 不派发 change，不会与 change 处理器自激。 */
+  private setSticky(on: boolean): void {
+    if (this.autoscroll.checked !== on) this.autoscroll.checked = on;
   }
 
   setHexDisplay(on: boolean) {
@@ -175,7 +295,6 @@ export class LogViewPage {
   /** 收到批量日志条目：入队数据模型 + 追加/刷新渲染（成本恒定，与总行数无关） */
   append(batch: EntriesBatch) {
     this.refreshRowHeight();
-    const wasBottom = this.isAtBottom();
     let appendedRows = 0;
     let mergedChunk = -1; // 本批若发生了 partial 续接，该行所在 chunk 需刷新
     for (const item of batch.items) {
@@ -211,8 +330,9 @@ export class LogViewPage {
     if (mergedChunk >= 0 && this.chunks[mergedChunk]) {
       this.fillChunk(mergedChunk);
     }
-    // 粘底：用户原本在底部（或自动滚动已开）才维持贴底；否则不打扰用户
-    if (appendedRows > 0 && (this.autoscroll.checked || wasBottom)) {
+    // 粘底：只有开关为「跟随」态时才贴底。不再看 wasBottom——否则用户刻意取消勾选后，
+    // 只要恰好停在底部就会被下一批数据拽走，等于开关白关。
+    if (appendedRows > 0 && this.autoscroll.checked) {
       this.scrollToBottom();
     }
   }
