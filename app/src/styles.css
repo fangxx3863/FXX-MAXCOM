@@ -175,9 +175,34 @@ button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); color: #10131a; font-weight: 600; border-color: transparent; }
 button.danger { background: var(--err); color: #fff; font-weight: 600; border-color: transparent; }
 #connect-btn.danger { background: var(--err); color: #fff; }
+/* 连接中/重连中：按钮变「取消」——中性底色 + 转圈，与「连接」「断开」都区分得开 */
+#connect-btn.busy { background: var(--bg3); color: var(--fg); border-color: var(--accent); }
+#connect-btn.busy::before {
+  content: "";
+  display: inline-block;
+  width: 10px; height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+}
+@keyframes btn-spin { to { transform: rotate(360deg); } }
 .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .dot.off { background: #666; }
 .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.dot.err { background: var(--err); box-shadow: 0 0 6px var(--err); }
+.dot.busy { background: var(--accent); animation: dot-pulse 1.1s ease-in-out infinite; }
+@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+/* 连接标签：连接失败原因可能很长，单行省略，完整内容在 tooltip */
+#conn-label {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#conn-label.bad { color: var(--err); }
 .hidden { display: none !important; }
 
 /* 统一开关：所有 checkbox 渲染为胶囊拨杆 */
@@ -777,6 +802,7 @@ body.tabs-reordering .tab {
 }
 .tab .tab-dot.on { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
 .tab .tab-dot.err { background: var(--err); }
+.tab .tab-dot.busy { background: var(--accent); animation: dot-pulse 1.1s ease-in-out infinite; }
 .tab .tab-label {
   flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 12px; text-align: left;

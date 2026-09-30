@@ -32,23 +32,34 @@ impl AppState {
 
     /// 取（或创建）指定会话的 SessionManager 并执行闭包
     pub fn with<T>(&self, session: &str, f: impl FnOnce(&SessionManager) -> T) -> T {
-        let mut map = self.sessions.lock().unwrap();
-        let mgr = map.entry(session.to_string()).or_insert_with(|| {
-            let events = Arc::new(TauriEvents::new(self.app.clone(), session.to_string()));
-            Arc::new(SessionManager::new(events))
-        });
-        f(mgr)
+        let mgr = self.get_or_create(session);
+        f(&mgr)
     }
 
-    /// 取出会话句柄（Arc 克隆），返回后不再持有 sessions 全局锁。
-    /// 供长时间运行的命令（如 modem 传输）在锁外执行，避免占用全局锁阻塞其它会话。
+    /// 取（或创建）会话句柄（Arc 克隆），返回后不再持有 sessions 全局锁。
+    /// 供长时间/阻塞命令在锁外、甚至阻塞线程池里执行。
+    pub fn get_or_create(&self, session: &str) -> Arc<SessionManager> {
+        let mut map = self.sessions.lock().unwrap();
+        map.entry(session.to_string())
+            .or_insert_with(|| {
+                let events = Arc::new(TauriEvents::new(self.app.clone(), session.to_string()));
+                Arc::new(SessionManager::new(events))
+            })
+            .clone()
+    }
+
+    /// 取出会话句柄（Arc 克隆）；会话不存在返回 None。
     pub fn get_mgr(&self, session: &str) -> Option<Arc<SessionManager>> {
         self.sessions.lock().unwrap().get(session).cloned()
     }
 
-    /// 关闭会话：移除即触发 Drop → 断开连接、停线程
+    /// 关闭会话：移除即触发 Drop → 断开连接、停线程。
+    /// 正在进行的连接尝试一并取消（否则标签页关了，后台还在握手并可能装上一个会话）。
     pub fn close(&self, session: &str) {
-        self.sessions.lock().unwrap().remove(session);
+        let mgr = self.sessions.lock().unwrap().remove(session);
+        if let Some(m) = mgr {
+            m.cancel_connect();
+        }
     }
 }
 
@@ -77,9 +88,13 @@ impl From<LogOptionsDto> for LogOptions {
     }
 }
 
+/// 枚举串口。系统枚举（尤其含蓝牙虚拟串口时）可能耗时上百毫秒，
+/// 丢到阻塞线程池，避免同步命令在主线程上卡住界面。
 #[tauri::command]
-pub fn list_ports() -> Vec<PortInfo> {
-    maxcom_engine::transport::discover_serial_ports()
+pub async fn list_ports() -> Result<Vec<PortInfo>, String> {
+    tauri::async_runtime::spawn_blocking(maxcom_engine::transport::discover_serial_ports)
+        .await
+        .map_err(|e| format!("枚举串口异常: {e}"))
 }
 
 /// 按编码把字符串转为字节（校验计算器等工具用）。返回 (字节数组, 是否含无法编码字符)。
@@ -91,8 +106,10 @@ pub fn encode_text(text: String, encoding: String) -> Result<(Vec<u8>, bool), St
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn list_probes() -> Vec<ProbeInfo> {
-    maxcom_engine::transport::discover_probes()
+pub async fn list_probes() -> Result<Vec<ProbeInfo>, String> {
+    tauri::async_runtime::spawn_blocking(maxcom_engine::transport::discover_probes)
+        .await
+        .map_err(|e| format!("枚举探针异常: {e}"))
 }
 
 #[cfg(feature = "desktop")]
@@ -104,15 +121,19 @@ pub fn list_chips() -> Vec<ChipFamilyInfo> {
 /// 枚举 USB 设备（winusb 传输的设备下拉）
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn list_usb_devices() -> Vec<maxcom_engine::transport::UsbDeviceInfo> {
-    maxcom_engine::transport::discover_usb_devices()
+pub async fn list_usb_devices() -> Result<Vec<maxcom_engine::transport::UsbDeviceInfo>, String> {
+    tauri::async_runtime::spawn_blocking(maxcom_engine::transport::discover_usb_devices)
+        .await
+        .map_err(|e| format!("枚举 USB 设备异常: {e}"))
 }
 
 /// 枚举 HID 设备（hid 传输的设备下拉）
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn list_hid_devices() -> Vec<maxcom_engine::transport::HidDeviceInfo> {
-    maxcom_engine::transport::discover_hid_devices()
+pub async fn list_hid_devices() -> Result<Vec<maxcom_engine::transport::HidDeviceInfo>, String> {
+    tauri::async_runtime::spawn_blocking(maxcom_engine::transport::discover_hid_devices)
+        .await
+        .map_err(|e| format!("枚举 HID 设备异常: {e}"))
 }
 
 #[cfg(feature = "desktop")]
@@ -180,21 +201,41 @@ pub fn cancel_modem_transfer(session: String, state: State<'_, AppState>) -> Res
     Ok(())
 }
 
+/// 开始一次连接（**非阻塞**）：立即返回，过程/结果经 `conn://state` 事件广播
+/// （connecting → connected | failed）。前端据此把按钮切成「取消 + 转圈」，
+/// 点取消调 [`cancel_connect`]。
+///
+/// 为什么不能同步做 open：串口 open / SSH 握手（超时 20s）会阻塞调用线程，
+/// 而 Tauri 同步命令跑在主线程 → 高延迟网络下点「连接」直接卡死整个界面。
 #[tauri::command]
-pub fn connect(
+pub async fn connect(
     session: String,
     config: ConnConfig,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    state.with(&session, |mgr| mgr.connect(config))
+    let mgr = state.get_or_create(&session);
+    tauri::async_runtime::spawn_blocking(move || mgr.begin_connect(config))
+        .await
+        .map_err(|e| format!("连接任务异常: {e}"))?
 }
 
+/// 取消进行中的连接尝试（立即返回；底层握手结果会被丢弃）
 #[tauri::command]
-pub fn disconnect(session: String, state: State<'_, AppState>) {
-    state.with(&session, |mgr| mgr.disconnect());
+pub fn cancel_connect(session: String, state: State<'_, AppState>) -> bool {
+    state.with(&session, |mgr| mgr.cancel_connect())
 }
 
-/// 主动查询当前连接状态（读线程掉线但未清理时前端在连接/断开前同步，避免"仅允许单连接"误报）
+/// 断开当前会话（含中止自动重连循环与进行中的连接尝试）。
+/// join 引擎线程可能短暂等待，故丢到阻塞线程池，避免卡主线程。
+#[tauri::command]
+pub async fn disconnect(session: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mgr = state.get_or_create(&session);
+    tauri::async_runtime::spawn_blocking(move || mgr.disconnect())
+        .await
+        .map_err(|e| format!("断开任务异常: {e}"))
+}
+
+/// 主动查询当前连接状态（按 ConnPhase 上报，前端据此渲染按钮/指示灯）
 #[tauri::command]
 pub fn conn_state(session: String, state: State<'_, AppState>) -> ConnState {
     state.with(&session, |mgr| mgr.conn_state())

@@ -21,7 +21,7 @@ use maxcom_core::stats::{StatsSnapshot, StatsTracker};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -116,12 +116,105 @@ pub struct PlotSnapshotDto {
     pub channel_names: Vec<String>,
 }
 
+/// 连接阶段：驱动前端「连接按钮 / 指示灯」状态机的唯一依据。
+///
+/// 为什么不能只看 `connected`：连接建立（串口 open、SSH 握手，最长 20s）与掉线重连
+/// 都是**过程**而非瞬时状态，前端必须能区分「正在连」与「连不上」，才能把按钮切成
+/// 「取消 + 转圈」让用户随时放弃（ADR-0020）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ConnPhase {
+    /// 未连接（空闲）
+    #[default]
+    Disconnected,
+    /// 正在建立连接（按钮 = 取消 + 转圈）
+    Connecting,
+    /// 掉线后自动重连中（按钮 = 取消 + 转圈，`attempt` = 已尝试次数）
+    Reconnecting,
+    /// 链路可用
+    Connected,
+    /// 连接/会话异常结束且不会自动恢复（原因见 `error`）
+    Failed,
+    /// 用户主动取消连接尝试
+    Cancelled,
+}
+
 /// 连接状态事件
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnState {
+    /// 链路是否可用（自动重连退避期间为 false —— 此时会话仍在，但收不到数据）
     pub connected: bool,
+    #[serde(default)]
     pub label: String,
+    #[serde(default)]
     pub error: Option<String>,
+    /// 连接阶段（旧前端缺省视为 `disconnected`，向后兼容）
+    #[serde(default)]
+    pub phase: ConnPhase,
+    /// 自动重连已尝试次数（`phase == reconnecting` 时有意义）
+    #[serde(default)]
+    pub attempt: u32,
+}
+
+impl ConnState {
+    /// 链路可用
+    fn up(label: String) -> Self {
+        Self {
+            connected: true,
+            label,
+            error: None,
+            phase: ConnPhase::Connected,
+            attempt: 0,
+        }
+    }
+
+    /// 会话结束且不再重连（有 error 归为 failed，否则为普通断开）
+    fn down(label: String, error: Option<String>) -> Self {
+        Self {
+            connected: false,
+            phase: if error.is_some() {
+                ConnPhase::Failed
+            } else {
+                ConnPhase::Disconnected
+            },
+            label,
+            error,
+            attempt: 0,
+        }
+    }
+
+    /// 正在建立连接
+    fn connecting() -> Self {
+        Self {
+            connected: false,
+            label: String::new(),
+            error: None,
+            phase: ConnPhase::Connecting,
+            attempt: 0,
+        }
+    }
+
+    /// 掉线后自动重连中（带原因与已尝试次数）
+    fn reconnecting(label: String, error: Option<String>, attempt: u32) -> Self {
+        Self {
+            connected: false,
+            label,
+            error,
+            phase: ConnPhase::Reconnecting,
+            attempt,
+        }
+    }
+
+    /// 用户取消连接尝试
+    fn cancelled() -> Self {
+        Self {
+            connected: false,
+            label: String::new(),
+            error: None,
+            phase: ConnPhase::Cancelled,
+            attempt: 0,
+        }
+    }
 }
 
 /// 上层事件出口（src-tauri 实现 = tauri emit；测试实现 = 内存记录）
@@ -179,6 +272,52 @@ enum Cmd {
     ClearLog,
 }
 
+/// 会话运行时状态：读线程写入、命令/查询侧读取（Arc 共享，避免为查询加锁）。
+///
+/// `alive` 让上层能识别「会话已终结但 `active` 尚未回收」的残留：此时必须按未连接
+/// 上报（否则前端会拿到 `connected: true`，进而出现「点连接先断开再连、连不上弹报错」）。
+#[derive(Default)]
+struct SessionStatus {
+    /// 读线程是否仍在运行（false = 会话已终结，`active` 可安全回收）
+    alive: AtomicBool,
+    /// 链路是否可用（自动重连退避期间为 false）
+    link: AtomicBool,
+    /// 是否正在自动重连
+    reconnecting: AtomicBool,
+    /// 自动重连已尝试次数（重连成功后归零）
+    attempt: AtomicU32,
+    /// 最近一次错误（掉线原因 / 重连失败原因）
+    last_error: Mutex<Option<String>>,
+}
+
+impl SessionStatus {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            // 会话刚装好 = 读线程在跑、链路可用（`link` 默认 false 会让
+            // conn_state() 在连接成功的瞬间误报「未连接」→ 前端再点连接被判重复连接）
+            alive: AtomicBool::new(true),
+            link: AtomicBool::new(true),
+            ..Default::default()
+        })
+    }
+
+    fn set_error(&self, e: impl Into<String>) {
+        *self.last_error.lock().unwrap() = Some(e.into());
+    }
+
+    fn error(&self) -> Option<String> {
+        self.last_error.lock().unwrap().clone()
+    }
+}
+
+/// 连接尝试（前端点击「连接」后、连接真正建立前）
+struct ConnAttempt {
+    /// 连接代次：取消/新尝试都会使旧代次作废，迟到的 open 结果据此丢弃
+    gen: u64,
+    /// 取消位：置位后本次尝试的结果（无论成功失败）一律丢弃
+    cancel: Arc<AtomicBool>,
+}
+
 /// 一个活动会话的全部资源
 struct Active {
     stop: Arc<AtomicBool>,
@@ -192,6 +331,8 @@ struct Active {
     rts: Arc<AtomicBool>,
     /// 原始流总线：本地回显按 "log" 定向投递（不进绘图订阅者）
     bus: Arc<Bus>,
+    /// 运行时状态（连接阶段 / 最近错误），供 conn_state 与读线程共享
+    status: Arc<SessionStatus>,
 }
 
 /// 会话管理器：同一时刻至多一个活动连接（ADR-0016 单连接，多实例满足多端口）。
@@ -221,8 +362,14 @@ pub struct SessionManager {
     last_config: Mutex<Option<super::transport::ConnConfig>>,
     /// modem 传输取消位（前端强制停止按钮置位；每次传输开始时复位）
     modem_cancel: Arc<AtomicBool>,
+    /// 非阻塞连接尝试（Some = 正在连接）：取消位 + 代次
+    connecting: Mutex<Option<ConnAttempt>>,
+    /// 连接代次：取消或新尝试 +1，用于作废迟到的 open 结果
+    conn_gen: AtomicU64,
 }
 
+/// 加锁顺序约定（避免死锁）：`active` → `connecting` → `SessionStatus::last_error`。
+/// 任何路径都不得反向获取。
 impl SessionManager {
     pub fn new(events: Arc<dyn SessionEvents>) -> Self {
         Self {
@@ -241,29 +388,55 @@ impl SessionManager {
             log_options: Mutex::new(LogOptions::default()),
             last_config: Mutex::new(None),
             modem_cancel: Arc::new(AtomicBool::new(false)),
+            connecting: Mutex::new(None),
+            conn_gen: AtomicU64::new(0),
         }
     }
 
+    /// 会话是否仍在运行（读线程未退出）。已终结但未回收的残留会返回 false。
     pub fn is_connected(&self) -> bool {
-        self.active.lock().unwrap().is_some()
+        let mut guard = self.active.lock().unwrap();
+        self.reap_dead(&mut guard);
+        guard
+            .as_ref()
+            .is_some_and(|a| a.status.alive.load(Ordering::Relaxed))
+    }
+
+    /// 回收已终结的会话（读线程已退出、`active` 尚未清理）。
+    /// 线程均已退出 → 直接 drop 释放传输句柄（不 join，避免与自身/已退出线程相争）。
+    fn reap_dead(&self, guard: &mut Option<Active>) {
+        let dead = matches!(&*guard, Some(a) if !a.status.alive.load(Ordering::Relaxed));
+        if dead {
+            if let Some(a) = guard.take() {
+                a.stop.store(true, Ordering::Relaxed); // 兜底：让日志/绘图线程尽快退出
+                drop(a);
+            }
+        }
     }
 
     /// 查询当前连接状态（主动查询，区别于被动 state 事件）。
-    /// 读线程掉线但未走 disconnect() 清理时 active 可能残留；前端应在每次
-    /// 连接/断开前调用本方法同步，避免“仅允许单连接”误报。
+    /// 按 [`ConnPhase`] 上报，前端据此渲染按钮/指示灯（连接中可取消、重连中可中止）。
     pub fn conn_state(&self) -> ConnState {
-        match &*self.active.lock().unwrap() {
-            Some(a) => ConnState {
-                connected: true,
-                label: a.label.clone(),
-                error: None,
-            },
-            None => ConnState {
-                connected: false,
-                label: String::new(),
-                error: None,
-            },
+        let mut guard = self.active.lock().unwrap();
+        self.reap_dead(&mut guard);
+        if let Some(a) = &*guard {
+            let st = &a.status;
+            if st.link.load(Ordering::Relaxed) {
+                return ConnState::up(a.label.clone());
+            }
+            if st.reconnecting.load(Ordering::Relaxed) {
+                return ConnState::reconnecting(
+                    a.label.clone(),
+                    st.error(),
+                    st.attempt.load(Ordering::Relaxed),
+                );
+            }
+            return ConnState::down(a.label.clone(), st.error());
         }
+        if self.connecting.lock().unwrap().is_some() {
+            return ConnState::connecting();
+        }
+        ConnState::down(String::new(), None)
     }
 
     pub fn set_auto_reconnect(&self, on: bool) {
@@ -386,14 +559,143 @@ impl SessionManager {
         }
     }
 
-    /// 打开连接并启动引擎线程组。
+    /// 打开连接并启动引擎线程组（**阻塞**：串口 open / SSH 握手会在本线程内完成）。
+    ///
+    /// 仅供测试与引擎内部（modem 传输后恢复连接）使用；UI 入口必须走
+    /// [`SessionManager::begin_connect`]——它会阻塞当前线程（最坏 20s），
+    /// 而 Tauri 同步命令跑在主线程上，会直接卡死整个界面。
     pub fn connect(&self, config: super::transport::ConnConfig) -> Result<(), String> {
         config.validate()?;
         let mut guard = self.active.lock().unwrap();
+        self.reap_dead(&mut guard);
         if guard.is_some() {
             return Err("已有活动连接（单连接设计，先断开再连）".into());
         }
         let pair = super::transport::open(&config).map_err(|e| e.to_string())?;
+        self.install(&mut guard, config, pair)
+    }
+
+    /// 开始一次**非阻塞**连接：立即返回（仅参数错误同步返回），过程与结果通过
+    /// state 事件广播 `connecting → connected | failed`。
+    ///
+    /// 前端点「连接」后可立刻把按钮切成「取消 + 转圈」；点取消调
+    /// [`SessionManager::cancel_connect`]，本次尝试的结果（含迟到成功）一律丢弃。
+    pub fn begin_connect(
+        self: &Arc<Self>,
+        config: super::transport::ConnConfig,
+    ) -> Result<(), String> {
+        config.validate()?;
+        let cancel = Arc::new(AtomicBool::new(false));
+        let gen = {
+            let mut guard = self.active.lock().unwrap();
+            self.reap_dead(&mut guard);
+            if guard.is_some() {
+                return Err("已有活动连接（单连接设计，先断开再连）".into());
+            }
+            let gen = self.conn_gen.fetch_add(1, Ordering::Relaxed) + 1;
+            let mut cg = self.connecting.lock().unwrap();
+            if let Some(old) = cg.replace(ConnAttempt {
+                gen,
+                cancel: cancel.clone(),
+            }) {
+                old.cancel.store(true, Ordering::Relaxed); // 旧尝试作废（迟到的结果被丢弃）
+            }
+            gen
+        };
+        self.events.state(&ConnState::connecting());
+        let me = Arc::clone(self);
+        let cfg = config.clone();
+        std::thread::Builder::new()
+            .name("connect".into())
+            .spawn(move || {
+                let res = super::transport::open(&cfg).map_err(|e| e.to_string());
+                me.finish_connect(gen, &cancel, cfg, res);
+            })
+            .map_err(|e| {
+                // 线程创建失败：清掉尝试登记，否则前端会永远停在「连接中」
+                self.clear_attempt(gen);
+                self.events
+                    .state(&ConnState::down(String::new(), Some(e.to_string())));
+                e.to_string()
+            })?;
+        Ok(())
+    }
+
+    /// 取消进行中的连接尝试（前端「取消」按钮）。返回是否确有尝试被取消。
+    ///
+    /// 立即返回：底层 open 仍在后台线程跑完，但其结果会被丢弃（句柄随之 Drop 释放），
+    /// 用户不必等待握手超时。
+    pub fn cancel_connect(&self) -> bool {
+        let taken = self.connecting.lock().unwrap().take();
+        match taken {
+            Some(c) => {
+                c.cancel.store(true, Ordering::Relaxed);
+                self.conn_gen.fetch_add(1, Ordering::Relaxed); // 作废该代次
+                self.events.state(&ConnState::cancelled());
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 清理指定代次的连接尝试登记（不影响已被取代的新尝试）
+    fn clear_attempt(&self, gen: u64) {
+        let mut cg = self.connecting.lock().unwrap();
+        if cg.as_ref().is_some_and(|c| c.gen == gen) {
+            *cg = None;
+        }
+    }
+
+    /// 连接线程回调：安装会话或广播失败。
+    /// 取消 / 已被新尝试取代 → 只释放句柄，不改任何状态（前端已按取消处理）。
+    fn finish_connect(
+        self: &Arc<Self>,
+        gen: u64,
+        cancel: &AtomicBool,
+        cfg: super::transport::ConnConfig,
+        res: Result<super::transport::ConnPair, String>,
+    ) {
+        if cancel.load(Ordering::Relaxed) || self.conn_gen.load(Ordering::Relaxed) != gen {
+            drop(res);
+            return;
+        }
+        match res {
+            Ok(pair) => {
+                let mut guard = self.active.lock().unwrap();
+                self.reap_dead(&mut guard);
+                if guard.is_some() {
+                    // 竞态：已有别的连接（理论上被 active 互斥挡住，兜底防双开设备）
+                    drop(pair);
+                    self.clear_attempt(gen);
+                    self.events.state(&ConnState::down(
+                        String::new(),
+                        Some("已有活动连接（单连接设计，先断开再连）".into()),
+                    ));
+                    return;
+                }
+                match self.install(&mut guard, cfg, pair) {
+                    Ok(()) => self.clear_attempt(gen),
+                    Err(e) => {
+                        self.clear_attempt(gen);
+                        self.events.state(&ConnState::down(String::new(), Some(e)));
+                    }
+                }
+            }
+            Err(e) => {
+                self.clear_attempt(gen);
+                self.events.state(&ConnState::down(String::new(), Some(e)));
+            }
+        }
+    }
+
+    /// 把已打开的连接装成活动会话（建线程组 + 置 active + 广播 connected）。
+    /// `guard` 由调用方持有（单连接互斥），本函数不改其外部锁顺序。
+    fn install(
+        &self,
+        guard: &mut Option<Active>,
+        config: super::transport::ConnConfig,
+        pair: super::transport::ConnPair,
+    ) -> Result<(), String> {
         let label = pair.label.clone();
         *self.last_config.lock().unwrap() = Some(config.clone());
 
@@ -404,6 +706,7 @@ impl SessionManager {
         let write = Arc::new(Mutex::new(pair.write));
         let dtr = Arc::new(AtomicBool::new(false));
         let rts = Arc::new(AtomicBool::new(false));
+        let status = SessionStatus::new();
         let mut threads = Vec::new();
 
         // ── 读线程（含自动重连） ──
@@ -420,6 +723,7 @@ impl SessionManager {
         let capture_r = self.capture.clone();
         let label_r = label.clone();
         let cfg_r = config.clone();
+        let status_r = status.clone();
         threads.push(
             std::thread::Builder::new()
                 .name("reader".into())
@@ -450,11 +754,20 @@ impl SessionManager {
                                     }
                                 }
                                 Err(e) => {
-                                    ev.state(&ConnState {
-                                        connected: false,
-                                        label: label_r.clone(),
-                                        error: Some(e.to_string()),
-                                    });
+                                    // 掉线：记录原因并标记链路不可用。自动重连开启时
+                                    // 由下面的重连循环负责广播状态（含尝试次数），
+                                    // 避免同一件事连发两条事件。
+                                    status_r.link.store(false, Ordering::Relaxed);
+                                    status_r.set_error(e.to_string());
+                                    if !auto_r.load(Ordering::Relaxed) {
+                                        // 掉线且关闭自动重连：结束会话（不再重试）
+                                        stop_r.store(true, Ordering::Relaxed);
+                                        ev.state(&ConnState::down(
+                                            label_r.clone(),
+                                            status_r.error(),
+                                        ));
+                                        break 'session;
+                                    }
                                     break;
                                 }
                             }
@@ -472,25 +785,45 @@ impl SessionManager {
                         }
                         loop {
                             if stop_r.load(Ordering::Relaxed) {
+                                // 外部（disconnect/关标签）终止：状态事件由调用方广播
                                 break 'session;
                             }
                             if !auto_r.load(Ordering::Relaxed) {
-                                // 掉线且关闭自动重连：停止整个会话（日志/绘图线程随之退出）。
-                                // 注意：active 暂不清空，由 conn_state() 上报 + 前端在连接/断开前同步兜底。
+                                // 掉线且关闭自动重连：结束整个会话（日志/绘图线程随之退出）。
+                                // 会话终结后 active 由 reap_dead() 回收；用户重新插回设备
+                                // 需要手动点「连接」（不再有后台残留连接与误报）。
                                 stop_r.store(true, Ordering::Relaxed);
+                                ev.state(&ConnState::down(label_r.clone(), status_r.error()));
                                 break 'session;
                             }
-                            // 分片睡眠，保证 stop 能及时生效
+                            // 第 n 次尝试：先广播状态（前端据此显示「自动重连中（第 n 次）」+ 可取消），
+                            // 再按退避等待——退避上限 15s，避免设备缺失时高频重试。
+                            let attempt = status_r.attempt.fetch_add(1, Ordering::Relaxed) + 1;
+                            status_r.reconnecting.store(true, Ordering::Relaxed);
+                            ev.state(&ConnState::reconnecting(
+                                label_r.clone(),
+                                status_r.error(),
+                                attempt,
+                            ));
+                            // 分片睡眠，保证 stop / 关闭自动重连都能及时生效
                             let step = 100u64;
+                            let wait = reconnect_backoff_ms(delay_ms, attempt);
                             let mut waited = 0u64;
-                            while waited < delay_ms {
+                            while waited < wait {
                                 if stop_r.load(Ordering::Relaxed) {
                                     break 'session;
                                 }
-                                std::thread::sleep(Duration::from_millis(
-                                    step.min(delay_ms - waited),
-                                ));
+                                if !auto_r.load(Ordering::Relaxed) {
+                                    break;
+                                }
+                                std::thread::sleep(Duration::from_millis(step.min(wait - waited)));
                                 waited += step;
+                            }
+                            if stop_r.load(Ordering::Relaxed) {
+                                break 'session;
+                            }
+                            if !auto_r.load(Ordering::Relaxed) {
+                                continue; // 回到循环顶部 → 走「关闭重连 → 结束会话」
                             }
                             match super::transport::open(&cfg_r) {
                                 Ok(pair) => {
@@ -502,17 +835,25 @@ impl SessionManager {
                                         let _ = w.set_rts(rts_r.load(Ordering::Relaxed));
                                     }
                                     read_half = pair.read;
-                                    ev.state(&ConnState {
-                                        connected: true,
-                                        label: label_r.clone(),
-                                        error: None,
-                                    });
+                                    status_r.attempt.store(0, Ordering::Relaxed);
+                                    status_r.reconnecting.store(false, Ordering::Relaxed);
+                                    status_r.link.store(true, Ordering::Relaxed);
+                                    status_r.set_error(String::new());
+                                    ev.state(&ConnState::up(label_r.clone()));
                                     continue 'session;
                                 }
-                                Err(_) => continue, // 继续退避重试
+                                Err(e) => {
+                                    // 失败原因留到下轮广播（attempt 递增）
+                                    status_r.link.store(false, Ordering::Relaxed);
+                                    status_r.set_error(e.to_string());
+                                }
                             }
                         }
                     }
+                    // 读线程退出 = 会话终结（threads 里的日志/绘图线程已收到 stop 或随后退出）
+                    status_r.alive.store(false, Ordering::Relaxed);
+                    status_r.reconnecting.store(false, Ordering::Relaxed);
+                    status_r.link.store(false, Ordering::Relaxed);
                 })
                 .map_err(|e| e.to_string())?,
         );
@@ -807,28 +1148,25 @@ impl SessionManager {
             dtr,
             rts,
             bus,
+            status,
         });
-        self.events.state(&ConnState {
-            connected: true,
-            label,
-            error: None,
-        });
+        self.events.state(&ConnState::up(label));
         Ok(())
     }
 
+    /// 断开当前会话（含中止进行中的连接尝试与自动重连循环）。
+    /// 加锁顺序：先 `active` 再 `connecting`（与 `begin_connect` 一致）。
     pub fn disconnect(&self) {
         let taken = self.active.lock().unwrap().take();
+        // 进行中的连接尝试一并作废：用户点「取消」时不需等 open 返回
+        self.cancel_connect();
         if let Some(mut a) = taken {
             a.stop.store(true, Ordering::Relaxed);
             for t in a.threads.drain(..) {
                 let _ = t.join();
             }
             *self.last_config.lock().unwrap() = None;
-            self.events.state(&ConnState {
-                connected: false,
-                label: a.label,
-                error: None,
-            });
+            self.events.state(&ConnState::down(a.label, None));
         }
     }
 
@@ -1007,6 +1345,13 @@ fn hex_of(bytes: &[u8]) -> String {
         s.push_str(&format!("{b:02X}"));
     }
     s
+}
+
+/// 自动重连退避：第 n 次尝试前等待的毫秒数。
+/// base、2×、4×、8×…… 上限 15s —— 设备缺失/网络不可达时不要高频重试打日志。
+fn reconnect_backoff_ms(base: u64, attempt: u32) -> u64 {
+    let shift = attempt.saturating_sub(1).min(3);
+    base.saturating_mul(1u64 << shift).min(15_000)
 }
 
 fn now_mono_ms() -> u64 {

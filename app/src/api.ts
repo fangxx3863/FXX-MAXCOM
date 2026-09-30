@@ -36,8 +36,12 @@ export interface LogOptionsDto {
 /** 单会话 API：每个标签页一个实例，全部命令自动携带 session 参数 */
 export interface SessionApi {
   listPorts(): Promise<PortInfo[]>;
+  /** 开始连接（**立即返回**；过程与结果经 state 事件上报 connecting→connected|failed） */
   connect(config: ConnConfig): Promise<void>;
+  /** 断开连接；若正在连接/自动重连中，同时中止该过程（前端「取消」按钮走这条） */
   disconnect(): Promise<void>;
+  /** 取消进行中的连接尝试（立即返回，不等握手超时） */
+  cancelConnect(): Promise<boolean>;
   /** 主动查询当前连接状态（连接/断开前同步，避免"仅允许单连接"误报） */
   connState(): Promise<ConnState>;
   send(payload: SendPayload): Promise<number>;
@@ -69,6 +73,7 @@ function realApi(session: string): SessionApi {
     listPorts: () => invoke<PortInfo[]>("list_ports"),
     connect: (config) => invoke<void>("connect", { session, config }),
     disconnect: () => invoke<void>("disconnect", { session }),
+    cancelConnect: () => invoke<boolean>("cancel_connect", { session }),
     connState: () => invoke<ConnState>("conn_state", { session }),
     send: (payload) => invoke<number>("send", { session, payload }),
     resizePty: (cols, rows) => invoke<void>("resize_pty", { session, cols, rows }),

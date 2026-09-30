@@ -18,6 +18,7 @@ export interface MockApi {
   listPorts(): Promise<PortInfo[]>;
   connect(config: ConnConfig): Promise<void>;
   disconnect(): Promise<void>;
+  cancelConnect(): Promise<boolean>;
   connState(): Promise<ConnState>;
   send(payload: SendPayload): Promise<number>;
   resizePty(cols: number, rows: number): Promise<void>;
@@ -117,6 +118,10 @@ const LINES: Array<{ segs: ColoredSegment[] }> = [
 
 class MockBackend implements MockApi {
   private connected = false;
+  /** 连接尝试中（演示模式刻意保留连接过程，便于调试「取消 + 转圈」交互） */
+  private connecting = false;
+  /** 连接代次：取消/新尝试 +1，迟到的连接结果据此丢弃 */
+  private connGen = 0;
   private label = "";
   private timers: number[] = [];
   private ts = 0;
@@ -138,11 +143,16 @@ class MockBackend implements MockApi {
     return DEMO_PORTS;
   }
 
+  /** 演示模式的连接耗时：真实设备握手也需要时间，这里保留过程以便观察/取消 */
+  static readonly CONNECT_MS = 350;
+
   async connect(config: ConnConfig) {
-    if (this.connected) throw t("mock.busy");
-    this.connected = true;
+    if (this.connected || this.connecting) throw t("mock.busy");
+    this.connecting = true;
+    const gen = ++this.connGen;
+    emitState(this.session, { connected: false, label: "", phase: "connecting" });
     const hex = (n: number) => n.toString(16).padStart(4, "0");
-    this.label =
+    const label =
       config.type === "serial"
         ? t("conn.label.serial", { port: config.port, baud: config.baud })
         : config.type === "rtt"
@@ -156,20 +166,38 @@ class MockBackend implements MockApi {
                   host: config.host,
                   port: config.port,
                 });
+    await new Promise((r) => setTimeout(r, MockBackend.CONNECT_MS));
+    if (!this.connecting || gen !== this.connGen) return; // 已被取消/取代
+    this.connecting = false;
+    this.connected = true;
+    this.label = label;
     this.emitState();
     const tick = window.setInterval(() => this.pump(), 160);
     this.timers.push(tick);
   }
 
   async disconnect() {
+    this.connecting = false;
+    this.connGen++;
     this.connected = false;
     this.timers.forEach((t) => window.clearInterval(t));
     this.timers = [];
     this.emitState();
   }
 
+  /** 取消进行中的连接尝试（演示模式同样立即返回） */
+  async cancelConnect(): Promise<boolean> {
+    if (!this.connecting) return false;
+    this.connecting = false;
+    this.connGen++;
+    emitState(this.session, { connected: false, label: "", phase: "cancelled" });
+    return true;
+  }
+
   async connState(): Promise<ConnState> {
-    return { connected: this.connected, label: this.label, error: undefined };
+    if (this.connected) return { connected: true, label: this.label, phase: "connected" };
+    if (this.connecting) return { connected: false, label: "", phase: "connecting" };
+    return { connected: false, label: "", phase: "disconnected" };
   }
 
   async resizePty(_cols: number, _rows: number) {}
@@ -335,7 +363,9 @@ class MockBackend implements MockApi {
       connected: this.connected,
       label: this.label,
       error: undefined,
-    } as ConnState);
+      // 显式带阶段：真实后端由引擎给出，演示模式按 connected 对应
+      phase: this.connected ? "connected" : "disconnected",
+    });
   }
 }
 
@@ -412,3 +442,27 @@ export function mockOnState(fn: Listener<StateEvt>) {
 
 // 旧的全局单例出口（部分工具脚本引用）；指向 "*" 会话
 export const mock = getMock("*");
+
+// ── 演示 / 回归测试用状态注入钩子 ──
+// 真实链路的状态由引擎事件驱动；演示模式下为便于 jsdom 回归脚本覆盖
+// 「自动重连中 / 连接失败」等分支，暴露一个受限的广播入口。
+// 仅非 Tauri（演示）环境挂载，桌面端不暴露。
+export interface MockTestHook {
+  /** 按会话广播一条连接状态（同真实 conn://state 事件形态） */
+  emitState(session: string, state: ConnState): void;
+  /** 当前已有（被前端创建过的）会话 id */
+  sessions(): string[];
+}
+export function mockEmitState(session: string, state: ConnState) {
+  emitState(session, state);
+}
+export function mockSessionIds(): string[] {
+  return [...instances.keys()];
+}
+
+if (typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window)) {
+  (window as unknown as Record<string, unknown>).__maxcomMockState = {
+    emitState: mockEmitState,
+    sessions: mockSessionIds,
+  } satisfies MockTestHook;
+}

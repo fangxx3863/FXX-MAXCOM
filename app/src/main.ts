@@ -4,7 +4,7 @@
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
 import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow } from "./api";
-import type { ConnConfig, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
+import type { ConnConfig, ConnPhase, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
@@ -255,6 +255,24 @@ function hidDeviceLabel(d: HidDeviceInfo): string {
   return `${label}${sn}${usage}`;
 }
 
+/** 指示灯样式 */
+type DotState = "on" | "off" | "busy" | "err";
+
+/**
+ * 连接状态 → 指示灯样式。顶栏圆点与标签页圆点共用本函数，
+ * 保证「同一会话在顶栏与标签上永远同一颜色」（此前会出现标签红、顶栏灰的不一致）。
+ * - on：链路可用
+ * - busy：连接中 / 自动重连中（脉冲）
+ * - err：异常结束且不会自动恢复（红）
+ * - off：未连接（灰）
+ */
+function connDotState(connected: boolean, phase: ConnPhase | undefined, hasError: boolean): DotState {
+  if (connected) return "on";
+  if (phase === "connecting" || phase === "reconnecting") return "busy";
+  if (phase === "failed" || hasError) return "err";
+  return "off";
+}
+
 // ══════════════════════════ 单个会话（一个标签页）══════════════════════════
 class SessionApp {
   readonly id: string;
@@ -264,11 +282,19 @@ class SessionApp {
 
   // 连接态
   connected = false;
+  /** 连接阶段（引擎上报；连接按钮/指示灯/文案的唯一依据） */
+  phase: ConnPhase = "disconnected";
+  /** 自动重连已尝试次数（phase = reconnecting 时显示） */
+  reconnectAttempt = 0;
   connKind = "serial";
   dtrOn = false;
   rtsOn = false;
   stateLabel: string | null = null;
   lastError: string | null = null;
+  /** 显式连接后需补发一次绘图格式（自动重连不补发，避免清空已缓冲的波形） */
+  private pendingPlotFmt = false;
+  /** 「取消」点下后等引擎确认：期间忽略重复点击，避免连点触发两次断开 */
+  private cancelPending = false;
 
   currentPage: PageId = "logview";
 
@@ -706,29 +732,45 @@ class SessionApp {
     this.q("#ssh-pass").classList.toggle("hidden", !isSsh);
   }
 
-  private async toggleConnect(forceConnect = false) {
-    const wasConnected = this.connected;
-    // 与后端同步真实连接状态：读线程掉线（且不重连）后 active 可能残留，
-    // 前端每次连接/断开前先查询，避免"仅允许单连接"误报。
-    let backend = this.connected;
-    try {
-      backend = (await this.api.connState()).connected;
-    } catch {
-      backend = this.connected;
-    }
-    this.connected = backend;
+  /** 连接过程进行中（连接中 / 自动重连中）——此时连接按钮显示「取消」 */
+  private isBusy(): boolean {
+    return this.phase === "connecting" || this.phase === "reconnecting";
+  }
 
-    if (wasConnected && !forceConnect) {
-      // 用户意图：断开。后端无论真实/残留都已释放。
+  private async toggleConnect(forceConnect = false) {
+    // ① 连接中 / 自动重连中 → 本次点击是「取消」：先给界面反馈，再中止后端过程。
+    //    不等握手返回（SSH 最长 20s）、也要能掐断自动重连循环 —— 用户不该被迫等或
+    //    靠「再点一次连接弹报错」来停止重连。
+    if (!forceConnect && this.isBusy()) {
+      if (this.cancelPending) return; // 防连点：等待后端确认期间忽略重复点击
+      this.cancelPending = true;
+      this.setConnPhase("disconnected"); // 乐观：按钮/指示灯立刻回到未连接
+      try {
+        await this.api.cancelConnect(); // 掐掉进行中的连接尝试
+        await this.api.disconnect(); // 掐掉自动重连循环（会话仍在时）
+      } catch {
+        /* 忽略：状态以随后的事件为准 */
+      }
+      this.cancelPending = false;
+      return;
+    }
+    // ② 已连接 → 断开（后端同时会中止连接尝试与重连循环）
+    if (this.connected && !forceConnect) {
+      this.setConnPhase("disconnected");
       try {
         await this.api.disconnect();
       } catch {
         /* 忽略 */
       }
-      this.connected = false;
       return;
     }
-    // 连接意图（含 forceConnect）：后端（真实/残留）仍占用单连接 → 先断开释放再连。
+    // ③ 连接意图（含 forceConnect：先释放后端可能残留/仍占用的连接，单连接设计）
+    let backend = this.connected;
+    try {
+      backend = (await this.api.connState()).connected;
+    } catch {
+      /* 查询失败：沿用本地状态 */
+    }
     if (backend) {
       try {
         await this.api.disconnect();
@@ -816,27 +858,22 @@ class SessionApp {
       for (const s of sessions.values()) s.refreshTcpHostItems();
     }
     void this.api.setAutoReconnect(this.q<HTMLInputElement>("#auto-reconnect").checked);
-    // 串口默认拉高 DTR/RTS（多数设备期望的打开姿态）
+    // 串口默认拉高 DTR/RTS（多数设备期望的打开姿态）；连接建立后由 onLinkUp 下发
     if (this.connKind === "serial") {
       this.dtrOn = true;
       this.rtsOn = true;
       this.q<HTMLInputElement>("#dtr-chk").checked = true;
       this.q<HTMLInputElement>("#rts-chk").checked = true;
     }
-    this.api
-      .connect(cfg)
-      .then(() => {
-        if (this.connKind === "serial") {
-          void this.api.setDtr(this.dtrOn).catch(() => {});
-          void this.api.setRts(this.rtsOn).catch(() => {});
-        }
-        if (this.connKind === "ssh") {
-          this.terminalPage.syncPtySize();
-        }
-        // 连接即按当前绘图控件下发格式（默认 ASCII），无需手动点应用
-        void this.api.setPlotFormat(this.buildPlotFormat()).catch(() => {});
-      })
-      .catch((e) => alert(t("conn.connectError", { e })));
+    // 立刻把按钮切成「取消 + 转圈」：connect 只是「开始连接」，结果经 state 事件回来
+    // （连接失败也走事件 → 顶栏红点 + 错误文案，不再弹模态框打断操作）
+    this.pendingPlotFmt = true;
+    this.setConnPhase("connecting");
+    this.api.connect(cfg).catch((e) => {
+      // 仅前置错误会同步 reject（参数非法 / 会话已被占用 / 线程创建失败）
+      this.setConnPhase("disconnected", String(e));
+      this.setHint(t("conn.connectError", { e }));
+    });
   }
 
   /** 烧录页“一键运行”：把探针/芯片信息带回顶栏 RTT 配置并自动连接 */
@@ -859,24 +896,106 @@ class SessionApp {
 
   /** 连接状态事件（引擎推送，经全局路由进入） */
   applyConnState(s: ConnState) {
+    const wasConnected = this.connected;
     this.connected = s.connected;
-    this.stateLabel = s.label ? displayLabel(s.label) : s.label;
+    // 旧后端不带 phase：按 connected/error 兜底推断，行为与改动前一致
+    this.phase = s.phase ?? (s.connected ? "connected" : s.error ? "failed" : "disconnected");
+    this.reconnectAttempt = s.attempt ?? 0;
+    // 空 label（连接中/已取消）保留上一次的连接标签，避免顶栏文案闪空
+    if (s.label) this.stateLabel = displayLabel(s.label);
     this.lastError = s.error ?? null;
+    if (s.connected) this.cancelPending = false;
     if (!s.connected) this.terminalPage.clear();
     else if (this.connKind === "ssh") this.terminalPage.syncPtySize();
     this.protocolPage.setConnected(s.connected);
-    const dot = this.q("#conn-state");
-    dot.className = `dot ${s.connected ? "on" : "off"}`;
-    dot.title = s.error ?? (s.connected ? t("state.connected") : t("state.disconnected"));
-    this.q("#conn-label").textContent = this.stateLabel ?? "";
-    this.q("#sb-state").textContent = s.error
-      ? t("state.error", { e: s.error })
-      : s.connected
-        ? t("state.connectedWith", { label: this.stateLabel ?? "" })
-        : t("state.disconnected");
-    this.q("#connect-btn").textContent = s.connected ? t("conn.disconnect") : t("conn.connect");
-    this.q("#connect-btn").classList.toggle("danger", s.connected);
+    this.renderConnUI();
     renderTabs();
+    if (s.connected && !wasConnected) this.onLinkUp();
+  }
+
+  /** 链路建立后的补发（显式连接的绘图格式 + DTR/RTS + SSH PTY 尺寸） */
+  private onLinkUp() {
+    if (this.connKind === "serial") {
+      void this.api.setDtr(this.dtrOn).catch(() => {});
+      void this.api.setRts(this.rtsOn).catch(() => {});
+    }
+    if (this.connKind === "ssh") this.terminalPage.syncPtySize();
+    // 仅显式连接后下发一次绘图格式（自动重连不重发，否则会清空已缓冲的波形）
+    if (this.pendingPlotFmt) {
+      this.pendingPlotFmt = false;
+      void this.api.setPlotFormat(this.buildPlotFormat()).catch(() => {});
+    }
+  }
+
+  /** 乐观更新本地连接阶段（点击后立刻反馈，随后被引擎事件覆盖/校正） */
+  private setConnPhase(phase: ConnPhase, error: string | null = null) {
+    this.phase = phase;
+    this.reconnectAttempt = 0;
+    if (phase === "connecting") {
+      this.connected = false;
+      this.lastError = null; // 新一次尝试：清掉上次的失败原因
+    } else if (phase === "disconnected" || phase === "cancelled") {
+      this.connected = false;
+      this.lastError = error;
+    }
+    if (error !== null) this.lastError = error;
+    this.renderConnUI();
+    renderTabs();
+  }
+
+  /**
+   * 渲染连接区（按钮 + 顶栏指示灯 + 连接标签 + 状态栏）。
+   * 顶栏圆点与标签页圆点共用 connDotState（同一会话颜色永远一致）。
+   */
+  private renderConnUI() {
+    const busy = this.isBusy();
+    const hasError = !this.connected && this.lastError !== null;
+
+    // 按钮：连接 / 连接中（取消，带转圈）/ 断开
+    const btn = this.q<HTMLButtonElement>("#connect-btn");
+    btn.textContent = busy ? t("conn.cancel") : this.connected ? t("conn.disconnect") : t("conn.connect");
+    btn.classList.toggle("danger", this.connected && !busy);
+    btn.classList.toggle("busy", busy);
+    btn.title = busy ? t("conn.cancelHint") : "";
+
+    // 顶栏指示灯
+    const dot = this.q("#conn-state");
+    dot.className = `dot ${connDotState(this.connected, this.phase, hasError)}`;
+    dot.title = hasError
+      ? t("state.error", { e: this.lastError ?? "" })
+      : this.phase === "reconnecting"
+        ? t("conn.reconnecting", { n: String(this.reconnectAttempt) })
+        : this.phase === "connecting"
+          ? t("conn.connecting")
+          : this.connected
+            ? t("state.connected")
+            : t("state.disconnected");
+
+    // 连接标签（连接阶段 / 失败原因 / 连接目标）
+    const label = busy
+      ? this.phase === "connecting"
+        ? t("conn.connecting")
+        : t("conn.reconnecting", { n: String(this.reconnectAttempt) })
+      : hasError
+        ? t("state.error", { e: this.lastError ?? "" })
+        : (this.stateLabel ?? "");
+    const labelEl = this.q("#conn-label");
+    labelEl.textContent = label;
+    labelEl.title = label;
+    labelEl.classList.toggle("bad", hasError);
+
+    // 状态栏
+    const sb = this.q("#sb-state");
+    sb.textContent = busy
+      ? this.phase === "connecting"
+        ? t("conn.connecting")
+        : t("conn.reconnecting", { n: String(this.reconnectAttempt) })
+      : hasError
+        ? t("state.error", { e: this.lastError ?? "" })
+        : this.connected
+          ? t("state.connectedWith", { label: this.stateLabel ?? "" })
+          : t("state.disconnected");
+    sb.style.color = hasError ? "var(--err)" : "";
   }
 
   /** 轻提示：发送区 hint + 状态栏短暂红字 */
@@ -2103,7 +2222,8 @@ function renderTabs() {
     tab.title = s.lastError ? t("state.error", { e: s.lastError }) : tabTitle(s);
 
     const dot = document.createElement("span");
-    dot.className = `tab-dot${s.connected ? " on" : ""}${s.lastError ? " err" : ""}`;
+    // 与顶栏指示灯同一判据（连接中/重连中=脉冲，失败=红，未连接=灰）
+    dot.className = `tab-dot ${connDotState(s.connected, s.phase, s.lastError !== null)}`;
 
     const label = document.createElement("span");
     label.className = "tab-label";

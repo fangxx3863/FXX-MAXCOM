@@ -3,7 +3,7 @@
 use maxcom_core::filter::FilterRule;
 use maxcom_core::framing::TimestampMode;
 use maxcom_engine::session::{
-    ConnState, LogEntryDto, LogOptions, SendPayload, SessionEvents, SessionManager,
+    ConnPhase, ConnState, LogEntryDto, LogOptions, SendPayload, SessionEvents, SessionManager,
 };
 use maxcom_engine::transport::ConnConfig;
 use std::io::{Read, Write};
@@ -788,5 +788,214 @@ fn local_echo_shows_sent_text_when_device_silent() {
     );
     assert_eq!(mgr.stats().tx_bytes, 10, "响应回来后 TX 也不受影响");
 
+    mgr.disconnect();
+}
+
+// ── 连接阶段状态机（ADR-0020：可取消连接 / 重连阶段上报）──
+
+/// `begin_connect` 必须**同步广播 connecting、立即返回**，建立过程在后台线程完成。
+/// 回归：旧 `connect()` 是同步阻塞命令（串口 open / SSH 握手最坏 20s），Tauri 主线程
+/// 被占死 → 界面卡死，且用户无法取消。
+#[test]
+fn begin_connect_returns_immediately_and_broadcasts_connecting_first() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = Arc::new(SessionManager::new(rec.clone()));
+
+    let t0 = Instant::now();
+    mgr.begin_connect(tcp_cfg(port)).expect("begin_connect");
+    let elapsed = t0.elapsed();
+    assert!(
+        elapsed < Duration::from_millis(500),
+        "begin_connect 阻塞了 {elapsed:?}（应只做登记 + 广播后立即返回）"
+    );
+
+    // connecting 必须是第一条状态事件（open 还在后台线程里跑）——
+    // 这是「按钮立刻切成取消 + 转圈」的依据。
+    {
+        let states = rec.states.lock().unwrap();
+        let first = states.first().expect("应广播 connecting");
+        assert_eq!(first.phase, ConnPhase::Connecting, "首事件应为 connecting");
+        assert!(!first.connected);
+    }
+
+    assert!(
+        wait_until(|| mgr.is_connected(), Duration::from_secs(3)),
+        "后台 open 未完成"
+    );
+    assert!(
+        wait_until(
+            || rec
+                .states
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|s| s.phase == ConnPhase::Connected && s.connected),
+            Duration::from_secs(3)
+        ),
+        "未广播 connected"
+    );
+    assert_eq!(mgr.conn_state().phase, ConnPhase::Connected);
+
+    // 单连接（ADR-0016）：已连接时再 begin 必须同步拒绝
+    assert!(
+        mgr.begin_connect(tcp_cfg(port)).is_err(),
+        "已有活动连接时应拒绝"
+    );
+    mgr.disconnect();
+}
+
+/// 取消连接：立即返回、广播 cancelled，且迟到的成功结果被丢弃。
+///
+/// 用 RFC 5737 保留网段 `192.0.2.1`（不可路由）让 `open()` 停在连接超时里，
+/// 使「取消发生在连接建立过程中」这一时序确实被覆盖；若运行环境秒拒（无路由 / RST），
+/// 则退化为「尝试已结束」分支断言——两种环境都不得卡在 connecting。
+#[test]
+fn cancel_connect_aborts_pending_attempt() {
+    let rec = Arc::new(Recorder::default());
+    let mgr = Arc::new(SessionManager::new(rec.clone()));
+
+    let t0 = Instant::now();
+    mgr.begin_connect(ConnConfig::TcpClient {
+        host: "192.0.2.1".into(),
+        port: 9,
+    })
+    .expect("begin_connect");
+    assert!(
+        t0.elapsed() < Duration::from_millis(500),
+        "begin_connect 不应等待建立过程"
+    );
+
+    if mgr.cancel_connect() {
+        // 取消后：状态必须落到 cancelled，且**不得**出现连接成功
+        assert!(!mgr.cancel_connect(), "重复取消应为 no-op");
+        std::thread::sleep(Duration::from_millis(300));
+        let states = rec.states.lock().unwrap();
+        assert!(
+            states.iter().any(|s| s.phase == ConnPhase::Cancelled),
+            "取消未广播 cancelled: {states:?}"
+        );
+        assert!(
+            !states.iter().any(|s| s.connected),
+            "取消后迟到的成功结果应被丢弃: {states:?}"
+        );
+        drop(states);
+        assert!(!mgr.is_connected(), "取消后不应残留会话");
+    } else {
+        // 环境秒拒：尝试已自行结束，只允许是失败 / 取消态，不能卡在 connecting
+        let p = mgr.conn_state().phase;
+        assert!(
+            matches!(
+                p,
+                ConnPhase::Failed | ConnPhase::Cancelled | ConnPhase::Disconnected
+            ),
+            "尝试结束后阶段异常: {p:?}"
+        );
+    }
+    mgr.disconnect();
+}
+
+/// 空转取消是 no-op：不应凭空广播状态（避免前端被假 cancelled 事件打断）。
+#[test]
+fn cancel_connect_without_attempt_is_noop() {
+    let rec = Arc::new(Recorder::default());
+    let mgr = Arc::new(SessionManager::new(rec.clone()));
+    assert!(!mgr.cancel_connect());
+    assert!(!mgr.cancel_connect());
+    assert!(
+        rec.states.lock().unwrap().is_empty(),
+        "无进行中尝试时不应广播状态"
+    );
+}
+
+/// 自动重连必须**上报阶段**（reconnecting + 尝试次数），而不是静默重试：
+/// 前端据此显示「自动重连中（第 n 次）」并允许用户中止。
+#[test]
+fn reconnect_reports_phase_and_attempt() {
+    let port = spawn_drop_after_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_reconnect_delay_ms(100);
+    mgr.connect(tcp_cfg(port)).unwrap();
+
+    mgr.send(&SendPayload {
+        text: Some("ping".into()),
+        hex: None,
+        newline: "\n".into(),
+        echo: false,
+    })
+    .unwrap();
+
+    assert!(
+        wait_until(
+            || rec
+                .states
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|s| s.phase == ConnPhase::Reconnecting && s.attempt >= 1 && !s.connected),
+            Duration::from_secs(5)
+        ),
+        "未广播 reconnecting: {:?}",
+        rec.states.lock().unwrap()
+    );
+    assert!(
+        wait_until(
+            || mgr.conn_state().phase == ConnPhase::Connected,
+            Duration::from_secs(5)
+        ),
+        "重连未恢复"
+    );
+    assert!(
+        rec.states
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.phase == ConnPhase::Connected && s.attempt == 0),
+        "重连成功后 attempt 应归零"
+    );
+    mgr.disconnect();
+}
+
+/// 掉线 + 关闭自动重连 → 会话自行终结并被回收：不留后台残留连接。
+///
+/// 回归（用户实测）：拔串口后「顶栏已变红点、右侧仍显示连接」，且用户不希望重连时
+/// 只能再点一次「连接」触发报错才能复位。现在会话终结即回收 active，
+/// 连接/断开前无需再靠「点一下报错」解锁。
+#[test]
+fn dropped_link_without_reconnect_reaps_session() {
+    let port = spawn_drop_after_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_auto_reconnect(false);
+    mgr.connect(tcp_cfg(port)).unwrap();
+
+    mgr.send(&SendPayload {
+        text: Some("bye".into()),
+        hex: None,
+        newline: "\n".into(),
+        echo: false,
+    })
+    .unwrap();
+
+    assert!(
+        wait_until(
+            || rec.states.lock().unwrap().iter().any(|s| {
+                !s.connected && matches!(s.phase, ConnPhase::Failed | ConnPhase::Disconnected)
+            }),
+            Duration::from_secs(3)
+        ),
+        "掉线未上报终态: {:?}",
+        rec.states.lock().unwrap()
+    );
+    assert!(
+        wait_until(|| !mgr.is_connected(), Duration::from_secs(3)),
+        "掉线后 active 残留（会误报「已有活动连接」）"
+    );
+    assert_eq!(mgr.conn_state().phase, ConnPhase::Disconnected);
+
+    // 单连接锁已释放：插回设备后可直接连接，无需先点一次「连接」看报错
+    let port2 = spawn_echo_server();
+    mgr.connect(tcp_cfg(port2)).expect("掉线后应能立即重连");
     mgr.disconnect();
 }

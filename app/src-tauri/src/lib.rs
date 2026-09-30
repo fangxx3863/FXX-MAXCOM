@@ -41,6 +41,7 @@ pub fn run() {
             #[cfg(feature = "desktop")]
             commands::cancel_modem_transfer,
             commands::connect,
+            commands::cancel_connect,
             commands::disconnect,
             commands::conn_state,
             commands::send,

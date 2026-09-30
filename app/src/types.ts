@@ -123,10 +123,23 @@ export interface EntriesBatch {
   items: LogEntryDto[];
 }
 
+/** 连接阶段（引擎上报；驱动连接按钮与指示灯状态机） */
+export type ConnPhase =
+  | "disconnected"
+  | "connecting" // 正在建立连接（按钮 = 取消 + 转圈）
+  | "reconnecting" // 掉线后自动重连中（按钮 = 取消 + 转圈）
+  | "connected"
+  | "failed" // 异常结束且不会自动恢复
+  | "cancelled"; // 用户主动取消本次连接尝试
+
 export interface ConnState {
+  /** 链路是否可用（自动重连退避期间为 false） */
   connected: boolean;
   label: string;
   error?: string;
+  phase?: ConnPhase;
+  /** 自动重连已尝试次数（phase = reconnecting 时有意义） */
+  attempt?: number;
 }
 
 export interface StatsSnapshot {
