@@ -11,7 +11,7 @@ use crossbeam_channel::{bounded, select, tick, Sender};
 use maxcom_core::ansistrip::strip_ansi;
 use maxcom_core::bus::Bus;
 use maxcom_core::colorize::{ColorRule, ColorizeEngine};
-use maxcom_core::encoding::{incomplete_char_tail, EncodingHistory, AUTO};
+use maxcom_core::encoding::{StreamDecoder};
 use maxcom_core::filter::{FilterEngine, FilterRule};
 use maxcom_core::framing::TimestampMode;
 use maxcom_core::plot::parser::{make_parser, FrameParser};
@@ -90,20 +90,6 @@ impl CaptureSink {
 /// 否则 splitter pending / time_buf 只涨不拆、batch 恒空，前端收不到任何 entries
 /// （xterm 走 raw 通道不受影响）；且最终一次性刷出的会是超大单行，前端渲染卡死。
 const PARTIAL_FLUSH_CAP: usize = 4096;
-
-/// 空闲封行 / 超长截断前，计算行尾「不完整多字节序列」的字节数。
-///
-/// 设备把一行拆成多次到达时，空闲封行会把未完成行提前吐出（前端 partial 续行接回去）；
-/// 如果切点正好落在汉字的两个字节中间，该字会被解成两个 U+FFFD。调用方据此把末尾
-/// 这几个字节留回 pending，等下一批到齐再一起解。auto 模式优先沿用滑窗已定编码。
-fn tail_hold_len(detector: &EncodingHistory, encoding: &str, raw: &[u8]) -> usize {
-    let effective = if encoding == AUTO {
-        detector.held_encoding()
-    } else {
-        encoding
-    };
-    incomplete_char_tail(raw, effective)
-}
 
 /// 日志条目 DTO（segments 已染色；前端直接渲染）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -542,7 +528,7 @@ impl SessionManager {
         let (init_master, init_ansi_yield, init_rules) = self.colors.lock().unwrap().clone();
         let init_lopts = self.log_options.lock().unwrap().clone();
         threads.push(std::thread::Builder::new().name("logview".into()).spawn(move || {
-            let mut detector = EncodingHistory::default();
+            let mut decoder = StreamDecoder::new(&init_lopts.encoding);
             let mut splitter = LineSplitter::new();
             splitter.split_on_bare_cr = false; // line mode: split only on LF or CRLF; bare CR is line data
             let mut colorize = ColorizeEngine::new(true);
@@ -566,7 +552,12 @@ impl SessionManager {
                 select! {
                     recv(cmd_rx_log) -> msg => {
                         match msg {
-                            Ok(Cmd::SetLogOptions(o)) => options = o,
+                            Ok(Cmd::SetLogOptions(o)) => {
+                                if o.encoding != options.encoding {
+                                    decoder.set_encoding(&o.encoding);
+                                }
+                                options = o;
+                            }
                             Ok(Cmd::SetFilters(rules)) => {
                                 filter.reset();
                                 for r in &rules { filter.add_rule(r); }
@@ -577,7 +568,7 @@ impl SessionManager {
                                 colorize.reset();
                                 for r in rules { colorize.register(r); }
                             }
-                            Ok(Cmd::ClearLog) => { splitter.clear(); time_buf.clear(); detector.reset(); }
+                            Ok(Cmd::ClearLog) => { splitter.clear(); time_buf.clear(); decoder.reset(); }
                             Err(_) => break,
                         }
                     }
@@ -587,7 +578,7 @@ impl SessionManager {
                             last_data_ms = now;
                             if options.split_mode == "line" {
                         for raw in splitter.feed(&data) {
-                            let raw_text = detector.decode_line(&raw, &options.encoding);
+                            let raw_text = decoder.decode(&raw);
                             let segments = colorize.process_line(&raw_text); // 见 ANSI → 产出颜色段
                             let text = strip_ansi(&raw_text); // DTO.text/过滤/raw 用干净文本
                             if filter.should_show(&text) {
@@ -602,17 +593,18 @@ impl SessionManager {
                         if splitter.pending_bytes() >= PARTIAL_FLUSH_CAP {
                             let mut raw = splitter.flush_pending_line();
                             let mut excess = raw.split_off(PARTIAL_FLUSH_CAP);
-                            // 截断点同样不能劈开多字节字符：把不完整尾巴并回余量
-                            let keep = tail_hold_len(&detector, &options.encoding, &raw);
-                            if keep > 0 && keep < raw.len() {
-                                let mut tail = raw.split_off(raw.len() - keep);
-                                tail.extend_from_slice(&excess);
-                                excess = tail;
+                            // 截断点同样不能劈开多字节字符：用 complete_len 精确对齐字符边界
+                            let complete = decoder.complete_len(&raw);
+                            if complete < raw.len() {
+                                let tail = raw.split_off(complete);
+                                let mut new_excess = tail;
+                                new_excess.extend_from_slice(&excess);
+                                excess = new_excess;
                             }
                             if !excess.is_empty() {
-                                let _ = splitter.feed(&excess); // 尾段无换行，feed 仅回填 pending
+                                let _ = splitter.feed(&excess);
                             }
-                            let raw_text = detector.decode_line(&raw, &options.encoding);
+                            let raw_text = decoder.decode(&raw);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -629,15 +621,15 @@ impl SessionManager {
                             if raw.len() > PARTIAL_FLUSH_CAP {
                                 let mut excess = raw.split_off(PARTIAL_FLUSH_CAP);
                                 // 同上：截断点不能劈开多字节字符
-                                let keep = tail_hold_len(&detector, &options.encoding, &raw);
-                                if keep > 0 && keep < raw.len() {
-                                    let mut tail = raw.split_off(raw.len() - keep);
+                                let complete = decoder.complete_len(&raw);
+                                if complete < raw.len() {
+                                    let mut tail = raw.split_off(complete);
                                     tail.extend_from_slice(&excess);
                                     excess = tail;
                                 }
                                 time_buf.extend_from_slice(&excess);
                             }
-                            let raw_text = detector.decode_line(&raw, &options.encoding);
+                            let raw_text = decoder.decode(&raw);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -657,13 +649,13 @@ impl SessionManager {
                                 let mut raw = splitter.flush_pending_line();
                                 // 切点落在多字节字符中间时把末尾不完整序列留回 pending：
                                 // 下一批字节到齐后前端 partial 续行会把它接回同一行，避免解出 U+FFFD。
-                                let keep = tail_hold_len(&detector, &options.encoding, &raw);
-                                if keep > 0 && keep < raw.len() {
-                                    let tail = raw.split_off(raw.len() - keep);
+                                let complete = decoder.complete_len(&raw);
+                                if complete < raw.len() {
+                                    let tail = raw.split_off(complete);
                                     let _ = splitter.feed(&tail);
                                 }
                                 if !raw.is_empty() {
-                                    let raw_text = detector.decode_line(&raw, &options.encoding);
+                                    let raw_text = decoder.decode(&raw);
                                     let segments = colorize.process_line(&raw_text);
                                     let text = strip_ansi(&raw_text);
                                     if filter.should_show(&text) {
@@ -673,7 +665,7 @@ impl SessionManager {
                             }
                         } else if !time_buf.is_empty() && idle_elapsed {
                             let raw = std::mem::take(&mut time_buf);
-                            let raw_text = detector.decode_line(&raw, &options.encoding);
+                            let raw_text = decoder.decode(&raw);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -690,7 +682,7 @@ impl SessionManager {
                 if stop_l.load(Ordering::Relaxed) {
                     if options.split_mode == "line" {
                         for raw in splitter.flush() {
-                            let raw_text = detector.decode_line(&raw, &options.encoding);
+                            let raw_text = decoder.decode(&raw);
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
@@ -699,7 +691,7 @@ impl SessionManager {
                         }
                     } else if !time_buf.is_empty() {
                         let raw = std::mem::take(&mut time_buf);
-                        let raw_text = detector.decode_line(&raw, &options.encoding);
+                        let raw_text = decoder.decode(&raw);
                         let segments = colorize.process_line(&raw_text);
                         let text = strip_ansi(&raw_text);
                         if filter.should_show(&text) {

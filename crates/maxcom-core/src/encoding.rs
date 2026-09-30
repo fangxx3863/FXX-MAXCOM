@@ -2,7 +2,7 @@
 //! 解码用 `encoding_rs`（替换式，非法字节 → U+FFFD，绝不失败）。
 //! Latin-1 手工逐字节映射（encoding_rs 的 windows-1252 在 0x80-0x9F 段与 ISO-8859-1 不同）。
 
-use encoding_rs::{Encoding, GBK};
+use encoding_rs::{Decoder, Encoding, GBK, UTF_8};
 
 pub const UTF8_BOM: &[u8] = b"\xef\xbb\xbf";
 
@@ -103,6 +103,12 @@ fn gbk_incomplete_tail(data: &[u8]) -> usize {
 ///
 /// `encoding` 传会话当前编码；`auto` 时按 UTF-8 / GBK 两种最常见情形保守取大。
 pub fn incomplete_char_tail(data: &[u8], encoding: &str) -> usize {
+    // 合法 UTF-8 是完整性的自证,不可能含半个字符:必须先短路,否则下面的
+    // auto 分支按 UTF-8/GBK 判据取 max,会把完整 UTF-8 行的末字节误判成
+    // GBK 孤立首字节(0x81..=0xFE 重叠),切掉后整行变非法 UTF-8 → 整行乱码。
+    if std::str::from_utf8(data).is_ok() {
+        return 0;
+    }
     match encoding {
         "utf-8" => utf8_incomplete_tail(data),
         "gbk" | "gb2312" => gbk_incomplete_tail(data),
@@ -214,6 +220,162 @@ impl EncodingHistory {
 }
 
 /// 替换式解码（非法序列 → U+FFFD），等价 Python errors="replace"。
+/// 会话级**有状态解码上下文**(ADR-0020):把"用哪个编码、字节到哪算一个完整字符"
+/// 这两件事收敛到一处,并提供**精确**的字符边界换算(基于 encoding_rs 的权威读数,
+/// 而不是手写启发式)。
+///
+/// ── 为什么需要它 ──
+/// 串口/USB 的读取边界任意,一个多字节字符(UTF-8 2~4 字节、GBK 2 字节、
+/// GB18030 最多 4 字节)会被拆到相邻两次 `read`。旧实现对每块字节独立解码,再靠
+/// "猜末尾几个字节是半个字符"拼回去;两种编码的字节区间重叠(合法 UTF-8 汉字的末字节
+/// 同样落在 GBK 首字节区间 0x81..=0xFE),取 max 必然误伤——这正是历次乱码的根源。
+///
+/// 这里改用 encoding_rs 的流式语义:`last=false` 调用时它把**尾部不完整的字节序列
+/// 留在内部状态**,返回的 `read` 精确等于"构成完整字符的前缀长度"。用它做切点对齐,
+/// 不再有任何猜测;GB18030 等更宽的编码也自动正确。
+///
+/// ── 两个原语 ──
+/// - [`decode_prefix`](Self::decode_prefix):解出**完整字符前缀**,返回 (文本, 已消费
+///   字节数)。`consumed < len` ⇒ 尾部有半个字符,调用方把剩余字节留回缓冲即可。
+/// - [`decode`](Self::decode):整段解码(用于已确认无半个字符的整行),末尾非法序列按
+///   U+FFFD 处理,绝不失败。
+///
+/// 编码决策:`auto` 时由 [`EncodingHistory`] 滑动窗口判定并**粘住**;未锁定时按 UTF-8
+/// 起手(合法 UTF-8/ASCII 走该路径,无需猜测),窗口给出确定编码后即切换。切换只改变
+/// 对**尚未输出**字节的解释,不影响已输出的文本,故中途切换是安全的。
+pub struct StreamDecoder {
+    /// 会话编码判定(滑动窗口)。`auto` 时由它给出实际编码。
+    history: EncodingHistory,
+    /// 会话配置的编码名("auto"/"utf-8"/"gbk"/"gb2312"/"latin-1")
+    configured: String,
+    /// 当前实际生效的**具体**编码(不会是 auto)
+    active: &'static str,
+}
+
+impl StreamDecoder {
+    pub fn new(encoding: &str) -> Self {
+        let mut s = Self {
+            history: EncodingHistory::default(),
+            configured: encoding.to_string(),
+            active: "utf-8",
+        };
+        s.rebind();
+        s
+    }
+
+    /// 会话编码变更(前端切换编码下拉)。只影响后续对未输出字节的解释。
+    pub fn set_encoding(&mut self, encoding: &str) {
+        if self.configured == encoding {
+            return;
+        }
+        self.configured = encoding.to_string();
+        // 显式切换编码:旧会话的判定证据不再适用
+        self.history.reset();
+        self.rebind();
+    }
+
+    /// 清空会话状态(清空日志时调用)。
+    pub fn reset(&mut self) {
+        self.history.reset();
+        self.rebind();
+    }
+
+    /// 由 `configured`(必要时结合滑动窗口)确立 `active` 具体编码。
+    fn rebind(&mut self) {
+        self.active = if self.configured == AUTO {
+            // auto:窗口已锁定就用锁定值,否则按 utf-8 起手
+            match self.history.held_encoding() {
+                AUTO => "utf-8",
+                held => held,
+            }
+        } else {
+            match self.configured.as_str() {
+                "utf-8" => "utf-8",
+                "gbk" | "gb2312" => "gbk",
+                "latin-1" => "latin-1",
+                // 未知编码名:退回 utf-8 语义(不 panic,保显示)
+                _ => "utf-8",
+            }
+        };
+    }
+
+    /// auto 模式下让滑动窗口看这批字节;窗口给出确定编码且与当前不同时切换。
+    /// 仅在 auto 生效;显式编码完全绕过窗口。
+    fn settle_auto(&mut self, data: &[u8]) {
+        if self.configured != AUTO {
+            return;
+        }
+        self.history.push(data);
+        if self.history.held_encoding() != self.active {
+            self.rebind();
+        }
+    }
+
+    /// 精确计算:`data` 里构成**完整字符**的前缀字节数(0..=len)。
+    ///
+    /// 这是权威答案而非估计——直接取 encoding_rs 流式解码的 `read` 读数。
+    /// 用于把"强制封行 / 截断 / 空闲封行"的切点钉在字符边界上。
+    pub fn complete_len(&mut self, data: &[u8]) -> usize {
+        self.settle_auto(data);
+        match self.active {
+            // 单字节编码:每个字节都是一个完整字符
+            "latin-1" => data.len(),
+            "gbk" => prefix_scan(GBK.new_decoder(), data),
+            _ => prefix_scan(UTF_8.new_decoder_without_bom_handling(), data),
+        }
+    }
+
+    /// 解出 `data` 的完整字符前缀,返回 (文本, 已消费字节数)。
+    /// `consumed < data.len()` ⇒ 尾部有半个字符,调用方应留回缓冲等下一批。
+    pub fn decode_prefix(&mut self, data: &[u8]) -> (String, usize) {
+        self.settle_auto(data);
+        match self.active {
+            "latin-1" => (data.iter().map(|&b| b as char).collect(), data.len()),
+            "gbk" => span_decode(GBK.new_decoder(), data),
+            _ => span_decode(UTF_8.new_decoder_without_bom_handling(), data),
+        }
+    }
+
+    /// 整段解码(用于已确认不含半个字符的整行/整块)。非法序列按 U+FFFD 替换,绝不失败。
+    pub fn decode(&mut self, data: &[u8]) -> String {
+        self.settle_auto(data);
+        match self.active {
+            "gbk" => decode_with(GBK, data),
+            "latin-1" => data.iter().map(|&b| b as char).collect(),
+            _ => String::from_utf8_lossy(data).into_owned(),
+        }
+    }
+
+    /// 当前实际生效的编码(具体名;便于遥测与测试)。
+    pub fn active_encoding(&self) -> &'static str {
+        self.active
+    }
+
+    /// 滑动窗口已锁定的编码(auto 模式下有意义;未锁定为 auto)。
+    pub fn held_encoding(&self) -> &'static str {
+        self.history.held_encoding()
+    }
+}
+
+/// 用一次性 decoder 求"完整字符前缀长度"(`last=false` 的 read 读数)。
+fn prefix_scan(mut dec: Decoder, src: &[u8]) -> usize {
+    if src.is_empty() {
+        return 0;
+    }
+    // 输出缓冲只为让解码推进;内容丢弃,只关心 read
+    let mut out = String::with_capacity(src.len() * 2 + 8);
+    let (_res, read, _had_err) = dec.decode_to_string(src, &mut out, false);
+    read.min(src.len())
+}
+
+/// 用一次性 decoder 解一段自包含字节,返回 (文本, 已消费字节数)。
+fn span_decode(mut dec: Decoder, src: &[u8]) -> (String, usize) {
+    let mut out = String::with_capacity(src.len() * 2 + 8);
+    let (_res, read, _had_err) = dec.decode_to_string(src, &mut out, false);
+    (out, read.min(src.len()))
+}
+
+/// 替换式解码(非法序列 → U+FFFD),等价 Python errors="replace"。
 fn decode_with(enc: &'static Encoding, data: &[u8]) -> String {
     let mut decoder = enc.new_decoder();
     let mut out = String::with_capacity(
