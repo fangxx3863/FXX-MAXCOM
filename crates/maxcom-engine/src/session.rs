@@ -11,7 +11,7 @@ use crossbeam_channel::{bounded, select, tick, Sender};
 use maxcom_core::ansistrip::strip_ansi;
 use maxcom_core::bus::Bus;
 use maxcom_core::colorize::{ColorRule, ColorizeEngine};
-use maxcom_core::encoding::{StreamDecoder};
+use maxcom_core::encoding::StreamDecoder;
 use maxcom_core::filter::{FilterEngine, FilterRule};
 use maxcom_core::framing::TimestampMode;
 use maxcom_core::plot::parser::{make_parser, FrameParser};
@@ -860,13 +860,12 @@ impl SessionManager {
     pub fn resize_pty(&self, cols: u16, rows: u16) -> Result<(), String> {
         let guard = self.active.lock().unwrap();
         match &*guard {
-            Some(a) => {
-                a.write
-                    .lock()
-                    .unwrap()
-                    .resize_pty(cols, rows)
-                    .map_err(|e| e.to_string())
-            }
+            Some(a) => a
+                .write
+                .lock()
+                .unwrap()
+                .resize_pty(cols, rows)
+                .map_err(|e| e.to_string()),
             None => Ok(()),
         }
     }
