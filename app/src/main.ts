@@ -2597,6 +2597,12 @@ function saveSettings(st: AppSettings) {
   currentSettings = st;
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(st));
   applySettingsToAll();
+  // 爆炸视图的显示页/布局取自 currentSettings，只在打开时读取一次；
+  // 若此刻覆盖层正开着，改设置必须立刻重建，否则用户会看到「改了设置没反应」。
+  if (explodeOpen) {
+    closeExplode();
+    openExplode();
+  }
 }
 
 /**
@@ -2651,35 +2657,64 @@ interface SplitNode {
   children: [SplitTree, SplitTree];
 }
 
-/** 用 split 树表达 n 个窗口的初始平铺布局（i3/hyprland 语义：递归二分） */
+/**
+ * 用 split 树表达 n 个窗口的初始平铺布局。
+ *
+ * 三种布局必须「任意窗口数下互相看得出差别」，否则改设置等于没改：
+ * 曾经的实现里 grid/dwindle 都建立在「递归二分」上，窗口数少时会退化 ——
+ * 2 窗时 grid 与 dwindle 完全同形（左右各半），3 窗时三者同为「左侧通高 + 右侧上下两格」
+ * （即主从形态），用户只会看到「都用了主从模式」。故各布局改为各用专属几何：
+ *   master  左主窗 60% + 右侧等高竖排
+ *   grid    等分网格（列数 ceil(√n)，行高等分、行内等宽）
+ *   dwindle 折半阶梯螺旋（首刀竖切，横向窗口下自上而下铺开）
+ */
 function buildSplitTree(n: number, layout: ExplodeLayout, leaves: HTMLDivElement[]): SplitTree {
   if (n <= 1) return { tile: leaves[0] };
-  if (layout === "master" && n > 1) {
-    // 主窗口占一侧 60%，其余堆叠另一侧（col 竖排）
-    return { dir: "row", ratio: 0.6, children: [{ tile: leaves[0] }, balancedSplit(leaves.slice(1), "col")] };
+  switch (layout) {
+    case "master":
+      // 侧栏必须「线性等高竖排」：若沿用二分，4 窗时侧栏下半会再横切成两列，外观不再像主从
+      return { dir: "row", ratio: 0.6, children: [{ tile: leaves[0] }, stackSplit(leaves.slice(1), "col")] };
+    case "dwindle":
+      return dwindleSplit(leaves, "col");
+    default:
+      return gridSplit(leaves);
   }
-  if (layout === "dwindle") return dwindleSplit(leaves, "row");
-  // grid：均分网格（交错方向平衡二分，接近正方形分割）
-  return balancedSplit(leaves, "row");
 }
 
-/** 平衡二分：把一段 leaves 均分成两半，递归交替方向（近正方形网格） */
-function balancedSplit(leaves: HTMLDivElement[], dir: SplitDir): SplitTree {
-  const n = leaves.length;
-  if (n <= 1) return { tile: leaves[0] };
-  const mid = Math.floor(n / 2);
-  const ratio = n === 2 ? 0.5 : mid / n;
-  return {
-    dir,
-    ratio,
-    children: [
-      balancedSplit(leaves.slice(0, mid), dir === "row" ? "col" : "row"),
-      balancedSplit(leaves.slice(mid), dir === "row" ? "col" : "row"),
-    ],
-  };
+/** 线性等分：n 个子项在同一方向依次各占 1/n（master 侧栏、grid 行间与行内都用它） */
+function stackSplit(leaves: HTMLDivElement[], dir: SplitDir): SplitTree {
+  if (leaves.length <= 1) return { tile: leaves[0] };
+  return { dir, ratio: 1 / leaves.length, children: [{ tile: leaves[0] }, stackSplit(leaves.slice(1), dir)] };
 }
 
-/** dwindle：每个后续窗口依次拿剩余一半，横竖交替（斜向递减） */
+/** 一行的若干窗口左右等分 */
+function rowSplit(cells: HTMLDivElement[]): SplitTree {
+  if (cells.length <= 1) return { tile: cells[0] };
+  return { dir: "row", ratio: 1 / cells.length, children: [{ tile: cells[0] }, rowSplit(cells.slice(1))] };
+}
+
+/** 行之间上下等分 */
+function rowsSplit(rows: HTMLDivElement[][]): SplitTree {
+  if (rows.length <= 1) return rowSplit(rows[0]);
+  return { dir: "col", ratio: 1 / rows.length, children: [rowSplit(rows[0]), rowsSplit(rows.slice(1))] };
+}
+
+/**
+ * grid：等分网格。列数取 ceil(√n) 使单元接近正方形；末行不满时该行窗口平分整行宽度
+ * （不留空洞，例如 3 窗 = 上二 + 下满宽，5 窗 = 上三 + 下二）。
+ */
+function gridSplit(leaves: HTMLDivElement[]): SplitTree {
+  const cols = Math.ceil(Math.sqrt(leaves.length));
+  const rows: HTMLDivElement[][] = [];
+  for (let i = 0; i < leaves.length; i += cols) rows.push(leaves.slice(i, i + cols));
+  return rowsSplit(rows);
+}
+
+/**
+ * dwindle：折半阶梯螺旋，每个后续窗口拿走剩余区域的一半，方向逐级交替。
+ * 首刀取竖切（上下）：横向爆炸视图下形成「上满宽 → 下二分 → 右下再二分」的阶梯，
+ * 与 master 的「左大 + 右竖排」在小窗口数下也能一眼区分。
+ */
 function dwindleSplit(leaves: HTMLDivElement[], dir: SplitDir): SplitTree {
   if (leaves.length <= 1) return { tile: leaves[0] };
   const rest = dwindleSplit(leaves.slice(1), dir === "row" ? "col" : "row");
