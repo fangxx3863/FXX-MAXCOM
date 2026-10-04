@@ -105,7 +105,20 @@
                 <button id="toggle-multistr" title="多字符串/HEX 发送面板" data-i18n-title="log.multistr.title" data-i18n="log.multistr">多字符串</button>
                 <button id="toggle-rules" title="过滤与染色规则" data-i18n-title="log.rules.title" data-i18n="log.rules">规则</button>
               </div>
-              <div id="log-view"></div>
+              <div id="log-view-wrap">
+                <!-- 查找栏（Ctrl+F）：定位并高亮命中，不过滤任何行。锚在内容区右上角，不遮挡控制条 -->
+                <div id="find-bar" class="hidden">
+                  <input id="find-input" type="text" spellcheck="false" autocomplete="off"
+                    data-i18n-placeholder="find.placeholder" data-i18n-title="find.title"
+                    placeholder="查找…" title="支持正则（非法时按子串匹配）" />
+                  <span id="find-count" class="empty">0/0</span>
+                  <button id="find-prev" title="上一个 (Shift+Enter)" data-i18n-title="find.prev">↑</button>
+                  <button id="find-next" title="下一个 (Enter)" data-i18n-title="find.next">↓</button>
+                  <button id="find-close" title="关闭 (Esc)" data-i18n-title="find.close">✕</button>
+                </div>
+                <div id="log-view"></div>
+                <div id="find-marks" class="hidden"></div>
+              </div>
               <div id="send-panel">
                 <div class="send-row">
                   <div id="send-mode-dd"></div>

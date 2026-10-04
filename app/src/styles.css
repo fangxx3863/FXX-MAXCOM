@@ -550,7 +550,10 @@ button.dd-face { justify-content: space-between; }
 
 /* ═══ 收发页布局 ═══ */
 .logview-grid { display: flex; flex: 1; min-height: 0; width: 100%; }
-.logview-main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.logview-main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+/* #log-view 外套一层：作为查找栏/分布刻度的定位基准，#log-view 仍撑满其内容积 */
+#log-view-wrap { flex: 1; min-height: 0; display: flex; position: relative; }
+#log-view-wrap > #log-view { flex: 1 1 auto; min-width: 0; }
 #multistr-panel, #rules-panel {
   width: 360px; flex: none; display: flex; flex-direction: column;
   background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto;
@@ -630,6 +633,32 @@ button.dd-face { justify-content: space-between; }
   border-bottom: 1px solid var(--border);
 }
 
+/* 终端页常驻查找条：贴在工具条右端（左侧只有「本地回显/清屏」，本就空着）。
+   常驻可见、无快捷键、不占额外垂直空间，也不遮挡终端内容。
+   注意：Ctrl+F 仍原样发给远端，网页侧不拦截。 */
+#term-find {
+  margin-left: auto;           /* 推到最右，把左侧控件留在原地 */
+  display: flex; align-items: center; gap: 4px;
+}
+#term-find input {
+  width: 200px; padding: 3px 8px;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  font: inherit; font-size: 12px; outline: none;
+}
+#term-find input:focus { border-color: var(--accent); }
+#term-find-count {
+  color: var(--fg-dim); font-size: 12px; min-width: 42px;
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+#term-find-count.empty { color: var(--err); }
+#term-find button {
+  padding: 2px 7px; font-size: 12px; line-height: 1.4;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px; cursor: pointer;
+}
+#term-find button:hover { border-color: var(--accent); color: var(--accent); }
+
 /* 引脚按钮态（保留兼容） */
 .pin.on { border-color: var(--ok); color: var(--ok); }
 
@@ -652,6 +681,55 @@ input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
 
 /* 收发页快捷过滤框 */
 #quick-filter { width: 170px; }
+
+/* ── 查找栏（Ctrl+F）：定位并高亮命中，不过滤任何行 ── */
+/* 锚在内容区右上角（#log-view-wrap 内绝对定位），不占用日志行、不遮挡控制条 */
+#find-bar {
+  position: absolute; top: 6px; right: 14px; z-index: 40;
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 6px; border-radius: 6px;
+  background: var(--bg3); border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}
+/* 当前页不可见时随之隐藏；.hidden 优先级更高 */
+.page.hidden #find-bar { display: none; }
+#find-input {
+  width: 180px; background: var(--bg); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 4px;
+  padding: 3px 8px; outline: none;
+  font-family: var(--log-family, Consolas, monospace); font-size: 12.5px;
+}
+#find-input:focus { border-color: var(--accent); }
+#find-bar button { padding: 2px 7px; }
+#find-count { color: var(--fg-dim); font-size: 12px; min-width: 44px; text-align: center; }
+#find-count.empty { color: var(--err); }
+
+/* 命中行：整行淡底 + 命中片段描边；未被命中的行照常显示（日志一字不少） */
+.log-line.find-hit { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.log-line.find-current { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+mark.find-mark {
+  background: color-mix(in srgb, var(--accent) 42%, transparent);
+  color: inherit; border-radius: 2px; padding: 0 1px;
+}
+.log-line.find-current mark.find-mark {
+  background: var(--accent); color: #0b1220;
+}
+
+/* 滚动条右侧的命中分布刻度（VSCode overview ruler 风格）：
+   一眼看出命中散布在日志的哪几段。开启查找时 #log-view 右侧让出 10px 给刻度轨。 */
+#find-marks {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 10px;
+  pointer-events: none; z-index: 20;
+}
+#log-view-wrap.has-find #log-view { padding-right: 16px; }
+#find-marks i {
+  position: absolute; right: 2px; width: 6px; height: 2px;
+  background: color-mix(in srgb, var(--accent) 75%, transparent);
+  border-radius: 1px;
+}
+#find-marks i.cur { background: var(--accent); height: 3px; }
+
+/* 查找栏的定位基准已在 .logview-main 声明（见「收发页布局」） */
 
 /* HEX 显示行：低饱和绿 */
 .log-hex { color: var(--ok); letter-spacing: 0.5px; }

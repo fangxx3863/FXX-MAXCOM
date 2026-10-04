@@ -298,6 +298,13 @@ class SessionApp {
 
   currentPage: PageId = "logview";
 
+  // ── 查找（Ctrl+F）──
+  // 每个会话一份查找状态：切标签时各自保留自己的词与当前命中位置。
+  /** 查找词（空 = 未开启查找） */
+  findQuery = "";
+  /** 当前查找栏是否展开 */
+  findOpen = false;
+
   // 定时器
   timerHandle: number | null = null; // 定时发送
   msLoopTimer: number | null = null; // 多字符串循环
@@ -1074,6 +1081,27 @@ class SessionApp {
     if (id === "plot") this.plotPage.onShow(); // 隐藏期间量不到尺寸，显示后按真实容器重建
     if (id === "terminal") this.terminalPage.syncPtySize();
     if (id === "flash") void this.flashPage.refreshProbes();
+    // 查找随当前页走：终端 ↔ 收发的高亮通道不同，切页后必须把词重新投到新通道，
+    // 并清掉另一通道的残留高亮（否则切回来会看到两套高亮叠加）。
+    if (this.findOpen && this.findQuery) {
+      const q = this.findQuery;
+      if (id === "terminal" || id === "logview") {
+        if (id === "terminal") {
+          this.logViewPage.clearFind();
+          this.q("#log-view-wrap").classList.remove("has-find");
+          this.q("#find-marks").classList.add("hidden");
+          this.terminalPage.searchNext(q, false);
+        } else {
+          this.terminalPage.clearSearch();
+          this.logViewPage.setFind(q);
+        }
+      } else {
+        // 离开收发/终端页：两条通道都静音，避免后台页仍挂着高亮
+        this.terminalPage.clearSearch();
+        this.logViewPage.clearFind();
+        this.updateFindCount(0, 0);
+      }
+    }
     // 强制重新合成一层，清掉 WebView 页面切换后的右缘残影
     requestAnimationFrame(() => {
       const el = this.q<HTMLElement>("#pages");
@@ -1112,6 +1140,139 @@ class SessionApp {
 
     this.q("#toggle-multistr").addEventListener("click", () => this.q("#multistr-panel").classList.toggle("hidden"));
     this.q("#ms-close").addEventListener("click", () => this.q("#multistr-panel").classList.add("hidden"));
+
+    // ── 查找栏交互 ──
+    const findInput = this.q<HTMLInputElement>("#find-input");
+    findInput.addEventListener("input", () => this.applyFind(true));
+    findInput.addEventListener("keydown", (e) => {
+      // 查找栏内的按键不得穿透到全局快捷键（Ctrl+F/Ctrl+W 等）
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        this.findStep(e.shiftKey ? -1 : 1);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        this.closeFind();
+        this.q<HTMLElement>("#log-view").focus?.();
+      }
+    });
+    this.q("#find-next").addEventListener("click", () => this.findStep(1));
+    this.q("#find-prev").addEventListener("click", () => this.findStep(-1));
+    this.q("#find-close").addEventListener("click", () => this.closeFind());
+
+    // 终端页的计数由 xterm addon 事件回传（resultIndex 0 基，-1 = 超阈值/无命中）
+    this.terminalPage.onSearchResults((r) => {
+      if (!this.findOpen || this.currentPage !== "terminal") return;
+      this.updateFindCount(r.resultIndex, r.resultCount);
+    });
+
+    // 收发页命中变化 → 刷新计数与分布刻度
+    this.logViewPage.bindFindUi(() => this.refreshFindUi());
+  }
+
+  // ════════ 查找（Ctrl+F）：收发页高亮定位 + 终端页 xterm 检索 ════════
+  // 收发页：LogViewPage 全量扫描给出命中行集合（不过滤行），本类负责查找栏 UI、
+  // 计数文案与右侧分布刻度。终端页：xterm SearchAddon 自带高亮与 overview ruler，
+  // 本类只转发检索词与渲染计数。两种情况对外都是同一套快捷键与同一条查找栏。
+
+  /** 打开收发页查找栏并聚焦。终端页不调用（其查找条常驻，见 TerminalPage）。 */
+  openFind() {
+    if (this.currentPage === "terminal") return; // 终端页 Ctrl+F 直通远端，不开任何 UI
+    this.findOpen = true;
+    this.q("#find-bar").classList.remove("hidden");
+    const input = this.q<HTMLInputElement>("#find-input");
+    if (input.value !== this.findQuery) input.value = this.findQuery;
+    input.focus();
+    input.select();
+    this.applyFind(true);
+  }
+
+  closeFind() {
+    this.findOpen = false;
+    this.q("#find-bar").classList.add("hidden");
+    this.findQuery = "";
+    const input = this.q<HTMLInputElement>("#find-input");
+    input.value = "";
+    // clearFind() 会回调 refreshFindUi()，而后者在 findOpen=false 时直接返回，
+    // 因此这里必须**自己**把刻度轨与类清干净，不能依赖那次回调。
+    this.logViewPage.clearFind();
+    this.q("#log-view-wrap").classList.remove("has-find");
+    const rail = this.q<HTMLElement>("#find-marks");
+    rail.classList.add("hidden");
+    rail.replaceChildren();
+    this.updateFindCount(0, 0);
+  }
+
+  /** 执行收发页查找：把检索词交给 LogViewPage 全量重扫 */
+  private applyFind(_reset: boolean) {
+    const v = this.q<HTMLInputElement>("#find-input").value;
+    this.findQuery = v;
+    if (!v.trim()) {
+      this.logViewPage.clearFind();
+      this.q("#log-view-wrap").classList.remove("has-find");
+      this.q("#find-marks").classList.add("hidden");
+      this.updateFindCount(0, 0);
+      return;
+    }
+    // 收发页：全量重扫 → 命中行集合 → 行高亮 + 分布刻度
+    this.logViewPage.setFind(v);
+    this.q("#log-view-wrap").classList.toggle("has-find", this.currentPage === "logview");
+  }
+
+  /** 在当前页的命中之间跳转（Enter / Shift+Enter / 上下按钮） */
+  findStep(dir: 1 | -1) {
+    if (this.currentPage === "terminal") {
+      if (!this.findQuery) return;
+      if (dir > 0) this.terminalPage.searchNext(this.findQuery);
+      else this.terminalPage.searchPrev(this.findQuery);
+      return;
+    }
+    this.logViewPage.findStep(dir);
+  }
+
+  private updateFindCount(i: number, n: number) {
+    const el = this.q("#find-count");
+    el.textContent = n > 0 ? t("find.count", { i: i + 1, n }) : t("find.none");
+    el.classList.toggle("empty", n === 0);
+  }
+
+  /**
+   * 刷新查找栏周边（计数 + 分布刻度）。由 LogViewPage 在命中变化时回调。
+   * 分布刻度按「命中行号 / 总行数」归一到轨道高度，因此刻度密度直接反映命中疏密：
+   * 刻度挤在顶部 = 命中集中在日志前段；均匀铺满 = 全程散布。
+   */
+  refreshFindUi() {
+    if (!this.findOpen) return;
+    if (this.currentPage === "terminal") return; // 终端计数由 onSearchResults 事件驱动
+    const total = this.logViewPage.lineCount;
+    const hits = this.logViewPage.findMatches;
+    this.updateFindCount(this.logViewPage.findCurrent, hits.length);
+    const rail = this.q<HTMLElement>("#find-marks");
+    const wrap = this.q<HTMLElement>("#log-view-wrap");
+    const show = hits.length > 0 && total > 0;
+    wrap.classList.toggle("has-find", show);
+    rail.classList.toggle("hidden", !show);
+    if (!show) {
+      rail.replaceChildren();
+      return;
+    }
+    const h = rail.clientHeight || 1;
+    const curIdx =
+      this.logViewPage.findCurrent >= 0 && this.logViewPage.findCurrent < hits.length
+        ? this.logViewPage.findCurrent
+        : hits.length
+          ? 0
+          : -1;
+    const curRow = curIdx >= 0 ? hits[curIdx] : -1;
+    this.updateFindCount(curIdx, hits.length);
+    rail.replaceChildren(
+      ...hits.map((rowIdx) => {
+        const i = document.createElement("i");
+        i.style.top = `${(rowIdx / total) * h}px`;
+        if (rowIdx === curRow) i.className = "cur";
+        return i;
+      }),
+    );
   }
 
   applyLogOptions() {
@@ -3033,6 +3194,27 @@ window.addEventListener("keydown", (e) => {
   } else if (e.key === "Tab") {
     e.preventDefault();
     cycleTab(e.shiftKey ? -1 : 1);
+  } else if (k === "f") {
+    // Ctrl+F：收发页的查找栏。preventDefault 拦掉 WebView2 内建查找条
+    // （WebView2 侧已同时关闭浏览器加速键，双保险）。
+    // 终端页**不接管** Ctrl+F —— 终端直通远端，远端 shell 的 Ctrl+F 有真实用途
+    // （readline 的 forward-char、vim 翻页等），必须原样发给远端；
+    // 终端页的查找条常驻在工具条上，纯鼠标操作，不需要快捷键。
+    if (sessions.get(activeId)?.currentPage === "terminal") return;
+    e.preventDefault();
+    sessions.get(activeId)?.openFind();
+  }
+});
+
+// Esc：任一会话的查找栏开着就收起（优先于爆炸视图的 Esc 退出）。
+// 终端页的查找条常驻、不需要 Esc（终端自身的 Esc 要直通远端），故不在此处理。
+window.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  const s = sessions.get(activeId);
+  if (s?.findOpen) {
+    e.preventDefault();
+    e.stopPropagation();
+    s.closeFind();
   }
 });
 
@@ -3274,6 +3456,38 @@ if (!import.meta.env.DEV) {
 
 // 初始化完成标记（smoke 测试断言用）
 (window as unknown as { __MAXCOM_READY__?: boolean }).__MAXCOM_READY__ = true;
+
+// 测试/调试钩子：暴露当前活动会话，供回归脚本读取查找内部状态（生产无副作用）
+(window as unknown as { __MAXCOM_DEBUG__?: () => unknown }).__MAXCOM_DEBUG__ = () => {
+  const s = sessions.get(activeId);
+  if (!s) return null;
+  return {
+    page: s.currentPage,
+    findOpen: s.findOpen,
+    findQuery: s.findQuery,
+    lineCount: s.logViewPage.lineCount,
+    findMatches: [...s.logViewPage.findMatches],
+    findCurrent: s.logViewPage.findCurrent,
+  };
+};
+
+// 终端查找探针：jsdom 里 mock 不产生终端字节（缓冲为空），回归脚本用它在真实
+// Terminal 实例上造数据并读回查找状态 —— 这是唯一能验证「终端查找真的命中」的入口。
+// 只读 + 写入终端缓冲，不触碰任何业务状态。
+(window as unknown as { __MAXCOM_TERM_PROBE__?: (op: string, arg?: string) => unknown }).__MAXCOM_TERM_PROBE__ = (
+  op: string,
+  arg?: string,
+) => {
+  const s = sessions.get(activeId);
+  if (!s) return null;
+  const p = s.terminalPage;
+  if (op === "write") {
+    p.debugWrite(arg ?? "");
+    return true;
+  }
+  if (op === "state") return p.debugFindState();
+  return null;
+};
 
 // 启动页淡出移除（HTML 内联元素，零依赖首帧即显）
 {

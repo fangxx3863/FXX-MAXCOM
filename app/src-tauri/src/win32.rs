@@ -13,7 +13,7 @@
 //! 返回 `HTMAXBUTTON`，Windows 才会弹出 Snap Layout。
 
 use tauri::{AppHandle, Manager, Runtime};
-use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings9;
+use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Settings4, ICoreWebView2Settings9};
 use windows::core::Interface;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{
@@ -54,6 +54,14 @@ pub fn setup_win32_window<R: Runtime>(app: &AppHandle<R>) {
         // 只在 WebView2 Runtime 支持该接口时开启，旧运行时静默降级。
         if let Ok(settings9) = settings.cast::<ICoreWebView2Settings9>() {
             let _ = settings9.SetIsNonClientRegionSupportEnabled(true);
+        }
+
+        // 关闭浏览器内置加速键（Ctrl+F 查找条、Ctrl+P 打印、Ctrl+R 刷新等）。
+        // 这些功能由网页自绘接管：Ctrl+F 交给应用自己的查找栏（定位到内容区右上角、
+        // 带命中分布刻度）。若不关，WebView2 会在窗口顶部另弹一条内建查找框，
+        // 既与自绘栏重复，又无法用 CSS 移动（它渲染在网页 DOM 之外）。
+        if let Ok(settings4) = settings.cast::<ICoreWebView2Settings4>() {
+            let _ = settings4.SetAreBrowserAcceleratorKeysEnabled(false);
         }
     }) {
         log::warn!("开启 WebView2 非客户区支持失败：{err}");

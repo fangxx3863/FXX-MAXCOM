@@ -44,6 +44,11 @@ function compileQuickFilter(pattern: string): QuickFilter | null {
   }
 }
 
+/** 转义正则元字符：查找词非法时退化为字面子串匹配（与快捷过滤同策略） */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export class LogViewPage {
   private view: HTMLElement;
   private autoscroll: HTMLInputElement;
@@ -52,6 +57,18 @@ export class LogViewPage {
   private lastTs: number | null = null;
   private quickFilter: QuickFilter | null = null;
   private rowCss = "";
+
+  // ── 查找（Ctrl+F）──
+  // 设计前提：查找**不过滤任何行**，全部日志原样保留；命中的行加高亮、命中片段加 <mark>。
+  // 这样用户能直接看出命中「散布在日志的哪几段」——这是定位分布的前提条件。
+  private findRegex: RegExp | null = null;
+  private findText = "";
+  /** 命中行下标（升序，预先全量扫出 → 计数与分布刻度都不必等渲染） */
+  private findHits: number[] = [];
+  /** 当前命中在 findHits 中的序号（-1 = 无） */
+  private findCur = -1;
+  /** 命中变化回调（main 用它刷新计数与刻度；分布刻度 DOM 由 main 持有） */
+  private onFindChange: (() => void) | null = null;
 
   // ── 粘底（自动滚动）状态机 ──
   // autoscroll.checked 是「是否跟随最新数据」的唯一权威状态，只在**用户主动表态**时改写：
@@ -281,6 +298,126 @@ export class LogViewPage {
     }
   }
 
+  // ── 查找（Ctrl+F）：定位分布 ──
+  // 与「快捷过滤」相反：过滤是从视图中剔除，查找是**全部保留 + 高亮命中**。
+  // 因此这里只往命中行加类、给片段套 <mark>，行数与会话内容完全不变。
+
+  /** 注入变更回调（分布刻度与计数文案由 main 统一渲染） */
+  bindFindUi(onChange: () => void): void {
+    this.onFindChange = onChange;
+  }
+
+  /** 命中行下标（供 main 画分布刻度与计数） */
+  get findMatches(): readonly number[] {
+    return this.findHits;
+  }
+
+  get findCurrent(): number {
+    return this.findCur;
+  }
+
+  /** 当前查找词（用于状态提示） */
+  get findQuery(): string {
+    return this.findText;
+  }
+
+  /** 该行是否命中（供渲染期判定） */
+  private rowHits(row: Row): boolean {
+    const re = this.findRegex;
+    if (!re) return false;
+    re.lastIndex = 0;
+    return re.test(this.rowSearchText(row));
+  }
+
+  /** 查找的检索面：与当前显示一致（HEX 模式检索 HEX 串，否则检索解码文本） */
+  private rowSearchText(row: Row): string {
+    return this.hexDisplay ? row.rawHex || "" : row.text;
+  }
+
+  /**
+   * 设置查找词并全量重扫。
+   * 全量扫描（而非仅扫已挂载 chunk）是刻意的：只有扫完全部行，才能算出总命中数与
+   * 分布刻度；代价是 O(行数) 的正则匹配，对数万行日志仍在毫秒级。
+   */
+  setFind(pattern: string) {
+    const p = pattern.trim();
+    if (!p) {
+      this.clearFind();
+      return;
+    }
+    // 与快捷过滤同策略：非法正则退化为转义后的子串匹配
+    try {
+      this.findRegex = new RegExp(p, "gi");
+    } catch {
+      this.findRegex = new RegExp(escapeRegExp(p), "gi");
+    }
+    this.findText = p;
+    const hits: number[] = [];
+    for (let i = 0; i < this.rows.length; i++) {
+      if (this.rowHits(this.rows[i])) hits.push(i);
+    }
+    this.findHits = hits;
+    // findCur 的语义是「在 findHits 中的序号」（findStep/渲染计数都按序号用），
+    // 因此重扫后只需把序号夹回有效范围，改词时尽量停留在同一命中附近，
+    // 而不是拿序号去和「行号」比对（那样会算出越界序号 → 计数显示成 5/1）。
+    this.findCur = this.findHits.length ? Math.min(Math.max(this.findCur, 0), this.findHits.length - 1) : -1;
+    this.forEachMountedChunk((ci) => this.fillChunk(ci));
+    this.onFindChange?.();
+  }
+
+  clearFind() {
+    this.findRegex = null;
+    this.findText = "";
+    this.findHits = [];
+    this.findCur = -1;
+    this.forEachMountedChunk((ci) => this.fillChunk(ci));
+    this.onFindChange?.();
+  }
+
+  /** 在命中之间跳转：dir=1 下一个 / -1 上一个。返回是否发生跳转 */
+  findStep(dir: 1 | -1): boolean {
+    if (!this.findHits.length) return false;
+    const n = this.findHits.length;
+    if (this.findCur < 0) {
+      this.findCur = dir > 0 ? 0 : n - 1;
+    } else {
+      this.findCur = (this.findCur + dir + n) % n;
+    }
+    const rowIdx = this.findHits[this.findCur];
+    this.forEachMountedChunk((ci) => this.fillChunk(ci));
+    this.scrollRowIntoView(rowIdx);
+    this.onFindChange?.();
+    return true;
+  }
+
+  /** 滚动到指定行：先把该行所在 chunk 挂载出来，再滚进视口 */
+  private scrollRowIntoView(rowIdx: number) {
+    if (rowIdx < 0) return;
+    const ci = Math.floor(rowIdx / this.rowsPerPage);
+    if (this.chunks[ci] === null || this.chunks[ci] === undefined) {
+      // 目标页未挂载：先量出上方的估算高度把它换进来，再定位
+      this.fillChunk(ci);
+    }
+    const chunk = this.chunks[ci];
+    const line = chunk?.children[rowIdx - ci * this.rowsPerPage] as HTMLElement | undefined;
+    if (!line || typeof line.offsetTop !== "number") return;
+    // chunk 自身也在滚动容器里，取其相对容器的高度
+    const chunkTop = chunk && typeof chunk.offsetTop === "number" ? chunk.offsetTop : 0;
+    const target = chunkTop + line.offsetTop;
+    const h = this.view.clientHeight || 0;
+    if (target < this.view.scrollTop || target > this.view.scrollTop + h) {
+      // 放到视口上 1/3 处，让上下文（前后各若干行）同时可见
+      this.view.scrollTop = Math.max(0, target - Math.floor(h / 3));
+    }
+  }
+
+  /** 对当前已挂载的 chunk 执行回调（重渲染以让 <mark> 生效） */
+  private forEachMountedChunk(fn: (ci: number) => void) {
+    for (let i = 0; i < this.chunks.length; i++) {
+      if (this.chunks[i]) fn(i);
+    }
+  }
+
   /** 当前窗口的历史快照：沿用当前时间戳、HEX 显示及快捷过滤状态 */
   historyText(): string {
     const lines: string[] = [];
@@ -386,7 +523,7 @@ export class LogViewPage {
     const frag = document.createDocumentFragment();
     for (let i = start; i < end; i++) {
       const row = this.rows[i];
-      const line = this.createLine(row);
+      const line = this.createLine(row, i);
       if (!this.rowVisible(row)) line.classList.add("hidden");
       frag.appendChild(line);
     }
@@ -455,10 +592,17 @@ export class LogViewPage {
   }
 
   /** 新建一行 DOM（dataset.raw 供快捷过滤/测试用） */
-  private createLine(row: Row): HTMLElement {
+  private createLine(row: Row, rowIdx: number): HTMLElement {
     const div = document.createElement("div");
     div.className = "log-line";
     div.dataset.raw = row.text;
+    // 查找高亮：命中行淡底，当前命中行重底（行本身照常显示，不做任何剔除）
+    if (this.findRegex) {
+      if (this.findHits.includes(rowIdx)) {
+        div.classList.add("find-hit");
+        if (this.findHits[this.findCur] === rowIdx) div.classList.add("find-current");
+      }
+    }
     if (row.tsText) {
       const ts = document.createElement("span");
       ts.className = "log-ts";
@@ -478,17 +622,49 @@ export class LogViewPage {
       // HEX 模式：原始字节十六进制（染色让位——二进制没有"颜色语义"）
       const s = document.createElement("span");
       s.className = "log-hex";
-      s.textContent = row.rawHex || t("log.empty");
+      const hex = row.rawHex || t("log.empty");
+      if (this.findRegex) this.appendMarked(s, hex);
+      else s.textContent = hex;
       content.appendChild(s);
       return;
     }
     for (const seg of row.segments) {
       const s = document.createElement("span");
-      s.textContent = seg.text;
       if (seg.fg) s.style.color = cssColor(seg.fg);
       if (seg.bg) s.style.backgroundColor = cssColor(seg.bg);
       if (seg.bold) s.classList.add("seg-bold");
+      // 查找高亮：在**段落内部**套 <mark>，因此同一行的多个命中片段各自独立高亮，
+      // 且不破坏 ANSI 染色（<mark> 为 inline，颜色继承自外层 span）。
+      if (this.findRegex) this.appendMarked(s, seg.text);
+      else s.textContent = seg.text;
       content.appendChild(s);
+    }
+  }
+
+  /**
+   * 把 text 按查找正则切分后写入 parent：命中片段包 <mark class="find-mark">，
+   * 未命中片段按纯文本。用零宽捕获组切分，保留分隔符于数组奇数位。
+   */
+  private appendMarked(parent: HTMLElement, text: string) {
+    const re = this.findRegex!;
+    re.lastIndex = 0;
+    if (!re.test(text)) {
+      parent.textContent = text;
+      return;
+    }
+    re.lastIndex = 0;
+    const parts = text.split(new RegExp(`(${re.source})`, "gi"));
+    for (let i = 0; i < parts.length; i++) {
+      if (!parts[i]) continue;
+      // split 的奇数位即被捕获的命中片段
+      if (i % 2 === 1) {
+        const m = document.createElement("mark");
+        m.className = "find-mark";
+        m.textContent = parts[i];
+        parent.appendChild(m);
+      } else {
+        parent.appendChild(document.createTextNode(parts[i]));
+      }
     }
   }
 
