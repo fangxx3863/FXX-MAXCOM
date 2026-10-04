@@ -40,33 +40,14 @@ pub struct FlashProgressPayload {
     pub progress: maxcom_engine::transport::flashing::FlashProgressDto,
 }
 
-/// absolute 时间戳锚点：wall = anchor + ts_ms(monotonic)。进程内取一次，漂移可忽略。
-fn unix_anchor_ms() -> u64 {
-    let unix = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    let mono = START
-        .get_or_init(std::time::Instant::now)
-        .elapsed()
-        .as_millis() as u64;
-    unix.saturating_sub(mono)
-}
-
 pub struct TauriEvents {
     app: AppHandle,
-    anchor: u64,
     session: String,
 }
 
 impl TauriEvents {
     pub fn new(app: AppHandle, session: String) -> Self {
-        Self {
-            app,
-            anchor: unix_anchor_ms(),
-            session,
-        }
+        Self { app, session }
     }
 }
 
@@ -83,11 +64,15 @@ impl SessionEvents for TauriEvents {
     }
 
     fn entries(&self, entries: &[LogEntryDto]) {
+        // anchor 每批实时重算（而非启动时缓存）：`ts_ms` 走单调钟，系统休眠期间不前进，
+        // 长跑进程跨过一次睡眠后 "anchor(启动时) + ts_ms" 会比真实墙钟偏慢（睡眠多久慢多久）。
+        // 实时取 `wall_anchor_ms()` 让每个批次的绝对基准都对齐当前墙钟，消除该漂移。
+        let anchor = maxcom_engine::session::wall_anchor_ms().max(0) as u64;
         let _ = self.app.emit(
             EV_ENTRIES,
             EntriesPayload {
                 session: self.session.clone(),
-                epoch_anchor_ms: self.anchor,
+                epoch_anchor_ms: anchor,
                 items: entries,
             },
         );

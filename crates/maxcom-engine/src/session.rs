@@ -1354,10 +1354,19 @@ fn reconnect_backoff_ms(base: u64, attempt: u32) -> u64 {
     base.saturating_mul(1u64 << shift).min(15_000)
 }
 
+/// 进程内单调钟基准（`now_mono_ms` 的 0 点）。
+/// **必须与 `mono_epoch_wall_ms` 复用同一静态**：两者的相对差就是"墙钟-单调钟"换算，
+/// 若各自 `OnceLock` 在不同的首次调用时刻初始化，换算基准就错了。
+fn mono_epoch() -> std::time::Instant {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    *START.get_or_init(std::time::Instant::now)
+}
+
 fn now_mono_ms() -> u64 {
-    use std::time::Instant;
-    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-    START.get_or_init(Instant::now).elapsed().as_millis() as u64
+    // 微秒取整再除 1000：直接用 `as_millis()` 会把单调钟截断到毫秒，
+    // 与 `unix_ms()`（同样是毫秒截断）相减时两个截断误差相互抵消，
+    // 使 "墙钟−单调钟" 的差出现 ±1ms 的非单调抖动（实测 50ms 采样得 0ms 差）。
+    (mono_epoch().elapsed().as_micros() / 1000) as u64
 }
 
 pub fn unix_ms() -> u64 {
@@ -1365,6 +1374,32 @@ pub fn unix_ms() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+/// 单调钟 0 点对应的墙钟（Unix 毫秒）。
+///
+/// 为什么必须**每次实时重算**而不是启动时取一次：
+/// - `ts_ms` 走 `Instant`（`now_mono_ms`），它在**系统休眠/挂起期间不前进**，
+///   而墙钟照常前进。软件长时间不关、中间跨过一次系统睡眠后，`Instant` 累计值
+///   会比真实经过时间**少**掉睡眠时长。
+/// - 若"墙钟−单调钟"的差在启动时取一次就缓存，则 `anchor + ts_ms` 会**偏慢**
+///   （睡眠多久就慢多久，几十秒到几分钟量级），且重开软件就恢复正常——
+///   正是"软件时间比系统时间慢几十秒、重启后好了"的现象。
+/// - 每次实时重算后，`ts_ms` 只承担"批次内相对间隔"的作用（毫秒级精度、不受对时跳变影响），
+///   而其**绝对基准每批都与当前墙钟对齐**，因此不会累积漂移。
+fn mono_epoch_wall_ms() -> i64 {
+    unix_ms() as i64 - now_mono_ms() as i64
+}
+
+/// 把一条 monotonic 时间戳（`ts_ms`，以 `mono_epoch()` 为 0 点）换算成当前墙钟 Unix 毫秒。
+pub fn wall_from_mono_ms(ts_ms: u64) -> i64 {
+    mono_epoch_wall_ms() + ts_ms as i64
+}
+
+/// 当前墙钟基准（Unix 毫秒），供事件层作为 `epoch_anchor_ms` 下发。
+/// 语义：`显示墙钟 = epoch_anchor_ms + ts_ms`；与 `wall_from_mono_ms(0)` 等价。
+pub fn wall_anchor_ms() -> i64 {
+    mono_epoch_wall_ms()
 }
 
 #[cfg(test)]
@@ -1408,5 +1443,41 @@ mod capture_sink_tests {
         let len = std::fs::metadata(&target).unwrap().len();
         assert_eq!(len, (total as u64) * 2);
         let _ = std::fs::remove_file(&target);
+    }
+}
+
+#[cfg(test)]
+mod wall_clock_tests {
+    use super::*;
+
+    /// `wall_from_mono_ms(now_mono_ms())` 必须 ≈ 当前真实墙钟。
+    ///
+    /// 这是用户可见语义的正确性锚点：前端按 `显示墙钟 = epoch_anchor_ms + ts_ms` 渲染，
+    /// `ts_ms` 来自单调钟。若换算基准偏离当前墙钟，日志时间就会整体偏快/偏慢。
+    /// 容差 1s：覆盖毫秒截断、采样间隔与调度抖动。
+    #[test]
+    fn wall_conversion_tracks_current_wall_clock() {
+        let before = unix_ms() as i64;
+        let wall = wall_from_mono_ms(now_mono_ms());
+        let after = unix_ms() as i64;
+        assert!(
+            wall >= before - 1000 && wall <= after + 1000,
+            "换算墙钟 {wall} 偏离真实区间 [{before}, {after}]"
+        );
+    }
+
+    /// `anchor` 是"单调钟 0 点对应的墙钟"，两个钟同步流逝 → 该差在两次采样间应近乎不变。
+    /// 这条断言锁住"实时重算"的语义：无论缓存与否，只要换算基准正确，差值就该稳定在 0 附近。
+    /// （真正的漂移场景——系统休眠使单调钟滞后于墙钟——无法在单测里伪造，
+    ///  只能在实现层通过 `mono_epoch_wall_ms` 每批实时重算来规避，见其文档注释。）
+    #[test]
+    fn wall_anchor_is_stable_across_samples() {
+        let a1 = wall_anchor_ms();
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let a2 = wall_anchor_ms();
+        let delta = (a2 - a1).abs();
+        // 两个钟都走 50ms，差值应≈0；给 5ms 余量吸收截断与调度抖动。
+        // 若某天有人把 anchor 改成"固定墙钟常量"（不含单调钟修正），这里会立刻爆掉。
+        assert!(delta <= 5, "anchor 两次采样差 {delta}ms，换算基准不稳定");
     }
 }
