@@ -390,25 +390,48 @@ export class LogViewPage {
     return true;
   }
 
-  /** 滚动到指定行：先把该行所在 chunk 挂载出来，再滚进视口 */
+  /**
+   * 滚动到指定行：先把该行所在 chunk 挂载出来，再滚进视口。
+   *
+   * 两个必须守住的点（都踩过）：
+   *
+   * 1. **不要用 `chunk.offsetTop + line.offsetTop` 求目标位置。**
+   *    `.log-chunk` 是 `position: static`，所以 `.log-line` 的 `offsetTop` 并不相对
+   *    chunk，而是相对最近的定位祖先（即滚动容器本身）。两者相加等于把偏移算了
+   *    两遍：chunk 0 时 `chunkTop≈0` 看不出问题，一旦跨到后面的 chunk，目标位置
+   *    就会翻倍偏下，命中行被丢在视口上方 → 表现为「从后往前跳转时定位不到行」。
+   *    改用 `getBoundingClientRect` 直接量出**行相对视口**的偏移，再叠加当前
+   *    `scrollTop`，与 offsetParent 是谁完全无关。
+   *
+   * 2. **需要「两轮」收敛。** 挂载目标 chunk 会改变它上方 chunk 的累计高度
+   *    （未访问过的 chunk 此前只有估算高度），并且装载窗口会随新的 scrollTop
+   *    变化，所以赋完 scrollTop 后要再跑一轮 `ensureWindow` 并校正落点。
+   */
   private scrollRowIntoView(rowIdx: number) {
     if (rowIdx < 0) return;
     const ci = Math.floor(rowIdx / this.rowsPerPage);
     if (this.chunks[ci] === null || this.chunks[ci] === undefined) {
-      // 目标页未挂载：先量出上方的估算高度把它换进来，再定位
+      // 目标页未挂载：先把它换进来（fillChunk 会撑起估算高度）
       this.fillChunk(ci);
     }
-    const chunk = this.chunks[ci];
-    const line = chunk?.children[rowIdx - ci * this.rowsPerPage] as HTMLElement | undefined;
-    if (!line || typeof line.offsetTop !== "number") return;
-    // chunk 自身也在滚动容器里，取其相对容器的高度
-    const chunkTop = chunk && typeof chunk.offsetTop === "number" ? chunk.offsetTop : 0;
-    const target = chunkTop + line.offsetTop;
-    const h = this.view.clientHeight || 0;
-    if (target < this.view.scrollTop || target > this.view.scrollTop + h) {
+    const place = (): boolean => {
+      const chunk = this.chunks[ci];
+      const line = chunk?.children[rowIdx - ci * this.rowsPerPage] as HTMLElement | undefined;
+      if (!line || typeof line.getBoundingClientRect !== "function") return false;
+      // 行相对**视口**的偏移换算成相对滚动容器内容的偏移，再叠加当前 scrollTop
+      const target = line.getBoundingClientRect().top - this.view.getBoundingClientRect().top + this.view.scrollTop;
+      const h = this.view.clientHeight || 0;
+      const visTop = this.view.scrollTop;
+      const visBottom = visTop + h;
+      if (target >= visTop && target + (line.offsetHeight || 0) <= visBottom) return true; // 已在视口内，不必动
       // 放到视口上 1/3 处，让上下文（前后各若干行）同时可见
       this.view.scrollTop = Math.max(0, target - Math.floor(h / 3));
-    }
+      return true;
+    };
+    if (!place()) return;
+    // 挂载窗口随新的 scrollTop 变化 → 上方 chunk 可能装卸，几何再次改变 → 校正一次
+    this.ensureWindow();
+    place();
   }
 
   /** 对当前已挂载的 chunk 执行回调（重渲染以让 <mark> 生效） */
@@ -478,8 +501,12 @@ export class LogViewPage {
   private growChunks() {
     const need = Math.ceil(this.rows.length / this.rowsPerPage);
     while (this.chunks.length < need) {
+      const ci = this.chunks.length;
       this.chunks.push(null);
-      this.chunkHeights.push(0);
+      // 新槽位一律先写入**估算**高度，绝不留 0：0 会让 scrollHeight 虚低，
+      // 进而使 scrollTop 被浏览器钳制 —— 向上（向前）跳转到远处的命中行时，
+      // 目标和实际能滚到的位置差出成千像素，表现为「跳不过去 / 定位不到行」。
+      this.chunkHeights.push(this.estimateChunkHeight(ci));
     }
   }
 
@@ -517,7 +544,12 @@ export class LogViewPage {
       }
       this.chunks[ci] = el;
     }
-    el.style.minHeight = "";
+    // 先把容器撑到已记录的高度（实测值，或 growChunks 写下的估算值）。
+    // 这一步对「向上跳转到未访问过的 chunk」至关重要：若不撑，该容器高度为 0，
+    // 它上方所有 chunk 的 offsetTop 都会偏小，scrollHeight 也随之虚低，
+    // scrollTop 被钳制 → 目标行滚不进视口。填内容后再由 unmountChunk 换成实测值。
+    const known = this.chunkHeights[ci];
+    el.style.minHeight = known > 0 ? `${known}px` : "";
     const start = ci * this.rowsPerPage;
     const end = Math.min(start + this.rowsPerPage, this.rows.length);
     const frag = document.createDocumentFragment();
@@ -528,6 +560,10 @@ export class LogViewPage {
       frag.appendChild(line);
     }
     el.replaceChildren(frag);
+    // 填充后以实测高度为准回写（min-height 只是下限；内容更高时容器会自然撑开）。
+    // 这样滚动高度随访问逐步收敛到真实值，向上跳转的落点也随之准确。
+    const measured = el.offsetHeight;
+    if (measured > 0) this.chunkHeights[ci] = measured;
   }
 
   /** 快捷过滤命中判定：渲染与导出共用，保证保存内容等同当前窗口。 */
