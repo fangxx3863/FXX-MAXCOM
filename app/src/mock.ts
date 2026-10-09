@@ -5,7 +5,7 @@
 // 事件经全局 hub 分发并携带 session 标签，与真实后端的事件路由形态一致。
 
 import type {
-  ChannelMetrics, ConnConfig, ConnState, DataFormat, EntriesBatch, HidDeviceInfo,
+  ChannelMetrics, ConnConfig, ConnKind, ConnState, DataFormat, EntriesBatch, HidDeviceInfo,
   ModemProtocol, PlotSnapshotDto, PortInfo, SendPayload, StatsSnapshot, UsbDeviceInfo,
 } from "./types";
 import type { ColoredSegment } from "./types";
@@ -123,6 +123,8 @@ class MockBackend implements MockApi {
   /** 连接代次：取消/新尝试 +1，迟到的连接结果据此丢弃 */
   private connGen = 0;
   private label = "";
+  /** 实际链路类型（真实后端由引擎回填；演示模式按连接时的 config.type 记录） */
+  private kind: ConnKind = "serial";
   private timers: number[] = [];
   private ts = 0;
   private startWall = Date.now(); // 固定墙钟锚点：wall = startWall + ts_ms（随时间前进）
@@ -171,6 +173,7 @@ class MockBackend implements MockApi {
     this.connecting = false;
     this.connected = true;
     this.label = label;
+    this.kind = config.type;
     this.emitState();
     const tick = window.setInterval(() => this.pump(), 160);
     this.timers.push(tick);
@@ -195,7 +198,7 @@ class MockBackend implements MockApi {
   }
 
   async connState(): Promise<ConnState> {
-    if (this.connected) return { connected: true, label: this.label, phase: "connected" };
+    if (this.connected) return { connected: true, label: this.label, phase: "connected", kind: this.kind };
     if (this.connecting) return { connected: false, label: "", phase: "connecting" };
     return { connected: false, label: "", phase: "disconnected" };
   }
@@ -365,6 +368,8 @@ class MockBackend implements MockApi {
       error: undefined,
       // 显式带阶段：真实后端由引擎给出，演示模式按 connected 对应
       phase: this.connected ? "connected" : "disconnected",
+      // 链路类型：真实后端由引擎回填（连接可能由 MCP/AI 侧发起），演示模式照做以保持一致
+      kind: this.connected ? this.kind : undefined,
     });
   }
 }

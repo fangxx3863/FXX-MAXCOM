@@ -146,6 +146,38 @@ await sleep(520);
 check("失败后可直接重连成功", dot()?.classList.contains("on") && inSet(btn()?.textContent, L.disconnect));
 check("重连成功后错误文案清除", !(visible()?.querySelector("#conn-label")?.classList.contains("bad") ?? true));
 
+// ── 7. 链路类型由引擎回填（连接可能是 MCP/AI 侧发起的）──
+//    此前顶栏「连接类型」下拉只反映用户自己的选择：AI 连了串口而用户下拉停在 TCP 时，
+//    表单会整块显示成另一种传输。修法：ConnState.kind 回填下拉；断开态不回填，
+//    让用户的选择留着便于原样重连。
+//    断言走"该类型的字段是否可见"——这是 connKind 的直接可见后果，比读下拉文案稳。
+const shown = (sel) => {
+  const el = visible()?.querySelector(sel);
+  return !!el && !el.classList.contains("hidden");
+};
+emitAll({ connected: true, label: "TCP 127.0.0.1:9999", phase: "connected", kind: "tcp_client" });
+await sleep(30);
+check("链路回填：网络字段可见、串口字段隐藏", shown("#tcp-port") && !shown("#refresh-ports"));
+check("链路回填：顶栏标签仍是引擎给的真实目标", (visible()?.querySelector("#conn-label")?.textContent ?? "").includes("9999"));
+
+emitAll({ connected: true, label: "串口 COM3 @ 115200", phase: "connected", kind: "serial" });
+await sleep(30);
+check("链路回填可反复切换：回到串口字段", shown("#refresh-ports") && !shown("#tcp-port"));
+
+emitAll({ connected: true, label: "HID 1234:5678", phase: "connected", kind: "hid" });
+await sleep(30);
+check("链路回填：HID 字段可见、串口字段隐藏", shown("#hid-report-id") && !shown("#refresh-ports"));
+
+// 断开态不带 kind → 不回填：表单保留最后一次的类型，不闪回默认串口
+emitAll({ connected: false, label: "", phase: "disconnected", error: null });
+await sleep(30);
+check("断开不回填：表单类型保持不变（HID）", shown("#hid-report-id") && !shown("#refresh-ports"));
+
+// 旧后端不带 kind（向后兼容）：不得因此把表单打乱
+emitAll({ connected: true, label: "串口 COM9 @ 9600", phase: "connected" });
+await sleep(30);
+check("旧后端（无 kind）不改变表单类型", shown("#hid-report-id"));
+
 if (alerts.length) console.log("  （alert 记录：", alerts.join(" | "), "）");
 for (const e of errors) console.error("  jsdom error:", e);
 console.log(`\n${pass} passed, ${fail} failed`);

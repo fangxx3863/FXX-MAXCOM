@@ -4,7 +4,7 @@
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
 import { IS_TAURI, IS_MOBILE, makeApi, closeSession, setActiveSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow, mcpStatus, mcpSetEnabled } from "./api";
-import type { ConnConfig, ConnPhase, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, McpStatus, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
+import type { ConnConfig, ConnKind, ConnPhase, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, McpStatus, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
@@ -289,7 +289,7 @@ class SessionApp {
   phase: ConnPhase = "disconnected";
   /** 自动重连已尝试次数（phase = reconnecting 时显示） */
   reconnectAttempt = 0;
-  connKind = "serial";
+  connKind: ConnKind = "serial";
   dtrOn = false;
   rtsOn = false;
   stateLabel: string | null = null;
@@ -444,17 +444,7 @@ class SessionApp {
         { value: "winusb", label: t("conn.winusb") },
         { value: "hid", label: t("conn.hid") },
       ],
-      onChange: (v) => {
-        this.connKind = v;
-        const portEl = this.q<HTMLInputElement>("#tcp-port");
-        if ((v === "ssh" || v === "telnet") && (portEl.value === "" || portEl.value === "8888")) {
-          portEl.value = v === "ssh" ? "22" : "23";
-        }
-        if (v === "rtt") void this.refreshProbes();
-        if (v === "winusb") void this.refreshUsbDevices();
-        if (v === "hid") void this.refreshHidDevices();
-        this.syncConnTypeUI();
-      },
+      onChange: (v) => this.switchConnKind(v as ConnKind, false),
     });
     this.q("#conn-type-dd").replaceWith(this.connTypeDd.el);
 
@@ -715,6 +705,28 @@ class SessionApp {
     }
   }
 
+  /**
+   * 切换顶栏连接类型：更新下拉与表单可见性，并按需刷新该类型的候选列表。
+   *
+   * `byLink = true` 表示这是**链路回填**（连接由 MCP/AI 侧发起，顶栏要跟上真实类型）。
+   * 此时跳过那几项"为用户操作服务"的副作用：SSH/Telnet 的默认端口填写会覆盖用户输入，
+   * 而探针/USB/HID 列表枚举耗时不短，链路回填不需要它们（用户切到该类型时自然会触发）。
+   */
+  private switchConnKind(kind: ConnKind, byLink: boolean) {
+    this.connKind = kind;
+    this.connTypeDd.setValue(kind);
+    if (!byLink) {
+      const portEl = this.q<HTMLInputElement>("#tcp-port");
+      if ((kind === "ssh" || kind === "telnet") && (portEl.value === "" || portEl.value === "8888")) {
+        portEl.value = kind === "ssh" ? "22" : "23";
+      }
+      if (kind === "rtt") void this.refreshProbes();
+      if (kind === "winusb") void this.refreshUsbDevices();
+      if (kind === "hid") void this.refreshHidDevices();
+    }
+    this.syncConnTypeUI();
+  }
+
   private syncConnTypeUI() {
     const isSerial = this.connKind === "serial";
     const isRtt = this.connKind === "rtt";
@@ -914,6 +926,12 @@ class SessionApp {
     this.reconnectAttempt = s.attempt ?? 0;
     // 空 label（连接中/已取消）保留上一次的连接标签，避免顶栏文案闪空
     if (s.label) this.stateLabel = displayLabel(s.label);
+    // 链路类型回填：连接可能是 **MCP/AI 侧发起**的，此时顶栏「连接类型」下拉还停在
+    // 用户上次的选择上，会显示成另一种传输（例如真连串口却显示 TCP）。
+    // 只在链路确实可用时回填；断开态不回填，让用户的选择留着便于原样重连。
+    // 注意只回填**类型**、不动地址输入：那些字段是用户"下一次连接"的填写区，
+    // 本次链路的确切目标由顶栏 #conn-label（引擎给的 label）权威表示。
+    if (s.connected && s.kind && s.kind !== this.connKind) this.switchConnKind(s.kind, true);
     this.lastError = s.error ?? null;
     if (s.connected) this.cancelPending = false;
     if (!s.connected) this.terminalPage.clear();
@@ -2018,7 +2036,7 @@ class SessionApp {
   private applySnapshot(r: Record<string, string>) {
     const g = (k: string) => r[k] ?? "";
     if (g("conn.kind")) {
-      this.connKind = g("conn.kind");
+      this.connKind = g("conn.kind") as ConnKind;
       this.connTypeDd.setValue(this.connKind);
       this.syncConnTypeUI();
     }

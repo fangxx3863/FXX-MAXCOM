@@ -140,7 +140,16 @@ export interface ConnState {
   phase?: ConnPhase;
   /** 自动重连已尝试次数（phase = reconnecting 时有意义） */
   attempt?: number;
+  /**
+   * 实际链路类型（后端 `ConnConfig::kind()` 的取值，与 ConnConfig 的 type 判别值一致）。
+   * 仅在链路建立 / 重连中时给出 —— 顶栏「连接类型」下拉据此回填，
+   * 因为连接可能是 MCP/AI 侧发起的，未必等于用户上次在下拉里的选择。
+   */
+  kind?: ConnKind;
 }
+
+/** 连接类型 = ConnConfig 的 `type` 判别值（与后端 `ConnConfig::kind()` 逐字一致） */
+export type ConnKind = ConnConfig["type"];
 
 export interface StatsSnapshot {
   rx_bytes: number;

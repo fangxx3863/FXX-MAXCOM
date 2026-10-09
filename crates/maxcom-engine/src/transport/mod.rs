@@ -398,6 +398,24 @@ pub fn discover_hid_devices() -> Vec<HidDeviceInfo> {
 }
 
 impl ConnConfig {
+    /// 传输类型标签 —— 与 serde 的 `type` 判别值**逐字一致**（`kind_matches_serde_tag` 测试盯着）。
+    ///
+    /// 为什么单独给一个方法：前端顶栏的「连接类型」下拉要按**真实链路**回填
+    /// （连接可能是 MCP/AI 侧发起的，未必等于用户上次在下拉里的选择），
+    /// 而它用的正是这套字符串，不必另外定义一份枚举再映射。
+    pub fn kind(&self) -> &'static str {
+        match self {
+            ConnConfig::Serial { .. } => "serial",
+            ConnConfig::TcpClient { .. } => "tcp_client",
+            ConnConfig::UdpClient { .. } => "udp_client",
+            ConnConfig::Ssh { .. } => "ssh",
+            ConnConfig::Telnet { .. } => "telnet",
+            ConnConfig::Rtt { .. } => "rtt",
+            ConnConfig::Winusb { .. } => "winusb",
+            ConnConfig::Hid { .. } => "hid",
+        }
+    }
+
     /// 参数校验（连接前调用；非法返回 Err）
     pub fn validate(&self) -> Result<(), String> {
         match self {
@@ -445,5 +463,98 @@ impl ConnConfig {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 每种传输各来一个样本配置（新增传输时必须在此补一行）。
+    fn sample_configs() -> Vec<ConnConfig> {
+        vec![
+            ConnConfig::Serial {
+                port: "COM1".into(),
+                baud: 115200,
+                data_bits: 8,
+                parity: Parity::None,
+                stop_bits: StopBits::One,
+                flow_control: FlowControl::None,
+            },
+            ConnConfig::TcpClient {
+                host: "127.0.0.1".into(),
+                port: 5000,
+            },
+            ConnConfig::UdpClient {
+                host: "127.0.0.1".into(),
+                port: 5001,
+            },
+            ConnConfig::Ssh {
+                host: "127.0.0.1".into(),
+                port: 22,
+                username: "u".into(),
+                password: String::new(),
+                cols: None,
+                rows: None,
+            },
+            ConnConfig::Telnet {
+                host: "127.0.0.1".into(),
+                port: 23,
+            },
+            ConnConfig::Rtt {
+                probe_selector: String::new(),
+                chip: "rp2040".into(),
+                up_channel: 0,
+                down_channel: 0,
+                rtt_address: None,
+            },
+            ConnConfig::Winusb {
+                vid: 0x1234,
+                pid: 0x5678,
+                interface: None,
+                out_ep: 0,
+                in_ep: 0,
+            },
+            ConnConfig::Hid {
+                vid: 0x1234,
+                pid: 0x5678,
+                serial: None,
+                report_id: 0,
+                strip_report_id: true,
+            },
+        ]
+    }
+
+    /// `kind()` 必须与 serde 的 `type` 判别值逐字一致。
+    ///
+    /// 为什么值得测：前端把 `kind()` 的字符串**直接当作顶栏「连接类型」下拉的取值**
+    /// 回填（见 ConnState.kind）。两者一旦漂移（比如把 `tcp_client` 写成 `tcp`），
+    /// 下拉会切到一个不存在的项，表现为「连接成功后类型选择框变空白」。
+    #[test]
+    fn kind_matches_serde_tag() {
+        for c in &sample_configs() {
+            let tag = serde_json::to_value(c).expect("序列化失败")["type"]
+                .as_str()
+                .expect("ConnConfig 应有 type 判别字段")
+                .to_string();
+            assert_eq!(tag, c.kind(), "{c:?} 的 kind() 与 serde tag 不一致");
+        }
+    }
+
+    /// 样本应覆盖全部变体：kind 值不得重复，且数量与变体数一致。
+    #[test]
+    fn sample_configs_cover_every_variant() {
+        let kinds: Vec<&'static str> = sample_configs().iter().map(|c| c.kind()).collect();
+        let unique: std::collections::HashSet<&str> = kinds.iter().copied().collect();
+        assert_eq!(
+            unique.len(),
+            kinds.len(),
+            "kind() 出现重复：{kinds:?}（新增传输时忘了在 kind() 里给出新取值？）"
+        );
+        assert_eq!(
+            kinds.len(),
+            8,
+            "传输变体数变了：请在 sample_configs 与 kind() 各补一行，并同步前端下拉项"
+        );
     }
 }

@@ -1082,3 +1082,64 @@ fn io_since_captures_rx_and_tx_in_order() {
     assert!(mgr.is_connected(), "clear_io 不应影响连接");
     mgr.disconnect();
 }
+
+// ── 链路类型上报（顶栏「连接类型」下拉回填用）──
+
+/// `ConnState.kind` 必须在**建立成功**与**自动重连中**都带上真实传输类型。
+///
+/// 用途是顶栏下拉回填：连接可能由 MCP/AI 侧发起，此时下拉里还停着用户上次的选择，
+/// 会整块显示成另一种传输（用户实测场景：AI 连的是串口，表单显示 TCP）。
+/// 断开态则刻意**不带** kind —— 让用户自己的选择留在表单里，便于原样重连。
+#[test]
+fn conn_state_reports_link_kind_on_connect_and_reconnect() {
+    let port = spawn_drop_after_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_reconnect_delay_ms(100);
+
+    assert_eq!(mgr.conn_state().kind, None, "断开态不应带 kind");
+
+    mgr.connect(tcp_cfg(port)).expect("connect");
+    assert_eq!(
+        mgr.conn_state().kind.as_deref(),
+        Some("tcp_client"),
+        "连接建立后 conn_state 必须带真实类型"
+    );
+
+    // 事件路径同样带 kind：前端靠事件驱动，不是轮询
+    let has_kind_event = |phase: ConnPhase| {
+        rec.states
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|s| s.phase == phase && s.kind.as_deref() == Some("tcp_client"))
+    };
+    assert!(
+        wait_until(
+            || has_kind_event(ConnPhase::Connected),
+            Duration::from_secs(3)
+        ),
+        "connected 事件未带 kind: {:?}",
+        rec.states.lock().unwrap()
+    );
+
+    // 触发掉线 → 自动重连中也要带 kind（链路断了，但目标类型是确定的）
+    mgr.send(&SendPayload {
+        text: Some("ping".into()),
+        hex: None,
+        newline: "\n".into(),
+        echo: false,
+    })
+    .unwrap();
+    assert!(
+        wait_until(
+            || has_kind_event(ConnPhase::Reconnecting),
+            Duration::from_secs(5)
+        ),
+        "reconnecting 事件未带 kind: {:?}",
+        rec.states.lock().unwrap()
+    );
+
+    mgr.disconnect();
+    assert_eq!(mgr.conn_state().kind, None, "断开后回到无类型");
+}

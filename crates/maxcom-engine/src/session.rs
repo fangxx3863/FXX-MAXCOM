@@ -247,6 +247,12 @@ pub struct ConnState {
     /// 自动重连已尝试次数（`phase == reconnecting` 时有意义）
     #[serde(default)]
     pub attempt: u32,
+    /// 实际链路类型（`ConnConfig::kind()` 的取值）。**只在这条链路确实建立/重连中时给出**。
+    ///
+    /// 用途：前端据此回填顶栏「连接类型」下拉 —— 连接可能由 MCP/AI 侧发起，
+    /// 此时下拉还停在用户上次的选择上，显示会与真实链路不符。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
 }
 
 impl ConnState {
@@ -258,6 +264,7 @@ impl ConnState {
             error: None,
             phase: ConnPhase::Connected,
             attempt: 0,
+            kind: None,
         }
     }
 
@@ -273,6 +280,7 @@ impl ConnState {
             label,
             error,
             attempt: 0,
+            kind: None,
         }
     }
 
@@ -284,6 +292,7 @@ impl ConnState {
             error: None,
             phase: ConnPhase::Connecting,
             attempt: 0,
+            kind: None,
         }
     }
 
@@ -295,6 +304,7 @@ impl ConnState {
             error,
             phase: ConnPhase::Reconnecting,
             attempt,
+            kind: None,
         }
     }
 
@@ -306,7 +316,18 @@ impl ConnState {
             error: None,
             phase: ConnPhase::Cancelled,
             attempt: 0,
+            kind: None,
         }
+    }
+
+    /// 标注这条状态所属的**实际链路类型**（`ConnConfig::kind()`）。
+    ///
+    /// 只在链路建立 / 重连中调用 —— 前端据此把顶栏「连接类型」下拉回填成真实类型
+    /// （连接可能是 MCP/AI 侧发起的，下拉里未必是它）。断开态不标，
+    /// 让用户自己的选择保留在界面上，便于原样重连。
+    fn with_kind(mut self, kind: &'static str) -> Self {
+        self.kind = Some(kind.to_string());
+        self
     }
 }
 
@@ -420,6 +441,8 @@ struct Active {
     stats: Arc<StatsTracker>,
     cmd_tx: Sender<Cmd>,
     label: String,
+    /// 实际链路类型（`ConnConfig::kind()`）；`conn_state` 据此回填前端的连接类型下拉
+    kind: &'static str,
     dtr: Arc<AtomicBool>,
     rts: Arc<AtomicBool>,
     /// 原始流总线：本地回显按 "log" 定向投递（不进绘图订阅者）
@@ -518,14 +541,15 @@ impl SessionManager {
         if let Some(a) = &*guard {
             let st = &a.status;
             if st.link.load(Ordering::Relaxed) {
-                return ConnState::up(a.label.clone());
+                return ConnState::up(a.label.clone()).with_kind(a.kind);
             }
             if st.reconnecting.load(Ordering::Relaxed) {
                 return ConnState::reconnecting(
                     a.label.clone(),
                     st.error(),
                     st.attempt.load(Ordering::Relaxed),
-                );
+                )
+                .with_kind(a.kind);
             }
             return ConnState::down(a.label.clone(), st.error());
         }
@@ -814,6 +838,7 @@ impl SessionManager {
         pair: super::transport::ConnPair,
     ) -> Result<(), String> {
         let label = pair.label.clone();
+        let kind = config.kind();
         *self.last_config.lock().unwrap() = Some(config.clone());
 
         let stop = Arc::new(AtomicBool::new(false));
@@ -921,11 +946,14 @@ impl SessionManager {
                             // 再按退避等待——退避上限 15s，避免设备缺失时高频重试。
                             let attempt = status_r.attempt.fetch_add(1, Ordering::Relaxed) + 1;
                             status_r.reconnecting.store(true, Ordering::Relaxed);
-                            ev.state(&ConnState::reconnecting(
-                                label_r.clone(),
-                                status_r.error(),
-                                attempt,
-                            ));
+                            ev.state(
+                                &ConnState::reconnecting(
+                                    label_r.clone(),
+                                    status_r.error(),
+                                    attempt,
+                                )
+                                .with_kind(cfg_r.kind()),
+                            );
                             // 分片睡眠，保证 stop / 关闭自动重连都能及时生效
                             let step = 100u64;
                             let wait = reconnect_backoff_ms(delay_ms, attempt);
@@ -960,7 +988,9 @@ impl SessionManager {
                                     status_r.reconnecting.store(false, Ordering::Relaxed);
                                     status_r.link.store(true, Ordering::Relaxed);
                                     status_r.set_error(String::new());
-                                    ev.state(&ConnState::up(label_r.clone()));
+                                    ev.state(
+                                        &ConnState::up(label_r.clone()).with_kind(cfg_r.kind()),
+                                    );
                                     continue 'session;
                                 }
                                 Err(e) => {
@@ -1266,12 +1296,13 @@ impl SessionManager {
             stats,
             cmd_tx,
             label: label.clone(),
+            kind,
             dtr,
             rts,
             bus,
             status,
         });
-        self.events.state(&ConnState::up(label));
+        self.events.state(&ConnState::up(label).with_kind(kind));
         Ok(())
     }
 
