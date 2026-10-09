@@ -24,7 +24,8 @@ documents/          设计与决策单一事实源（契约/ADR/SPEC 不变）
 `http://127.0.0.1:8765/mcp`），把串口/USB/HID/探针枚举、会话收发、统计、固件烧录
 暴露为 MCP 工具，供任意 MCP 客户端（WorkBuddy / Claude / Cursor…）接入。
 
-- 关闭服务：设环境变量 `MAXCOM_MCP=off`
+- 开关：设置页 →「🤖 AI 接入（MCP）」（可停止/重开并复制端点）；持久化在前端设置里
+- 强制关闭：设环境变量 `MAXCOM_MCP=off`（优先级高于界面开关）
 - 换端口：`MAXCOM_MCP_PORT=9000`
 - 仅桌面端编译（`desktop` feature）；工具实现见 [`crates/maxcom-mcp`](crates/maxcom-mcp)，
   设计决策见 [ADR-0021](documents/01-decisions/0021-mcp-server.md)

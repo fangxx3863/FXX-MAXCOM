@@ -3,8 +3,8 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
-import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow } from "./api";
-import type { ConnConfig, ConnPhase, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
+import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow, mcpStatus, mcpSetEnabled } from "./api";
+import type { ConnConfig, ConnPhase, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, McpStatus, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
 import { openContextMenu, commonEditItems, type CtxItem } from "./contextmenu";
@@ -53,6 +53,8 @@ interface AppSettings {
   explodeLayout: ExplodeLayout;
   /** 收发区懒加载每页行数（超大日志虚拟滚动的窗口粒度） */
   logPageRows: number;
+  /** 是否启用内嵌 MCP 服务（AI 接入）。后端不持久化，启动时由这里同步过去 */
+  mcpEnabled: boolean;
 }
 const DEFAULT_SETTINGS: AppSettings = {
   logSize: 12.5,
@@ -66,6 +68,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   explodeType: "logview",
   explodeLayout: "master",
   logPageRows: 500,
+  mcpEnabled: true,
 };
 const SETTINGS_KEY = "maxcom.settings";
 const THEME_PRESETS: Record<string, string> = {
@@ -398,6 +401,7 @@ class SessionApp {
     this.wireMultistr();
     this.wirePlotControls();
     this.applySettingsInputs(currentSettings);
+    this.applyMcpStatus(lastMcpStatus);
 
     rootEl.appendChild(this.el);
 
@@ -2160,6 +2164,45 @@ class SessionApp {
     if (explodeLayoutSel) explodeLayoutSel.value = st.explodeLayout;
     const pageRowsInput = this.q<HTMLInputElement>("#set-log-page-rows");
     if (pageRowsInput) pageRowsInput.value = String(st.logPageRows);
+    const mcpEnabledInput = this.q<HTMLInputElement>("#set-mcp-enabled");
+    if (mcpEnabledInput) mcpEnabledInput.checked = st.mcpEnabled ?? true;
+  }
+
+  /**
+   * 渲染 MCP 服务卡片。状态是全局的（不属于某个会话），但每个标签页各有一份设置页 DOM，
+   * 所以模块级广播时会对每个 SessionApp 各调一次。
+   *
+   * `info` 为 null 表示本平台不适用（移动端外壳不编译该服务）→ 整张卡片隐藏，
+   * 而不是显示一堆空值。
+   */
+  applyMcpStatus(info: McpStatus | null) {
+    const card = this.q<HTMLElement>("#set-mcp-card");
+    const enabledInput = this.q<HTMLInputElement>("#set-mcp-enabled");
+    const endpointInput = this.q<HTMLInputElement>("#set-mcp-endpoint");
+    const stateNote = this.q<HTMLElement>("#set-mcp-status");
+    if (!card || !enabledInput || !endpointInput || !stateNote) return;
+
+    if (!info) {
+      card.classList.add("hidden");
+      return;
+    }
+    card.classList.remove("hidden");
+    enabledInput.checked = info.enabled;
+    endpointInput.value = info.endpoint;
+
+    // 三态：启动失败（有 error）优先于实际运行态 —— 否则「开关是开的但没在跑」会被
+    // 渲染成「运行中」，用户据此去配客户端只会连不上。
+    stateNote.className = "set-note";
+    if (info.error) {
+      stateNote.textContent = t("settings.mcpError", { e: info.error });
+      stateNote.classList.add("mcp-status-error");
+    } else if (info.running) {
+      stateNote.textContent = t("settings.mcpRunning");
+      stateNote.classList.add("mcp-status-running");
+    } else {
+      stateNote.textContent = t("settings.mcpOff");
+      stateNote.classList.add("mcp-status-off");
+    }
   }
 
   wireSettings() {
@@ -2224,7 +2267,35 @@ class SessionApp {
         saveSettings({ ...currentSettings, explodeLayout: explodeLayoutSel.value as ExplodeLayout }),
       );
     }
-    this.q("#set-reset").addEventListener("click", () => saveSettings({ ...DEFAULT_SETTINGS }));
+    this.q("#set-reset").addEventListener("click", () =>
+      // 保留 MCP 开关：它是「功能性」设置，不属于「恢复外观默认」的语义范围，
+      // 顺手把它打开会让用户以为安全设置被重置了
+      saveSettings({ ...DEFAULT_SETTINGS, mcpEnabled: currentSettings.mcpEnabled }),
+    );
+    // AI 接入（MCP）：状态是全局的，但每个标签页各有一份设置页 DOM，故变更后广播到所有卡片
+    const mcpEnabledInput = this.q<HTMLInputElement>("#set-mcp-enabled");
+    if (mcpEnabledInput) {
+      mcpEnabledInput.addEventListener("change", () => {
+        const on = mcpEnabledInput.checked;
+        saveSettings({ ...currentSettings, mcpEnabled: on });
+        void mcpSetEnabled(on).then(applyMcpStatusToAll);
+      });
+    }
+    const mcpCopyBtn = this.q<HTMLButtonElement>("#set-mcp-copy");
+    if (mcpCopyBtn) {
+      mcpCopyBtn.addEventListener("click", () => {
+        const endpoint = this.q<HTMLInputElement>("#set-mcp-endpoint").value;
+        void navigator.clipboard
+          .writeText(endpoint)
+          .then(() => flashCopyLabel(mcpCopyBtn))
+          .catch(() => {
+            mcpCopyBtn.textContent = t("settings.mcpCopyFail");
+            window.setTimeout(() => {
+              mcpCopyBtn.textContent = t("settings.mcpCopy");
+            }, 1200);
+          });
+      });
+    }
     // 界面语言：全局共享，切换后整页重载（标签页/设置保留）；重载前先断开所有连接
     const langSel = this.q<HTMLSelectElement>("#set-lang");
     if (langSel) {
@@ -2240,6 +2311,26 @@ let activeId = "";
 let seqCounter = 0;
 let renamingId: string | null = null;
 let lastSnapJson = "";
+
+/**
+ * 最近一次取到的 MCP 状态。缓存它是为了新建标签页能立即渲染设置页里的那张卡，
+ * 而不必每个标签页都打一次 IPC（状态是全局的，与标签页数量无关）。
+ */
+let lastMcpStatus: McpStatus | null = null;
+
+/** 把 MCP 状态广播给所有标签页的设置页（每个标签页各有一份设置页 DOM） */
+function applyMcpStatusToAll(info: McpStatus | null): void {
+  lastMcpStatus = info;
+  for (const s of sessions.values()) s.applyMcpStatus(info);
+}
+
+/** 复制成功：按钮文字短暂变为「已复制」（复制是高频小动作，不值得弹提示） */
+function flashCopyLabel(btn: HTMLButtonElement): void {
+  btn.textContent = t("settings.mcpCopied");
+  window.setTimeout(() => {
+    btn.textContent = t("settings.mcpCopy");
+  }, 1200);
+}
 
 /** 串口 device → 制造商/产品名（来自 listPorts 的 description，用于捕获文件名） */
 const PORT_NAMES = new Map<string, string>();
@@ -3452,6 +3543,19 @@ if (!import.meta.env.DEV) {
   if (!sessions.size) first = createSession(null).id;
   activate(store?.active && sessions.has(store.active) ? store.active : first);
   applySettingsToAll();
+
+  // MCP 开关由前端持久化（与窗口尺寸记忆同一模式）：启动时把上次的选择同步给后端。
+  // 后端 setup 时已按默认拉起，这里负责把「用户上次关掉了」落实下去，
+  // 并顺手在「上次启动失败」时借这次同步重试一次。
+  void (async () => {
+    const info = await mcpStatus();
+    if (!info) {
+      applyMcpStatusToAll(null);
+      return;
+    }
+    const want = currentSettings.mcpEnabled ?? true;
+    applyMcpStatusToAll(info.enabled === want ? info : await mcpSetEnabled(want));
+  })();
 }
 
 // 初始化完成标记（smoke 测试断言用）

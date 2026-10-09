@@ -195,3 +195,19 @@ export interface PlotSnapshotDto {
   /** ASCII 表头智能识别的通道名（无表头为空，回退 CHn） */
   channel_names?: string[];
 }
+
+/** 内嵌 MCP 服务状态（对应 src-tauri 的 mcp_status / mcp_set_enabled） */
+export interface McpStatus {
+  /** 界面开关意图：用户是否希望服务开启 */
+  enabled: boolean;
+  /** 服务是否真的在监听（启动失败时 enabled 为 true 而 running 为 false） */
+  running: boolean;
+  /** MCP 端点：客户端配置里填这个（未运行时给出「若开启会是这个地址」） */
+  endpoint: string;
+  /** 期望监听端口 */
+  port: number;
+  /** 最近一次启动失败原因；成功为 null */
+  error: string | null;
+  /** 安全说明：服务只绑定回环地址 */
+  bind_scope: string;
+}

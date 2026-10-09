@@ -41,7 +41,8 @@ MAXCOM 是一款面向嵌入式与现场调试的跨平台桌面工具，**Rust 
 
 - **端点**：`http://127.0.0.1:8765/mcp`（Streamable HTTP）
 - **安全边界**：**只监听回环地址**，不对外网开放 —— 它能读写串口并烧录固件
-- **配置**：`MAXCOM_MCP=off` 关闭服务；`MAXCOM_MCP_PORT=9000` 换端口
+- **开关**：设置页 →「🤖 AI 接入（MCP）」可随时开关并复制端点；
+  `MAXCOM_MCP=off` 强制关闭（界面无法覆盖）、`MAXCOM_MCP_PORT=9000` 换端口
 - **能力**（27 个工具）：列串口（含 VID/PID/序列号/厂商）、列 USB / HID / 探针 / 芯片、列出与查询会话、
   连接 / 断开 / 发送 / 读回最近收发字节、收发统计与波形快照、DTR / RTS、自动重连、
   二进制捕获、probe-rs 固件烧录、X/Y/ZMODEM 文件传输
@@ -154,7 +155,8 @@ MAXCOM starts a **Model Context Protocol** server on launch, exposing its capabi
 
 - **Endpoint**: `http://127.0.0.1:8765/mcp` (Streamable HTTP)
 - **Security boundary**: **loopback only** — it can read/write serial ports and flash firmware
-- **Configuration**: `MAXCOM_MCP=off` disables the server; `MAXCOM_MCP_PORT=9000` changes the port
+- **Toggle**: Settings → "🤖 AI access (MCP)" switches it on/off and copies the endpoint;
+  `MAXCOM_MCP=off` force-disables it (the UI cannot override) and `MAXCOM_MCP_PORT=9000` changes the port
 - **Capabilities** (27 tools): list serial ports (with VID/PID/serial/manufacturer), list USB / HID /
   probes / chips, list and inspect sessions, connect / disconnect / send / read back I/O, stats and
   plot snapshots, DTR / RTS, auto-reconnect, binary capture, probe-rs flashing, X/Y/ZMODEM transfer

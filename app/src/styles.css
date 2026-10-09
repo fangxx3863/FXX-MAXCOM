@@ -773,6 +773,25 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 .set-field input:focus, .set-field select:focus { border-color: var(--accent); }
 .set-note { color: var(--fg-dim); font-size: 11.5px; opacity: 0.75; margin-top: 8px; }
 
+/* AI 接入（MCP）卡片：端点只读输入 + 复制按钮 */
+.mcp-endpoint {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 6px; flex: 1; min-width: 0;
+}
+.mcp-endpoint input {
+  flex: 1; min-width: 0; max-width: 230px;
+  background: var(--bg3); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 5px;
+  padding: 5px 10px; outline: none;
+  font-family: var(--log-family, monospace); font-size: 11.5px;
+}
+.mcp-endpoint input:focus { border-color: var(--accent); }
+.mcp-endpoint .ghost { flex: none; }
+/* 状态三态配色：运行中用强调色、关闭用弱化、失败用错误色（--err 已在各主题定义） */
+.mcp-status-running { opacity: 1; color: var(--accent); }
+.mcp-status-off { opacity: 0.6; }
+.mcp-status-error { opacity: 1; color: var(--err); }
+
 /* 关于（作者）卡片 */
 .set-about-row { display: flex; align-items: center; gap: 12px; padding: 8px 0 4px; }
 .set-about-avatar {

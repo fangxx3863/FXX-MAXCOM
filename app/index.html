@@ -427,6 +427,25 @@
                 </div>
                 <div class="set-note" data-i18n="settings.termNote">xterm 终端模拟器的显示字号。</div>
               </div>
+              <div class="set-card" id="set-mcp-card">
+                <div class="set-card-head" data-i18n="settings.mcpCard">🤖 AI 接入（MCP）</div>
+                <div class="set-field">
+                  <span class="set-label" data-i18n="settings.mcpEnable">启用 MCP 服务</span>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="set-mcp-enabled" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="set-field">
+                  <span class="set-label" data-i18n="settings.mcpEndpoint">服务端点</span>
+                  <div class="mcp-endpoint">
+                    <input id="set-mcp-endpoint" type="text" readonly spellcheck="false" />
+                    <button id="set-mcp-copy" class="ghost" data-i18n="settings.mcpCopy">复制</button>
+                  </div>
+                </div>
+                <div class="set-note" id="set-mcp-status"></div>
+                <div class="set-note" data-i18n="settings.mcpNote">把端点加为 MCP 服务器，AI 助手即可列出串口、收发数据、烧录固件。服务只监听本机回环地址；环境变量 MAXCOM_MCP=off 可永久关闭。</div>
+              </div>
               <div class="set-card set-about">
                 <div class="set-card-head" data-i18n="settings.aboutCard">🧑‍💻 关于</div>
                 <div class="set-about-row">

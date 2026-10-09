@@ -6,8 +6,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   ChipFamilyInfo, ConnConfig, ConnState, DataFormat, EntriesBatch, FlashConfig, FlashProgressDto,
-  HidDeviceInfo, ModemProtocol, PlotSnapshotDto, PortInfo, ProbeInfo, SendPayload, StatsSnapshot,
-  UsbDeviceInfo,
+  HidDeviceInfo, McpStatus, ModemProtocol, PlotSnapshotDto, PortInfo, ProbeInfo, SendPayload,
+  StatsSnapshot, UsbDeviceInfo,
 } from "./types";
 import { getMock, mockOnRaw, mockOnEntries, mockOnState, DEMO_USB_DEVICES, DEMO_HID_DEVICES } from "./mock";
 import { t } from "./i18n";
@@ -181,6 +181,46 @@ export async function pickFirmwarePath(): Promise<string | null> {
     ],
   });
   return typeof picked === "string" ? picked : null;
+}
+
+// ── 内嵌 MCP 服务（AI 接入）。移动端不编译该服务，故一律返回 null 由界面隐藏卡片 ──
+
+/** 演示模式的 MCP 状态（浏览器无内嵌服务，仍展示卡片以便预览布局） */
+const DEMO_MCP_STATUS: McpStatus = {
+  enabled: true,
+  running: true,
+  endpoint: "http://127.0.0.1:8765/mcp",
+  port: 8765,
+  error: null,
+  bind_scope: "仅本机回环（127.0.0.1），不对外网开放",
+};
+
+/** 当前平台是否可能提供 MCP 服务（移动端外壳不编译它） */
+export const MCP_AVAILABLE = !IS_TAURI || !IS_MOBILE;
+
+/**
+ * 查询 MCP 服务状态。返回 null 表示「本平台不适用」，调用方应隐藏整张卡片 ——
+ * 命令未注册（移动端/旧版外壳）也归入此类，而不是抛错打断设置页渲染。
+ */
+export async function mcpStatus(): Promise<McpStatus | null> {
+  if (!MCP_AVAILABLE) return null;
+  if (!IS_TAURI) return DEMO_MCP_STATUS;
+  try {
+    return await invoke<McpStatus>("mcp_status");
+  } catch {
+    return null;
+  }
+}
+
+/** 开/关 MCP 服务，返回开关后的最新状态（null 同上） */
+export async function mcpSetEnabled(on: boolean): Promise<McpStatus | null> {
+  if (!MCP_AVAILABLE) return null;
+  if (!IS_TAURI) return { ...DEMO_MCP_STATUS, enabled: on, running: on };
+  try {
+    return await invoke<McpStatus>("mcp_set_enabled", { on });
+  } catch {
+    return null;
+  }
 }
 
 // ── 全局事件（负载带 session 标签；每类事件只订阅一次，main.ts 按标签路由）──
