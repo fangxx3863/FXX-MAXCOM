@@ -25,6 +25,8 @@ documents/          设计与决策单一事实源（契约/ADR/SPEC 不变）
 暴露为 MCP 工具，供任意 MCP 客户端（WorkBuddy / Claude / Cursor…）接入。
 
 - 开关：设置页 →「🤖 AI 接入（MCP）」（可停止/重开并复制端点）；持久化在前端设置里
+- 作用目标：工具省略 `session` 时作用于**用户当前查看的标签页**（前端 `activate()` 时经
+  `set_active_session` 同步），因此 AI 的连接/收发与界面是同一条链路、实时可见
 - 强制关闭：设环境变量 `MAXCOM_MCP=off`（优先级高于界面开关）
 - 换端口：`MAXCOM_MCP_PORT=9000`
 - 仅桌面端编译（`desktop` feature）；工具实现见 [`crates/maxcom-mcp`](crates/maxcom-mcp)，

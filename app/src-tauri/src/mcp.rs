@@ -222,10 +222,14 @@ impl Backend for AppBackend {
         self.state.get_mgr(id)
     }
 
+    fn active_session(&self) -> Option<String> {
+        self.state.active_session()
+    }
+
     fn session_or_create(&self, id: &str) -> Arc<SessionManager> {
-        // MCP 自建的会话没有界面标签页：挂丢弃式事件出口。
-        // 若沿用 TauriEvents，每个接收字节都会白做一次 base64 编码 + 跨进程 emit
-        // （没有监听者，纯浪费）；已有会话（界面上打开的）仍返回原对象、行为不变。
+        // 界面已存在的会话（含用户当前查看的那个）返回原对象、事件出口仍是 TauriEvents，
+        // 因此 MCP 的连接/收发会自动同步到界面上；只有「显式指定一个不存在 id」才新建，
+        // 那种会话没有界面标签页，挂丢弃式出口避免每字节白做一次 base64 + emit。
         self.state
             .get_or_create_with(id, Some(Arc::new(maxcom_mcp::NullEvents)))
     }

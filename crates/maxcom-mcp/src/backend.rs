@@ -25,6 +25,19 @@ pub trait Backend: Send + Sync + 'static {
     /// 不必先要求用户在界面上开好标签页。
     fn session_or_create(&self, id: &str) -> Arc<SessionManager>;
 
+    /// 用户在界面上**正在查看**的会话 id —— 工具省略 `session` 参数时的默认目标。
+    ///
+    /// 为什么必须由上层提供：MCP 若默认在自己另开的隐藏会话里操作，会出现两个问题 ——
+    /// ① 用户在界面上什么都看不到（AI 说"已连接"而他眼前还是未连接）；
+    /// ② 串口是**独占资源**，AI 打开后用户再点「连接」同一端口必然失败。
+    /// 把默认目标对准用户当前页面，两个问题同时消失：拿到的是同一个 `SessionManager`，
+    /// 事件按 session 路由，界面（指示灯/收发区/终端/统计）自动同步。
+    ///
+    /// 返回 `None` 表示界面尚未就绪（调用方回退到专用会话）。
+    fn active_session(&self) -> Option<String> {
+        None
+    }
+
     /// 关闭会话并回收其线程与设备句柄
     fn close_session(&self, id: &str);
 
@@ -50,6 +63,7 @@ impl SessionEvents for NullEvents {
 #[derive(Default)]
 pub struct TestBackend {
     sessions: Mutex<Vec<(String, Arc<SessionManager>)>>,
+    active: Mutex<Option<String>>,
 }
 
 impl TestBackend {
@@ -60,6 +74,12 @@ impl TestBackend {
     /// 预置一个会话（模拟界面上已打开的标签页）
     pub fn with_session(self, id: &str) -> Self {
         self.session_or_create(id);
+        self
+    }
+
+    /// 模拟「用户切到了某个标签页」（设置 [`Backend::active_session`] 的返回值）
+    pub fn with_active(self, id: &str) -> Self {
+        *self.active.lock().unwrap() = Some(id.to_string());
         self
     }
 }
@@ -81,6 +101,10 @@ impl Backend for TestBackend {
             .iter()
             .find(|(s, _)| s == id)
             .map(|(_, m)| m.clone())
+    }
+
+    fn active_session(&self) -> Option<String> {
+        self.active.lock().unwrap().clone()
     }
 
     fn session_or_create(&self, id: &str) -> Arc<SessionManager> {

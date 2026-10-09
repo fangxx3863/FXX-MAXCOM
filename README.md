@@ -46,6 +46,8 @@ MAXCOM 是一款面向嵌入式与现场调试的跨平台桌面工具，**Rust 
 - **能力**（27 个工具）：列串口（含 VID/PID/序列号/厂商）、列 USB / HID / 探针 / 芯片、列出与查询会话、
   连接 / 断开 / 发送 / 读回最近收发字节、收发统计与波形快照、DTR / RTS、自动重连、
   二进制捕获、probe-rs 固件烧录、X/Y/ZMODEM 文件传输
+- **与界面同步**：AI 的连接与收发**作用于你当前查看的标签页** —— 指示灯、收发区、终端、
+  统计都是同一条链路。串口是独占资源，共享会话也避免了「AI 占着端口、界面连不上」
 
 在客户端（WorkBuddy / Claude / Cursor…）中把上面的端点加为 MCP 服务器即可接入。
 设计决策见 [ADR-0021](documents/01-decisions/0021-mcp-server.md)。
@@ -160,6 +162,9 @@ MAXCOM starts a **Model Context Protocol** server on launch, exposing its capabi
 - **Capabilities** (27 tools): list serial ports (with VID/PID/serial/manufacturer), list USB / HID /
   probes / chips, list and inspect sessions, connect / disconnect / send / read back I/O, stats and
   plot snapshots, DTR / RTS, auto-reconnect, binary capture, probe-rs flashing, X/Y/ZMODEM transfer
+- **In sync with the UI**: AI connections and I/O act on **the tab you are viewing** — indicator,
+  log view, terminal and stats all share one link. Serial ports are exclusive, so a shared session
+  also avoids "the AI holds the port and the UI can't connect"
 
 Add the endpoint above as an MCP server in your client (WorkBuddy / Claude / Cursor…).
 See [ADR-0021](documents/01-decisions/0021-mcp-server.md) for the design rationale.

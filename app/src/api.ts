@@ -109,6 +109,17 @@ export function closeSession(session: string): void {
   void invoke("close_session", { session }).catch(() => {});
 }
 
+/**
+ * 同步「用户当前正在查看的会话」给后端（切标签页时调用）。
+ *
+ * MCP 的默认操作目标据此确定 —— AI 的连接与收发因此会直接落在用户眼前那个页面上，
+ * 而不是在一条看不见的独立链路里跑（串口是独占资源，两条链路必然互相抢占）。
+ */
+export function setActiveSession(session: string): void {
+  if (!IS_TAURI) return;
+  void invoke("set_active_session", { session }).catch(() => {});
+}
+
 /** 取保存路径：Tauri 走 dialog 插件；浏览器返回 null（由调用方降级为下载） */
 export async function pickSavePath(defaultName: string): Promise<string | null> {
   if (!IS_TAURI) return null;

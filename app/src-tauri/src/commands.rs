@@ -24,6 +24,10 @@ use tauri::{AppHandle, Emitter, State};
 pub struct AppState {
     app: AppHandle,
     sessions: Arc<Mutex<HashMap<String, Arc<SessionManager>>>>,
+    /// 用户正在查看的会话 id（前端 activate 时同步）。
+    /// MCP 用它决定「省略 session 时操作哪个会话」—— 把 AI 的动作直接落在用户眼前
+    /// 那个页面上，而不是一条谁也看不见的隐藏链路里。
+    active: Arc<Mutex<Option<String>>>,
 }
 
 impl AppState {
@@ -31,6 +35,7 @@ impl AppState {
         Self {
             app,
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            active: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -79,12 +84,28 @@ impl AppState {
         self.sessions.lock().unwrap().keys().cloned().collect()
     }
 
+    /// 记录用户当前正在查看的会话（前端切标签页时同步）。
+    pub fn set_active(&self, session: &str) {
+        *self.active.lock().unwrap() = Some(session.to_string());
+    }
+
+    /// 用户当前正在查看的会话；前端尚未同步过时返回 None。
+    pub fn active_session(&self) -> Option<String> {
+        self.active.lock().unwrap().clone()
+    }
+
     /// 关闭会话：移除即触发 Drop → 断开连接、停线程。
     /// 正在进行的连接尝试一并取消（否则标签页关了，后台还在握手并可能装上一个会话）。
     pub fn close(&self, session: &str) {
         let mgr = self.sessions.lock().unwrap().remove(session);
         if let Some(m) = mgr {
             m.cancel_connect();
+        }
+        // 活动会话被关掉时清空记录：否则 MCP 会继续把操作指向一个已不存在的页面。
+        // （前端关标签页后紧接着会 activate 下一个并重新同步，这里只是兜住 MCP 自关的路径）
+        let mut act = self.active.lock().unwrap();
+        if act.as_deref() == Some(session) {
+            *act = None;
         }
     }
 }
@@ -391,6 +412,15 @@ pub fn close_session(session: String, state: State<'_, AppState>) {
 pub fn save_text_file(path: String, contents: String) -> Result<usize, String> {
     std::fs::write(&path, contents.as_bytes()).map_err(|e| e.to_string())?;
     Ok(contents.len())
+}
+
+/// 同步「用户当前正在查看的会话」给后端（前端切标签页时调用）。
+///
+/// MCP 的默认操作目标据此确定 —— 让 AI 的动作直接落在用户眼前那个页面上，
+/// 而不是在一条看不见的独立链路里跑（串口是独占资源，两条链路必然互相抢占）。
+#[tauri::command]
+pub fn set_active_session(session: String, state: State<'_, AppState>) {
+    state.set_active(&session);
 }
 
 /// 查询内嵌 MCP 服务的状态（端点 / 端口 / 启动错误）。

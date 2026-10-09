@@ -3,7 +3,7 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
-import { IS_TAURI, IS_MOBILE, makeApi, closeSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow, mcpStatus, mcpSetEnabled } from "./api";
+import { IS_TAURI, IS_MOBILE, makeApi, closeSession, setActiveSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow, mcpStatus, mcpSetEnabled } from "./api";
 import type { ConnConfig, ConnPhase, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, McpStatus, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
@@ -926,10 +926,11 @@ class SessionApp {
 
   /** 链路建立后的补发（显式连接的绘图格式 + DTR/RTS + SSH PTY 尺寸） */
   private onLinkUp() {
-    if (this.connKind === "serial") {
-      void this.api.setDtr(this.dtrOn).catch(() => {});
-      void this.api.setRts(this.rtsOn).catch(() => {});
-    }
+    // DTR/RTS 无条件下发：连接可能是 **MCP 侧发起**的，此时本地 connKind（顶栏下拉的
+    // 选择）未必与真实链路一致（AI 说"连了串口"，而用户下拉还停在 TCP），
+    // 按 connKind 门控会漏掉这次补发。非串口传输的 setDtr/setRts 是 no-op，多发无副作用。
+    void this.api.setDtr(this.dtrOn).catch(() => {});
+    void this.api.setRts(this.rtsOn).catch(() => {});
     if (this.connKind === "ssh") this.terminalPage.syncPtySize();
     // 仅显式连接后下发一次绘图格式（自动重连不重发，否则会清空已缓冲的波形）
     if (this.pendingPlotFmt) {
@@ -2672,6 +2673,8 @@ function startRename(id: string) {
 function activate(id: string) {
   if (!sessions.has(id)) return;
   activeId = id;
+  // 同步给后端：MCP 省略 session 时操作的就是这个页面（AI 的动作直接显示在用户眼前）
+  setActiveSession(id);
   for (const [sid, s] of sessions) s.el.classList.toggle("hidden-session", sid !== id);
   const s = sessions.get(id)!;
   s.onActivated();

@@ -141,6 +141,12 @@ async function main() {
   check("「恢复默认」保留 MCP 开关（仍是关闭）", saved.mcpEnabled === false);
   check("「恢复默认」确实复位了外观项（logPageRows 回默认）", saved.logPageRows === 500);
 
+  // 全流程（含切标签页触发的「同步活动会话给后端」调用）不得抛出未捕获异常：
+  // 该同步是 fire-and-forget 的一行 IPC，一旦同步抛错会直接打断 activate()，
+  // 表现为「点标签页没反应」——比 MCP 本身坏掉更难查。
+  check("全流程无未捕获异常", errors.length === 0);
+  if (errors.length) for (const e of errors.slice(0, 3)) console.error("  ", e);
+
   console.log(`\n${fail === 0 ? "✓" : "✗"} mcp 设置页接线：${pass} 通过 / ${fail} 失败`);
   process.exit(fail === 0 ? 0 : 1);
 }

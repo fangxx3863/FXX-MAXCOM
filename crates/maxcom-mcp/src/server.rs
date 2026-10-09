@@ -51,14 +51,14 @@ pub struct MaxcomMcp {
 /// 只指定会话（其余参数缺省）
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct SessionRef {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ConnectParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// 连接配置（与 documents/02-contracts/transport.schema.json 同构）
@@ -70,7 +70,7 @@ pub struct ConnectParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SendParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// 文本内容（按 UTF-8 原样发送）
@@ -89,7 +89,7 @@ pub struct SendParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReadIoParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// 只返回 seq 大于该值的块（0 = 取环形缓冲里的全部近况）。
@@ -114,7 +114,7 @@ pub struct ReadIoParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct PlotParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// 每通道最多返回的点数（默认 1000，上限 100000）
@@ -131,7 +131,7 @@ pub struct ListChipsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SetPinParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// true = 置位，false = 清除
@@ -140,7 +140,7 @@ pub struct SetPinParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SetAutoReconnectParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     pub on: bool,
@@ -148,7 +148,7 @@ pub struct SetAutoReconnectParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SetLogOptionsParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// 空闲封行超时（毫秒）；缺省取引擎默认 10
@@ -167,7 +167,7 @@ pub struct SetLogOptionsParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ModemParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// 文件传输协议
@@ -178,7 +178,7 @@ pub struct ModemParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SaveCaptureParams {
-    /// 会话 id；省略则使用专用会话 `mcp`
+    /// 会话 id；省略则作用于**用户当前正在查看的页面**（MCP 操作与界面同步）
     #[serde(default)]
     pub session: Option<String>,
     /// 目标文件绝对路径
@@ -199,18 +199,21 @@ struct SessionView {
     connected: bool,
     phase: ConnPhase,
     label: String,
+    /// 是否是用户当前正在查看的页面（= 省略 `session` 时工具的作用对象）
+    active: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     attempt: u32,
 }
 
 impl SessionView {
-    fn of(id: &str, st: ConnState) -> Self {
+    fn of(id: &str, st: ConnState, active: bool) -> Self {
         Self {
             id: id.to_string(),
             connected: st.connected,
             phase: st.phase,
             label: st.label,
+            active,
             error: st.error,
             attempt: st.attempt,
         }
@@ -268,16 +271,36 @@ impl MaxcomMcp {
         self
     }
 
-    fn mgr(&self, session: Option<&str>) -> Arc<SessionManager> {
+    /// 省略 `session` 时的目标会话：**用户在界面上正在查看的那个页面**。
+    ///
+    /// 这是刻意的默认值，不是图省事。MCP 若默认在自己另开的隐藏会话里操作，会出现
+    /// 两个问题：① 用户在界面上什么都看不到（AI 说"已连接"而他眼前还是未连接）；
+    /// ② **串口是独占资源**，AI 打开后用户再点「连接」同一端口必然失败。
+    /// 把默认目标对准用户当前页面，两个问题同时消失 —— 拿到的是同一个 `SessionManager`，
+    /// 事件按 session 路由，界面的指示灯 / 收发区 / 终端 / 统计全部自动跟上。
+    ///
+    /// 回退到 [`DEFAULT_SESSION`] 只在「前端尚未把活动会话同步过来」时发生
+    /// （应用启动瞬间），那时会建一个无界面的会话 —— 与旧的单会话方案相比没有退化。
+    fn default_session(&self) -> String {
         self.backend
-            .session_or_create(session.unwrap_or(DEFAULT_SESSION))
+            .active_session()
+            .unwrap_or_else(|| DEFAULT_SESSION.to_string())
+    }
+
+    fn mgr(&self, session: Option<&str>) -> Arc<SessionManager> {
+        let id = session
+            .map(str::to_string)
+            .unwrap_or_else(|| self.default_session());
+        self.backend.session_or_create(&id)
     }
 
     /// 取已存在的会话；不存在则报错（只读工具用，避免对着空会话反复读）
     fn existing(&self, session: Option<&str>) -> Result<(String, Arc<SessionManager>), String> {
-        let id = session.unwrap_or(DEFAULT_SESSION);
-        match self.backend.session(id) {
-            Some(m) => Ok((id.to_string(), m)),
+        let id = session
+            .map(str::to_string)
+            .unwrap_or_else(|| self.default_session());
+        match self.backend.session(&id) {
+            Some(m) => Ok((id, m)),
             None => Err(format!(
                 "会话不存在: {id}（可用 list_sessions 查看当前会话；控制类工具会自动创建会话）"
             )),
@@ -350,11 +373,13 @@ impl MaxcomMcp {
         // 同一次提问在不同实现下返回不同结果，对 LLM 是纯粹的噪声。
         let mut ids = self.backend.list_sessions();
         ids.sort();
+        let active = self.backend.active_session();
         let views: Vec<SessionView> = ids
             .into_iter()
             .filter_map(|id| {
                 let st = self.backend.session(&id)?.conn_state();
-                Some(SessionView::of(&id, st))
+                let is_active = active.as_deref() == Some(id.as_str());
+                Some(SessionView::of(&id, st, is_active))
             })
             .collect();
         json(&views)
@@ -362,16 +387,22 @@ impl MaxcomMcp {
 
     #[tool(
         name = "server_info",
-        description = "返回本 MCP 服务的自描述信息：端点、版本、默认会话、可用传输类型与\
+        description = "返回本 MCP 服务的自描述信息：端点、版本、默认作用会话、可用传输类型与\
                        典型调用顺序。不确定从哪开始时先调它。"
     )]
     pub async fn server_info(&self) -> Result<String, String> {
         let sessions = self.backend.list_sessions();
+        let active = self.backend.active_session();
         json(&serde_json::json!({
             "name": "maxcom",
             "version": self.backend.app_version(),
             "endpoint": self.endpoint,
-            "default_session": DEFAULT_SESSION,
+            "default_session": self.default_session(),
+            "user_page_session": active,
+            "default_session_rule": "省略 session 的工具作用于 user_page_session（用户在界面上\
+                                     正在查看的页面），因此 AI 的连接/收发会实时显示在他眼前；\
+                                     user_page_session 为 null 时回退到专用会话 \"mcp\"。\
+                                     显式传入一个不存在的 id 会新建**无界面**的独立会话。",
             "tool_count": self.tool_router.list_all().len(),
             "sessions": sessions,
             "transports": [
@@ -379,7 +410,7 @@ impl MaxcomMcp {
             ],
             "suggested_flow": [
                 "list_serial_ports / list_usb_devices / list_hid_devices / list_probes 挑选设备",
-                "connect 建立连接（config.type 决定传输类型）",
+                "connect 建立连接（config.type 决定传输类型；省略 session 即操作用户当前页面）",
                 "send 发送命令（newline 可自动补 \\r\\n）",
                 "read_io 读取最近收发字节（先取 max_seq，再以此为 since_seq 续读）",
                 "get_stats / get_plot_snapshot 看统计与波形；flash_firmware 烧录",
@@ -400,7 +431,8 @@ impl MaxcomMcp {
         Parameters(p): Parameters<SessionRef>,
     ) -> Result<String, String> {
         let (id, mgr) = self.existing(p.session.as_deref())?;
-        json(&SessionView::of(&id, mgr.conn_state()))
+        let active = self.backend.active_session().as_deref() == Some(id.as_str());
+        json(&SessionView::of(&id, mgr.conn_state(), active))
     }
 
     #[tool(
@@ -517,21 +549,27 @@ impl MaxcomMcp {
     #[tool(
         name = "connect",
         description = "建立连接。config.type 决定传输：serial / tcp_client / udp_client / ssh / \
-                       telnet / rtt / winusb / hid。调用会等待连接建立完成（最长 timeout_ms）\
-                       并返回最终状态，失败原因在 error 字段。"
+                       telnet / rtt / winusb / hid。省略 session 时**作用于用户当前查看的页面**\
+                       —— 连接状态、收发数据会实时显示在他的界面上（这是推荐用法）。调用会等待\
+                       连接建立完成（最长 timeout_ms）并返回最终状态，失败原因在 error 字段。"
     )]
     pub async fn connect(
         &self,
         Parameters(p): Parameters<ConnectParams>,
     ) -> Result<String, String> {
-        let id = p
-            .session
-            .clone()
-            .unwrap_or_else(|| DEFAULT_SESSION.to_string());
+        let id = p.session.clone().unwrap_or_else(|| self.default_session());
         let target = describe(&p.config);
         let timeout = Duration::from_millis(p.timeout_ms.unwrap_or(30_000).clamp(100, 120_000));
         let mgr = self.mgr(Some(&id));
 
+        // 单连接设计（ADR-0016）：先给出可操作的提示，而不是把引擎的
+        // 「已有活动连接（单连接设计，先断开再连）」原样抛给 LLM 让它猜。
+        if mgr.is_connected() {
+            return Err(format!(
+                "会话 {id} 已连接（MAXCOM 每个会话只支持一条连接）。\
+                 先调用 disconnect 断开，或显式指定另一个 session id 另开一条不影响界面的链路。"
+            ));
+        }
         mgr.begin_connect(p.config)?;
 
         // 只等 connecting 阶段：连上/失败/被取消都会立刻跳出，
@@ -543,7 +581,8 @@ impl MaxcomMcp {
             st = mgr.conn_state();
         }
         let timed_out = st.phase == ConnPhase::Connecting;
-        let view = SessionView::of(&id, st);
+        let active = self.backend.active_session().as_deref() == Some(id.as_str());
+        let view = SessionView::of(&id, st, active);
         json(&serde_json::json!({
             "session": view.id,
             "target": target,
@@ -553,6 +592,7 @@ impl MaxcomMcp {
             "error": view.error,
             "attempt": view.attempt,
             "timed_out": timed_out,
+            "on_user_page": view.active,
         }))
     }
 
@@ -1380,5 +1420,165 @@ mod tests {
             .await
             .expect_err("空主机应被校验拦下");
         assert!(err.contains("主机"), "{err}");
+    }
+
+    // ── 默认作用会话 = 用户当前页面（回归：MCP 与界面共用一条链路）──
+
+    /// 回归（用户实测）：MCP 在自己另开的隐藏会话里打开串口，用户界面上既看不到，
+    /// 又因为**串口是独占资源**而再点「连接」同一端口必然失败。
+    ///
+    /// 本测试锁的是核心不变量：MCP 的连接必须落在**界面那个 `SessionManager` 本体**上，
+    /// 而不是另开一条链路 —— 因此断言的是「界面对象自己 `is_connected()`」，
+    /// 而不是「MCP 返回了 connected」。后者在两条链路时同样会通过。
+    #[tokio::test]
+    async fn connect_through_mcp_lands_on_the_user_page_session() {
+        let port = spawn_echo_server();
+        let backend = Arc::new(TestBackend::new().with_session("ui-1").with_active("ui-1"));
+        let ui = backend.session("ui-1").expect("界面会话应存在");
+        let mcp = MaxcomMcp::new(backend.clone());
+
+        let v = parse(
+            &mcp.connect(Parameters(ConnectParams {
+                session: None, // 省略 → 应落到用户当前页面
+                config: ConnConfig::TcpClient {
+                    host: "127.0.0.1".into(),
+                    port,
+                },
+                timeout_ms: Some(5_000),
+            }))
+            .await
+            .unwrap(),
+        );
+        assert_eq!(
+            v["session"].as_str(),
+            Some("ui-1"),
+            "省略 session 应作用于用户页面"
+        );
+        assert_eq!(v["connected"].as_bool(), Some(true), "未连上: {v}");
+        assert_eq!(v["on_user_page"].as_bool(), Some(true));
+        assert!(
+            ui.is_connected(),
+            "MCP 的连接没有落到界面会话上——用户界面仍会显示未连接，且串口被别的链路占着"
+        );
+
+        // 反向：界面侧断开，MCP 立刻看到（同一条链路，双向透明）
+        ui.disconnect();
+        let v = parse(
+            &mcp.get_session_status(Parameters(SessionRef { session: None }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(v["id"].as_str(), Some("ui-1"));
+        assert_eq!(v["connected"].as_bool(), Some(false));
+    }
+
+    /// 省略 `session` 时：只读工具落在活动页面；控制类工具**不得**凭空多造一个会话。
+    #[tokio::test]
+    async fn default_session_is_the_active_page_not_a_spare_one() {
+        let backend = Arc::new(
+            TestBackend::new()
+                .with_session("ui-1")
+                .with_session("ui-2")
+                .with_active("ui-2"),
+        );
+        let mcp = MaxcomMcp::new(backend.clone());
+
+        // 只读：命中活动页 ui-2（而不是专用会话 mcp）
+        let v = parse(
+            &mcp.get_session_status(Parameters(SessionRef { session: None }))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(v["id"].as_str(), Some("ui-2"));
+        assert_eq!(v["active"].as_bool(), Some(true));
+
+        // list_sessions 标出活动页，且只有一个
+        let v = parse(&mcp.list_sessions().await.unwrap());
+        let active: Vec<&str> = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["active"].as_bool() == Some(true))
+            .filter_map(|s| s["id"].as_str())
+            .collect();
+        assert_eq!(active, vec!["ui-2"]);
+
+        // 写入类：未连接故报错，但**不许**顺手创建一个 mcp 会话
+        let _ = mcp
+            .send(Parameters(SendParams {
+                session: None,
+                text: Some("x".into()),
+                hex: None,
+                newline: None,
+                echo: None,
+            }))
+            .await
+            .expect_err("未连接应报错");
+        let after = parse(&mcp.list_sessions().await.unwrap());
+        let ids: Vec<&str> = after
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s["id"].as_str())
+            .collect();
+        assert_eq!(ids, vec!["ui-1", "ui-2"], "不应凭空多出会话");
+
+        // server_info 如实报告默认目标
+        let v = parse(&mcp.server_info().await.unwrap());
+        assert_eq!(v["default_session"].as_str(), Some("ui-2"));
+        assert_eq!(v["user_page_session"].as_str(), Some("ui-2"));
+    }
+
+    /// 无活动会话（前端尚未同步）时回退到专用会话 —— 与改动前行为一致，不制造回归。
+    #[tokio::test]
+    async fn falls_back_to_dedicated_session_without_a_user_page() {
+        let mcp = server_with(TestBackend::new());
+        let v = parse(&mcp.server_info().await.unwrap());
+        assert_eq!(v["default_session"].as_str(), Some(DEFAULT_SESSION));
+        assert!(v["user_page_session"].is_null());
+    }
+
+    /// 显式指定一个已存在的界面会话 id，应作用于它（AI 可精确指定"哪个标签页"）。
+    #[tokio::test]
+    async fn explicit_session_overrides_the_active_page() {
+        let backend = Arc::new(
+            TestBackend::new()
+                .with_session("ui-1")
+                .with_session("ui-2")
+                .with_active("ui-2"),
+        );
+        let mcp = MaxcomMcp::new(backend);
+        let v = parse(
+            &mcp.get_session_status(Parameters(sess("ui-1")))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(v["id"].as_str(), Some("ui-1"));
+        assert_eq!(v["active"].as_bool(), Some(false), "ui-1 不是活动页");
+    }
+
+    /// 已连接的会话再 connect：错误信息必须直接告诉 LLM 怎么办，
+    /// 而不是把引擎的「已有活动连接（单连接设计，先断开再连）」原样抛出让它猜。
+    #[tokio::test]
+    async fn connect_on_a_busy_session_explains_how_to_proceed() {
+        let port = spawn_echo_server();
+        let backend = Arc::new(TestBackend::new().with_session("ui-1").with_active("ui-1"));
+        let mcp = MaxcomMcp::new(backend);
+        let cfg = || ConnectParams {
+            session: None,
+            config: ConnConfig::TcpClient {
+                host: "127.0.0.1".into(),
+                port,
+            },
+            timeout_ms: Some(5_000),
+        };
+        parse(&mcp.connect(Parameters(cfg())).await.unwrap());
+
+        let err = mcp
+            .connect(Parameters(cfg()))
+            .await
+            .expect_err("单连接设计下重复连接应报错");
+        assert!(err.contains("disconnect"), "应提示可先 disconnect: {err}");
+        assert!(err.contains("session id"), "应提示可换会话 id: {err}");
     }
 }

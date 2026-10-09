@@ -43,6 +43,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_ports,
+            commands::set_active_session,
             #[cfg(feature = "desktop")]
             commands::mcp_status,
             #[cfg(feature = "desktop")]
