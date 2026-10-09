@@ -1430,6 +1430,14 @@ impl SessionManager {
         }
     }
 
+    /// 当前生效的日志解码/分包选项（`set_log_options` 的当前值；连接前设置的也在）。
+    ///
+    /// 用途：调用方想**只改其中一项**时必须先拿到现状再合并 —— 否则拿字段缺省值整体覆盖，
+    /// 会把别人（界面或 MCP）调好的编码/时间戳模式一起冲掉。
+    pub fn log_options(&self) -> LogOptions {
+        self.log_options.lock().unwrap().clone()
+    }
+
     pub fn set_filters(&self, rules: Vec<FilterRule>) {
         *self.filters.lock().unwrap() = rules.clone();
         if let Some(a) = &*self.active.lock().unwrap() {

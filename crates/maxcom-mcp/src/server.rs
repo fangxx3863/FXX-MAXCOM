@@ -14,9 +14,7 @@
 
 use crate::backend::Backend;
 use maxcom_core::framing::TimestampMode;
-use maxcom_engine::session::{
-    ConnPhase, ConnState, IoChunk, IoDir, LogOptions, SendPayload, SessionManager,
-};
+use maxcom_engine::session::{ConnPhase, ConnState, IoChunk, IoDir, SendPayload, SessionManager};
 use maxcom_engine::transport::flashing::{self, FlashConfig, FlashProgressDto};
 use maxcom_engine::transport::{self, ConnConfig, ModemProtocol};
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -697,31 +695,53 @@ impl MaxcomMcp {
 
     #[tool(
         name = "set_log_options",
-        description = "设置日志解码/分包选项：idle_timeout_ms（空闲封行毫秒）、timestamp_mode、\
-                       encoding（如 utf-8/gbk）、split_mode（line 按换行 / timeout 按空闲）。\
-                       **未提供的字段会取引擎默认值**，即会覆盖界面上的既有设置。"
+        description = "设置日志解码/分包选项：idle_timeout_ms（空闲封行毫秒）、\
+                       timestamp_mode（absolute/relative/delta）、encoding（如 auto/utf-8/gbk）、\
+                       split_mode（line 按换行 / timeout 按空闲）。\
+                       **只改你给出的字段**，其余保持当前值（本工具与界面共用同一份设置，\
+                       不传就不动）。返回改完之后生效的完整选项。"
     )]
     pub async fn set_log_options(
         &self,
         Parameters(p): Parameters<SetLogOptionsParams>,
     ) -> Result<String, String> {
         let (id, mgr) = self.existing(p.session.as_deref())?;
-        let opts = LogOptions {
-            idle_timeout_ms: p.idle_timeout_ms.unwrap_or(10),
-            timestamp_mode: p
-                .timestamp_mode
-                .as_deref()
-                .and_then(TimestampMode::parse)
-                .unwrap_or_default(),
-            encoding: p.encoding.unwrap_or_else(|| "auto".into()),
-            split_mode: if p.split_mode.as_deref() == Some("timeout") {
-                "timeout".into()
-            } else {
-                "line".into()
-            },
-        };
-        mgr.set_log_options(opts);
-        json(&serde_json::json!({ "session": id, "ok": true }))
+
+        // 补丁式合并：只在给出该字段时才改。
+        // 早期实现用引擎默认值填缺省字段，导致「只想改分包方式」会把用户在界面上调好的
+        // 编码/时间戳模式一起冲回默认 —— 而本工具与界面**共用同一份设置**，属于静默破坏。
+        let mut next = mgr.log_options();
+        if let Some(ms) = p.idle_timeout_ms {
+            next.idle_timeout_ms = ms;
+        }
+        if let Some(s) = p.timestamp_mode.as_deref() {
+            next.timestamp_mode = TimestampMode::parse(s.trim().to_ascii_lowercase().as_str())
+                .ok_or_else(|| {
+                    format!("timestamp_mode 非法: {s}（可取 absolute / relative / delta）")
+                })?;
+        }
+        if let Some(s) = p.encoding {
+            next.encoding = s;
+        }
+        if let Some(s) = p.split_mode.as_deref() {
+            next.split_mode = match s.trim().to_ascii_lowercase().as_str() {
+                "line" => "line".into(),
+                "timeout" => "timeout".into(),
+                other => return Err(format!("split_mode 非法: {other}（可取 line / timeout）")),
+            };
+        }
+        mgr.set_log_options(next.clone());
+
+        // 回显合并后的完整选项：AI 据此确认"没被改的字段确实还是原值"，
+        // 也让上层调用（如嵌套的工具编排）无需再查一次
+        json(&serde_json::json!({
+            "session": id,
+            "ok": true,
+            "idle_timeout_ms": next.idle_timeout_ms,
+            "timestamp_mode": next.timestamp_mode.as_str(),
+            "encoding": next.encoding,
+            "split_mode": next.split_mode,
+        }))
     }
 
     #[tool(
@@ -978,6 +998,9 @@ fn describe(config: &ConnConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // 仅测试用：生产代码里 LogOptions 只作为 `log_options()` 的返回类型出现，
+    // 不在签名上显式出现，故不进模块级导入（否则非测试编译会报 unused import）
+    use maxcom_engine::session::LogOptions;
 
     #[test]
     fn newline_aliases_normalize_to_engine_values() {
@@ -1580,5 +1603,81 @@ mod tests {
             .expect_err("单连接设计下重复连接应报错");
         assert!(err.contains("disconnect"), "应提示可先 disconnect: {err}");
         assert!(err.contains("session id"), "应提示可换会话 id: {err}");
+    }
+
+    /// `set_log_options` 必须是**补丁式**的：只改给出的字段。
+    ///
+    /// 回归：早期实现用引擎默认值填充缺省字段，于是 AI 想改一下分包方式，
+    /// 就会把用户在界面上调好的编码/时间戳模式一并冲回默认 ——
+    /// 本工具与界面**共用同一份设置**，那等于"AI 悄悄破坏用户页面"。
+    #[tokio::test]
+    async fn set_log_options_patches_instead_of_resetting() {
+        let backend = Arc::new(TestBackend::new().with_session("ui-1").with_active("ui-1"));
+        let mgr = backend.session("ui-1").expect("会话应存在");
+        let mcp = MaxcomMcp::new(backend);
+
+        // 用户在界面上调好的设置
+        mgr.set_log_options(LogOptions {
+            idle_timeout_ms: 250,
+            timestamp_mode: TimestampMode::Delta,
+            encoding: "gbk".into(),
+            split_mode: "timeout".into(),
+        });
+
+        // AI 只想改分包方式
+        let v = parse(
+            &mcp.set_log_options(Parameters(SetLogOptionsParams {
+                session: None,
+                idle_timeout_ms: None,
+                timestamp_mode: None,
+                encoding: None,
+                split_mode: Some("line".into()),
+            }))
+            .await
+            .unwrap(),
+        );
+        assert_eq!(v["split_mode"].as_str(), Some("line"), "给出的字段应生效");
+        assert_eq!(
+            v["idle_timeout_ms"].as_u64(),
+            Some(250),
+            "未给出的字段不得被重置"
+        );
+        assert_eq!(v["timestamp_mode"].as_str(), Some("delta"));
+        assert_eq!(v["encoding"].as_str(), Some("gbk"));
+
+        // 引擎侧的实际值也要一致，不能只是回显好看
+        let cur = mgr.log_options();
+        assert_eq!(cur.idle_timeout_ms, 250);
+        assert_eq!(cur.encoding, "gbk");
+        assert_eq!(cur.split_mode, "line");
+        assert_eq!(cur.timestamp_mode, TimestampMode::Delta);
+
+        // 非法取值必须报错并给出可选值，而不是静默按"其它"处理
+        let err = mcp
+            .set_log_options(Parameters(SetLogOptionsParams {
+                session: None,
+                idle_timeout_ms: None,
+                timestamp_mode: Some("bogus".into()),
+                encoding: None,
+                split_mode: None,
+            }))
+            .await
+            .expect_err("非法 timestamp_mode 应报错");
+        assert!(err.contains("absolute"), "错误信息应列出可选值: {err}");
+        let err = mcp
+            .set_log_options(Parameters(SetLogOptionsParams {
+                session: None,
+                idle_timeout_ms: None,
+                timestamp_mode: None,
+                encoding: None,
+                split_mode: Some("bogus".into()),
+            }))
+            .await
+            .expect_err("非法 split_mode 应报错");
+        assert!(err.contains("line"), "错误信息应列出可选值: {err}");
+
+        // 报错路径不得改动任何设置
+        assert_eq!(mgr.log_options().timestamp_mode, TimestampMode::Delta);
+        assert_eq!(mgr.log_options().split_mode, "line");
     }
 }
