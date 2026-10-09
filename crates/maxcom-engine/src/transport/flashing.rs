@@ -15,6 +15,7 @@ use std::path::Path;
 
 /// 前端烧录请求 DTO（与 app/src/types.ts 的 FlashConfig 对齐）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FlashConfig {
     /// 探针选择器（"VID:PID" 或 "VID:PID:serial"，空 = 第一个探针）
     #[serde(default)]
@@ -57,6 +58,7 @@ fn infer_format(path: &Path) -> Option<&'static str> {
 
 /// 烧录进度事件 DTO（前端进度条/阶段文本渲染）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FlashProgressDto {
     /// 事件类型：layout | add | started | progress | finished | failed | message
     pub kind: String,

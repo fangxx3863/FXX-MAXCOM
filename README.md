@@ -27,6 +27,7 @@ MAXCOM 是一款面向嵌入式与现场调试的跨平台桌面工具，**Rust 
   - 元器件：电阻色码 / 三位与 EIA-96 SMD 电阻 / SMD 电容 / 电容换算 / 串并联电阻电容 / 热敏电阻 NTC
   - 高频 PCB：走线阻抗 / 印制线宽度（IPC-2221）/ 频率波长 / 线径 AWG
   - 单位换算：长度 / 重量 / 体积 / 温度 / 压力 / 能量 / 功率 / 力 / 电感
+- **🤖 MCP（AI 接入）** — 内嵌 MCP 服务端（仅监听本机回环），把串口 / USB / HID / 探针枚举、会话收发、统计、固件烧录暴露为 MCP 工具，任意 MCP 客户端可直接驱动调试会话。
 - **🌐 双语界面** — 中 / 英界面语言切换，设置即时生效并持久化。
 - **🎨 多主题** — 跟随系统、浅色、深色、彩色，以及 Midnight / Solarized / OLED/ Nord / Dracula 等预设。
 
@@ -34,12 +35,27 @@ MAXCOM 是一款面向嵌入式与现场调试的跨平台桌面工具，**Rust 
 
 串口、TCP 客户端、UDP 客户端（更多协议持续接入中），支持 DTR / RTS / 自动重连等常用控制。
 
+## 🤖 AI 接入（MCP）
+
+应用启动时会自动起一个 **MCP 服务端**（Model Context Protocol），把 MAXCOM 的能力开放给 AI 助手：
+
+- **端点**：`http://127.0.0.1:8765/mcp`（Streamable HTTP）
+- **安全边界**：**只监听回环地址**，不对外网开放 —— 它能读写串口并烧录固件
+- **配置**：`MAXCOM_MCP=off` 关闭服务；`MAXCOM_MCP_PORT=9000` 换端口
+- **能力**（27 个工具）：列串口（含 VID/PID/序列号/厂商）、列 USB / HID / 探针 / 芯片、列出与查询会话、
+  连接 / 断开 / 发送 / 读回最近收发字节、收发统计与波形快照、DTR / RTS、自动重连、
+  二进制捕获、probe-rs 固件烧录、X/Y/ZMODEM 文件传输
+
+在客户端（WorkBuddy / Claude / Cursor…）中把上面的端点加为 MCP 服务器即可接入。
+设计决策见 [ADR-0021](documents/01-decisions/0021-mcp-server.md)。
+
 ## 🧱 技术栈
 
 | 层 | 技术 |
 |---|---|
 | 桌面外壳 | Tauri 2（Rust） |
 | 核心引擎 | Rust 工作区（`maxcom-core` 纯逻辑 + `maxcom-engine` 传输层） |
+| AI 接入 | `maxcom-mcp`（MCP 服务端，rmcp + axum，仅桌面端） |
 | 前端 | TypeScript + Vite 8（严格模式） |
 | 终端 | xterm.js |
 | 波形 | uPlot |
@@ -79,7 +95,8 @@ npm run tauri build  # NSIS 安装包
 FXX-MAXCOM/
 ├── crates/
 │   ├── maxcom-core/      # 纯逻辑引擎（编码/分包/过滤/统计/绘图解析），全量单测
-│   └── maxcom-engine/    # 传输层（串口/TCP/UDP）+ 会话线程编排
+│   ├── maxcom-engine/    # 传输层（串口/TCP/UDP/SSH/Telnet/RTT/USB/HID）+ 会话线程编排
+│   └── maxcom-mcp/       # MCP 服务端（AI 工具接口，feature `server`）
 ├── app/
 │   ├── src/              # 前端 TypeScript（Vite；xterm.js 终端，uPlot 波形）
 │   ├── src/pages/        # 终端 / 收发 / 绘图 / 统计 / 烧录 / 协议 / 工具 / 设置
@@ -123,6 +140,7 @@ MAXCOM is a cross-platform desktop tool for embedded and field debugging, with a
   - Components: resistor color code / 3-digit and EIA-96 SMD resistors / SMD capacitors / capacitor conversion / series-parallel R-C / NTC thermistor
   - High-frequency PCB: trace impedance / conductor width (IPC-2221) / frequency-wavelength / wire gauge AWG
   - Unit conversion: length / weight / volume / temperature / pressure / energy / power / force / inductance
+- **🤖 MCP (AI access)** — built-in MCP server (loopback only) that exposes serial / USB / HID / probe enumeration, session I/O, stats and firmware flashing as MCP tools, so any MCP client can drive a live debugging session.
 - **🌐 Bilingual UI** — Chinese / English interface language toggle that applies instantly and persists.
 - **🎨 Multiple themes** — follow system, light, dark, colorful, plus Midnight / Solarized / OLED / Nord / Dracula presets.
 
@@ -130,12 +148,27 @@ MAXCOM is a cross-platform desktop tool for embedded and field debugging, with a
 
 Serial, TCP client and UDP client (more protocols continually added), with common controls like DTR / RTS / auto-reconnect.
 
+## 🤖 AI integration (MCP)
+
+MAXCOM starts a **Model Context Protocol** server on launch, exposing its capabilities to AI assistants:
+
+- **Endpoint**: `http://127.0.0.1:8765/mcp` (Streamable HTTP)
+- **Security boundary**: **loopback only** — it can read/write serial ports and flash firmware
+- **Configuration**: `MAXCOM_MCP=off` disables the server; `MAXCOM_MCP_PORT=9000` changes the port
+- **Capabilities** (27 tools): list serial ports (with VID/PID/serial/manufacturer), list USB / HID /
+  probes / chips, list and inspect sessions, connect / disconnect / send / read back I/O, stats and
+  plot snapshots, DTR / RTS, auto-reconnect, binary capture, probe-rs flashing, X/Y/ZMODEM transfer
+
+Add the endpoint above as an MCP server in your client (WorkBuddy / Claude / Cursor…).
+See [ADR-0021](documents/01-decisions/0021-mcp-server.md) for the design rationale.
+
 ## 🧱 Tech stack
 
 | Layer | Technology |
 |---|---|
 | Desktop shell | Tauri 2 (Rust) |
 | Core engine | Rust workspace (`maxcom-core` pure logic + `maxcom-engine` transport layer) |
+| AI access | `maxcom-mcp` (MCP server, rmcp + axum, desktop only) |
 | Frontend | TypeScript + Vite 8 (strict mode) |
 | Terminal | xterm.js |
 | Waveform | uPlot |
@@ -175,7 +208,8 @@ Pushing a `v*` tag creates a release automatically. Tags containing `-` (for exa
 FXX-MAXCOM/
 ├── crates/
 │   ├── maxcom-core/      # pure logic engine (encoding/framing/filtering/stats/plot parsing), fully unit-tested
-│   └── maxcom-engine/    # transport layer (serial/TCP/UDP) + session thread orchestration
+│   ├── maxcom-engine/    # transport layer (serial/TCP/UDP/SSH/Telnet/RTT/USB/HID) + session thread orchestration
+│   └── maxcom-mcp/       # MCP server (AI tool interface, feature `server`)
 ├── app/
 │   ├── src/              # frontend TypeScript (Vite; xterm.js terminal, uPlot waveform)
 │   ├── src/pages/        # terminal / log view / plot / stats / flash / protocol / tools / settings

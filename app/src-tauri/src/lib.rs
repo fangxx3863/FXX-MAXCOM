@@ -5,6 +5,9 @@
 pub mod commands;
 pub mod events;
 
+#[cfg(feature = "desktop")]
+pub mod mcp;
+
 #[cfg(windows)]
 pub mod win32;
 
@@ -16,7 +19,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            app.manage(commands::AppState::new(app.handle().clone()));
+            let state = commands::AppState::new(app.handle().clone());
+            app.manage(state.clone());
+
+            // MCP 服务（ADR-0021）：仅桌面端编译，且只监听回环地址。
+            // 默认随应用启动；`MAXCOM_MCP=off` 可关闭，`MAXCOM_MCP_PORT` 换端口。
+            #[cfg(feature = "desktop")]
+            {
+                app.manage(crate::mcp::McpService::new());
+                match crate::mcp::options_from_env() {
+                    Some(opts) => {
+                        let svc = app.state::<crate::mcp::McpService>();
+                        crate::mcp::start(&svc, state.clone(), opts);
+                    }
+                    None => eprintln!("MAXCOM MCP 服务已按环境变量 MAXCOM_MCP 关闭"),
+                }
+            }
 
             #[cfg(windows)]
             win32::setup_win32_window(app.handle());
@@ -25,6 +43,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::list_ports,
+            #[cfg(feature = "desktop")]
+            commands::mcp_status,
+            #[cfg(feature = "desktop")]
+            commands::mcp_set_enabled,
             commands::encode_text,
             #[cfg(feature = "desktop")]
             commands::list_probes,

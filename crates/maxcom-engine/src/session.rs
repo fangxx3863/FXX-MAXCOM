@@ -19,6 +19,7 @@ use maxcom_core::plot::{ChannelMetrics, ChannelStore};
 use maxcom_core::splitter::LineSplitter;
 use maxcom_core::stats::{StatsSnapshot, StatsTracker};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -90,6 +91,98 @@ impl CaptureSink {
 /// 否则 splitter pending / time_buf 只涨不拆、batch 恒空，前端收不到任何 entries
 /// （xterm 走 raw 通道不受影响）；且最终一次性刷出的会是超大单行，前端渲染卡死。
 const PARTIAL_FLUSH_CAP: usize = 4096;
+
+/// I/O 记录方向（MCP `read_io` 区分「设备发来的」与「我发出去的」）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IoDir {
+    /// 接收（链路 → 主机）
+    Rx,
+    /// 发送（主机 → 链路）
+    Tx,
+}
+
+/// 会话最近 I/O 记录块（原始字节，未解码、未分行）。
+///
+/// 语义刻意贴着 ADR-0015「单一原始流」：这里存的就是读线程/写路径看到的原始字节，
+/// 不做染色/过滤，保证 MCP 侧看到的是事实而非渲染结果。
+#[derive(Debug, Clone)]
+pub struct IoChunk {
+    /// 序号：会话内单调递增。同一毫秒内多块也能精确定序，`io_since` 据此续读。
+    pub seq: u64,
+    /// 墙钟毫秒（不是单调钟：AI 侧需要能直接读懂"什么时候"）
+    pub ts_ms: u64,
+    pub dir: IoDir,
+    pub data: Vec<u8>,
+}
+
+/// 单块上限：一次大读取切分为多块，避免单条记录吃掉整个环（也便于按序续读）。
+const IO_CHUNK_MAX: usize = 32 * 1024;
+/// 环形缓冲总容量（字节）：超出丢最旧。512 KiB 约合 2 分钟 @ 4 KB/s 的持续流量。
+const IO_RING_CAP: usize = 512 * 1024;
+
+/// 会话级 I/O 环形缓冲（固定上限，丢最旧）。
+///
+/// 为什么需要它：前端只有自己的行模型（`LogViewPage.rows`），后端此前**没有任何**
+/// 可查询的历史视图 —— 而 MCP 需要「发一条命令、读回响应」这条最基本的闭环。
+/// 这里只保留最近若干字节，长期运行不会无界增长。
+#[derive(Default)]
+struct IoRing {
+    next_seq: u64,
+    bytes: usize,
+    chunks: VecDeque<IoChunk>,
+}
+
+impl IoRing {
+    fn push(&mut self, dir: IoDir, data: &[u8], ts_ms: u64) {
+        for part in data.chunks(IO_CHUNK_MAX) {
+            self.next_seq += 1;
+            self.bytes += part.len();
+            self.chunks.push_back(IoChunk {
+                seq: self.next_seq,
+                ts_ms,
+                dir,
+                data: part.to_vec(),
+            });
+        }
+        // 至少保留一块：容量远大于单块上限，正常不会退化为空环
+        while self.bytes > IO_RING_CAP && self.chunks.len() > 1 {
+            if let Some(old) = self.chunks.pop_front() {
+                self.bytes -= old.data.len();
+            }
+        }
+    }
+
+    /// 取 `seq > after_seq` 的块，累计字节数不超过 `max_bytes`（首块超限也照样返回，保证能推进）。
+    fn since(&self, after_seq: u64, max_bytes: usize) -> Vec<IoChunk> {
+        let mut out = Vec::new();
+        let mut total = 0usize;
+        for c in &self.chunks {
+            if c.seq <= after_seq {
+                continue;
+            }
+            if !out.is_empty() && total + c.data.len() > max_bytes {
+                break;
+            }
+            total += c.data.len();
+            out.push(c.clone());
+        }
+        out
+    }
+
+    fn max_seq(&self) -> u64 {
+        self.next_seq
+    }
+
+    /// 环内最旧块序号（环为空返回 `next_seq`）。调用方据此识别「中间数据已被覆盖」的断档。
+    fn oldest_seq(&self) -> u64 {
+        self.chunks.front().map(|c| c.seq).unwrap_or(self.next_seq)
+    }
+
+    fn clear(&mut self) {
+        self.chunks.clear();
+        self.bytes = 0;
+    }
+}
 
 /// 日志条目 DTO（segments 已染色；前端直接渲染）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -366,6 +459,8 @@ pub struct SessionManager {
     connecting: Mutex<Option<ConnAttempt>>,
     /// 连接代次：取消或新尝试 +1，用于作废迟到的 open 结果
     conn_gen: AtomicU64,
+    /// 最近 I/O 环形缓冲（跨重连保留；MCP `read_io` / 诊断读取）
+    io_ring: Arc<Mutex<IoRing>>,
 }
 
 /// 加锁顺序约定（避免死锁）：`active` → `connecting` → `SessionStatus::last_error`。
@@ -390,6 +485,7 @@ impl SessionManager {
             modem_cancel: Arc::new(AtomicBool::new(false)),
             connecting: Mutex::new(None),
             conn_gen: AtomicU64::new(0),
+            io_ring: Arc::new(Mutex::new(IoRing::default())),
         }
     }
 
@@ -559,6 +655,27 @@ impl SessionManager {
         }
     }
 
+    /// 读取最近 I/O：返回 `seq > after_seq` 的块（累计不超过 `max_bytes`），
+    /// 以及 `(当前最大 seq, 环内最旧 seq)`。
+    ///
+    /// 用法（MCP `read_io`）：首次调用传 `after_seq = 0` 取全量近况，
+    /// 之后用上次返回的最大 seq 续读；若 `最旧 seq > after_seq + 1` 说明中间数据
+    /// 已被环形缓冲覆盖（客户端应知道自己漏了一截）。
+    pub fn io_since(&self, after_seq: u64, max_bytes: usize) -> (Vec<IoChunk>, u64, u64) {
+        let ring = self.io_ring.lock().unwrap();
+        (
+            ring.since(after_seq, max_bytes),
+            ring.max_seq(),
+            ring.oldest_seq(),
+        )
+    }
+
+    /// 清空最近 I/O 环形缓冲（MCP `clear_log` 用：与前端显示区的清空各管各的，
+    /// 因此不与 `Cmd::ClearLog` 合并 —— 前端清屏不应抹掉 AI 正在读的历史）。
+    pub fn clear_io(&self) {
+        self.io_ring.lock().unwrap().clear();
+    }
+
     /// 打开连接并启动引擎线程组（**阻塞**：串口 open / SSH 握手会在本线程内完成）。
     ///
     /// 仅供测试与引擎内部（modem 传输后恢复连接）使用；UI 入口必须走
@@ -721,6 +838,7 @@ impl SessionManager {
         let auto_r = self.auto_reconnect.clone();
         let delay_ms = self.reconnect_delay_ms.load(Ordering::Relaxed);
         let capture_r = self.capture.clone();
+        let io_r = self.io_ring.clone();
         let label_r = label.clone();
         let cfg_r = config.clone();
         let status_r = status.clone();
@@ -739,6 +857,9 @@ impl SessionManager {
                                 Ok(0) => continue, // 超时节拍
                                 Ok(n) => {
                                     stats_r.record_rx(n);
+                                    // 最近 I/O 快照（MCP read_io）：与 raw 回调同点记录，
+                                    // 保证 AI 看到的就是链路实际收到的字节序
+                                    io_r.lock().unwrap().push(IoDir::Rx, &buf[..n], unix_ms());
                                     ev.raw(&buf[..n]);
                                     bus_r.publish(&buf[..n]);
                                     // 捕获（流式写临时文件；落盘失败则放弃本次捕获，不阻塞读循环）
@@ -1183,6 +1304,11 @@ impl SessionManager {
                     .write_all(&bytes)
                     .map_err(|e| e.to_string())?;
                 a.stats.record_tx(n);
+                // 发送侧同样入环（MCP read_io 需要能回看自己发了什么）
+                self.io_ring
+                    .lock()
+                    .unwrap()
+                    .push(IoDir::Tx, &bytes, unix_ms());
                 // 本地回显：设备不回显时也能在收发区看到自己发了什么。
                 // 只投给 "log"，避免发送内容被绘图线程当成接收帧解析。
                 if payload.echo {
@@ -1400,6 +1526,106 @@ pub fn wall_from_mono_ms(ts_ms: u64) -> i64 {
 /// 语义：`显示墙钟 = epoch_anchor_ms + ts_ms`；与 `wall_from_mono_ms(0)` 等价。
 pub fn wall_anchor_ms() -> i64 {
     mono_epoch_wall_ms()
+}
+
+#[cfg(test)]
+mod io_ring_tests {
+    use super::*;
+
+    fn bytes(n: usize) -> Vec<u8> {
+        vec![0xAB; n]
+    }
+
+    #[test]
+    fn since_returns_chunks_after_given_seq_in_order() {
+        let mut ring = IoRing::default();
+        ring.push(IoDir::Rx, b"hello", 1_000);
+        ring.push(IoDir::Tx, b"world", 1_001);
+
+        let all = ring.since(0, usize::MAX);
+        assert_eq!(all.len(), 2);
+        assert_eq!(
+            (all[0].seq, all[0].dir, all[0].ts_ms),
+            (1, IoDir::Rx, 1_000)
+        );
+        assert_eq!(all[0].data, b"hello");
+        assert_eq!((all[1].seq, all[1].dir), (2, IoDir::Tx));
+        assert_eq!(all[1].data, b"world");
+        assert_eq!(ring.max_seq(), 2);
+
+        // 续读语义：用上次返回的最大 seq 再读，不重不漏
+        assert!(ring.since(2, usize::MAX).is_empty());
+        let tail = ring.since(1, usize::MAX);
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].seq, 2);
+    }
+
+    #[test]
+    fn oversized_write_is_split_into_bounded_chunks() {
+        let mut ring = IoRing::default();
+        let big = bytes(IO_CHUNK_MAX * 2 + 7);
+        ring.push(IoDir::Rx, &big, 42);
+        let chunks = ring.since(0, usize::MAX);
+        // 2 个满块 + 1 个残块
+        assert_eq!(chunks.len(), 3);
+        assert!(chunks.iter().all(|c| c.data.len() <= IO_CHUNK_MAX));
+        assert_eq!(
+            chunks.iter().map(|c| c.data.len()).sum::<usize>(),
+            big.len(),
+            "切分不得丢字节"
+        );
+        assert_eq!(
+            chunks.iter().map(|c| c.seq).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn ring_drops_oldest_and_never_exceeds_capacity() {
+        let mut ring = IoRing::default();
+        let step = 64 * 1024;
+        for _ in 0..16 {
+            ring.push(IoDir::Rx, &bytes(step), 7);
+        }
+        // 16 × 64 KiB = 1 MiB 写入，环只能装 512 KiB
+        assert_eq!(ring.bytes, IO_RING_CAP, "环占用应被钳到容量上限");
+        assert_eq!(ring.max_seq(), (16 * step).div_ceil(IO_CHUNK_MAX) as u64);
+        assert!(ring.oldest_seq() > 1, "最旧块应已被丢弃");
+
+        let kept = ring.since(0, usize::MAX);
+        let total: usize = kept.iter().map(|c| c.data.len()).sum();
+        assert!(total <= IO_RING_CAP);
+        assert_eq!(kept.first().unwrap().seq, ring.oldest_seq());
+        assert_eq!(kept.last().unwrap().seq, ring.max_seq());
+    }
+
+    #[test]
+    fn since_caps_returned_bytes_but_always_returns_first_chunk() {
+        let mut ring = IoRing::default();
+        for i in 0..4 {
+            ring.push(IoDir::Rx, &bytes(100), i);
+        }
+        // 限额 250：前两块 200 ≤ 250，第三块会越界 → 只回两块
+        assert_eq!(ring.since(0, 250).len(), 2);
+        // 限额小于单块：仍要回首块，否则客户端永远推不动
+        let got = ring.since(0, 10);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].data.len(), 100);
+    }
+
+    #[test]
+    fn clear_empties_ring_but_keeps_sequence_monotonic() {
+        let mut ring = IoRing::default();
+        ring.push(IoDir::Rx, b"abc", 1);
+        ring.clear();
+        assert!(ring.since(0, usize::MAX).is_empty());
+        assert_eq!(ring.oldest_seq(), ring.max_seq());
+
+        // 序号不回退：清空后新块仍大于旧序号，客户端按旧 seq 续读不会错位
+        ring.push(IoDir::Tx, b"d", 2);
+        assert_eq!(ring.max_seq(), 2);
+        assert_eq!(ring.since(1, usize::MAX).len(), 1);
+    }
 }
 
 #[cfg(test)]

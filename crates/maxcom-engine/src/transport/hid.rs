@@ -135,12 +135,9 @@ impl TransportWrite for HidWrite {
                 Ok(0) => None,
                 Ok(n) => Some(n),
                 Err(e) => {
-                    return Err(io::Error::new(
-                        ErrorKind::Other,
-                        format!(
-                            "HID 写入失败: {e}（负载可能超过设备报告长度；单报告设备 Report ID 应为 0x00）"
-                        ),
-                    ));
+                    return Err(io::Error::other(format!(
+                        "HID 写入失败: {e}（负载可能超过设备报告长度；单报告设备 Report ID 应为 0x00）"
+                    )));
                 }
             };
             match n {

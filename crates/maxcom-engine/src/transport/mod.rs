@@ -23,7 +23,11 @@ use serde::{Deserialize, Serialize};
 use std::io;
 
 /// 连接配置 DTO（对齐 transport.schema.json；serde tag = "type"）
+///
+/// `schema` feature 打开时额外派生 `JsonSchema`：MCP 工具直接以本类型作为入参，
+/// 保证「契约文档 / 引擎 / AI 工具」三处不会各写一份而漂移。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ConnConfig {
     Serial {
@@ -130,6 +134,7 @@ fn default_channel() -> u32 {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum Parity {
     #[default]
@@ -139,6 +144,7 @@ pub enum Parity {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum StopBits {
     #[serde(rename = "1")]
     #[default]
@@ -148,6 +154,7 @@ pub enum StopBits {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum FlowControl {
     #[default]
@@ -156,11 +163,29 @@ pub enum FlowControl {
     Hardware,
 }
 
-/// 发现串口信息（P4 端口页枚举用）
+/// 发现串口信息（P4 端口页枚举用；MCP `list_serial_ports` 复用同一枚举）。
+///
+/// `device`/`description` 为历史契约字段，恒存在；其余为 USB 端口专有细节，
+/// 一律 `Option` 且缺省不序列化 —— 前端既有 `PortInfo` 消费点无需改动。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortInfo {
     pub device: String,
     pub description: String,
+    /// 端口类型："usb" | "pci" | "bluetooth" | "unknown"
+    #[serde(default)]
+    pub port_type: String,
+    /// USB 厂商 ID（仅 usb 端口）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vid: Option<u16>,
+    /// USB 产品 ID（仅 usb 端口）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u16>,
+    /// USB 序列号（仅 usb 端口；设备未提供时为空）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serial_number: Option<String>,
+    /// USB 厂商名（仅 usb 端口）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manufacturer: Option<String>,
 }
 
 /// 枚举到的 USB 接口信息（winusb 设备下拉：选设备后选接口）
@@ -198,6 +223,7 @@ pub struct HidDeviceInfo {
 
 /// 串口文件传输协议（烧录页 BL 交互用：X/Y/ZMODEM）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum ModemProtocol {
     #[default]

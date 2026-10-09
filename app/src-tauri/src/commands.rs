@@ -17,16 +17,20 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, State};
 
 /// 全局应用状态：session id → 会话管理器
+///
+/// `Clone` 是刻意的：MCP 服务需要与 Tauri managed state 共享同一张会话表
+/// （见 `crate::mcp::AppBackend`），而克隆只是 `Arc` 计数 +1，不是复制数据。
+#[derive(Clone)]
 pub struct AppState {
     app: AppHandle,
-    sessions: Mutex<HashMap<String, Arc<SessionManager>>>,
+    sessions: Arc<Mutex<HashMap<String, Arc<SessionManager>>>>,
 }
 
 impl AppState {
     pub fn new(app: AppHandle) -> Self {
         Self {
             app,
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -39,18 +43,40 @@ impl AppState {
     /// 取（或创建）会话句柄（Arc 克隆），返回后不再持有 sessions 全局锁。
     /// 供长时间/阻塞命令在锁外、甚至阻塞线程池里执行。
     pub fn get_or_create(&self, session: &str) -> Arc<SessionManager> {
+        self.get_or_create_with(session, None)
+    }
+
+    /// 取（或创建）会话，并允许指定事件出口。
+    ///
+    /// `events` 为 `Some` 时改用该出口 —— MCP 自建的无界面会话用它挂丢弃式出口
+    /// （`maxcom_mcp::NullEvents`），避免每个接收字节都做一次 base64 + emit。
+    /// 已存在的会话一律返回原对象（事件出口已是既定事实，不中途替换）。
+    pub fn get_or_create_with(
+        &self,
+        session: &str,
+        events: Option<Arc<dyn maxcom_engine::session::SessionEvents>>,
+    ) -> Arc<SessionManager> {
         let mut map = self.sessions.lock().unwrap();
-        map.entry(session.to_string())
-            .or_insert_with(|| {
-                let events = Arc::new(TauriEvents::new(self.app.clone(), session.to_string()));
-                Arc::new(SessionManager::new(events))
-            })
-            .clone()
+        if let Some(mgr) = map.get(session) {
+            return mgr.clone();
+        }
+        let id = session.to_string();
+        let ev = events.unwrap_or_else(|| {
+            Arc::new(TauriEvents::new(self.app.clone(), id.clone()))
+        });
+        let mgr = Arc::new(SessionManager::new(ev));
+        map.insert(id, mgr.clone());
+        mgr
     }
 
     /// 取出会话句柄（Arc 克隆）；会话不存在返回 None。
     pub fn get_mgr(&self, session: &str) -> Option<Arc<SessionManager>> {
         self.sessions.lock().unwrap().get(session).cloned()
+    }
+
+    /// 列出当前所有会话 id（前端标签页 + MCP 自建会话）。顺序不定，调用方自行排序。
+    pub fn session_ids(&self) -> Vec<String> {
+        self.sessions.lock().unwrap().keys().cloned().collect()
     }
 
     /// 关闭会话：移除即触发 Drop → 断开连接、停线程。
@@ -365,4 +391,24 @@ pub fn close_session(session: String, state: State<'_, AppState>) {
 pub fn save_text_file(path: String, contents: String) -> Result<usize, String> {
     std::fs::write(&path, contents.as_bytes()).map_err(|e| e.to_string())?;
     Ok(contents.len())
+}
+
+/// 查询内嵌 MCP 服务的状态（端点 / 端口 / 启动错误）。
+/// 工具实现与协议在 `maxcom-mcp` crate；此处只做状态转发。
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn mcp_status(state: State<'_, crate::mcp::McpService>) -> crate::mcp::McpStatus {
+    state.status()
+}
+
+/// 开/关内嵌 MCP 服务（设置页开关），返回开关后的最新状态。
+/// 环境变量 `MAXCOM_MCP=off` 是硬开关，界面无法覆盖（会在 `error` 里说明原因）。
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn mcp_set_enabled(
+    on: bool,
+    state: State<'_, AppState>,
+    mcp: State<'_, crate::mcp::McpService>,
+) -> crate::mcp::McpStatus {
+    crate::mcp::set_enabled(&mcp, state.inner().clone(), on)
 }

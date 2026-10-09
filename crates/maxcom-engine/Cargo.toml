@@ -26,6 +26,14 @@ serial = ["dep:serialport", "dep:xmodem", "dep:ymodem", "dep:zmodem2"]
 rtt = ["dep:probe-rs"]
 # USB 原始传输（winusb）+ HID 传输（桌面端启用；移动端不编译，避免 Android 链接问题）
 usb = ["dep:nusb", "dep:hidapi"]
+# JSON Schema 派生（MCP 工具入参契约用）。纯编译期派生、零运行时依赖；
+# 打开后 ConnConfig 等 DTO 直接作为 MCP 工具 schema 单一事实源，免去镜像 DTO 漂移。
+schema = ["dep:schemars"]
+
+[dependencies.schemars]
+# 版本必须与 rmcp 内部的 schemars 落在同一 semver 段，否则 JsonSchema trait 不通用
+version = "1"
+optional = true
 
 [dependencies.serialport]
 version = "4"

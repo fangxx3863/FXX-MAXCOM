@@ -3,7 +3,8 @@
 use maxcom_core::filter::FilterRule;
 use maxcom_core::framing::TimestampMode;
 use maxcom_engine::session::{
-    ConnPhase, ConnState, LogEntryDto, LogOptions, SendPayload, SessionEvents, SessionManager,
+    ConnPhase, ConnState, IoDir, LogEntryDto, LogOptions, SendPayload, SessionEvents,
+    SessionManager,
 };
 use maxcom_engine::transport::ConnConfig;
 use std::io::{Read, Write};
@@ -997,5 +998,87 @@ fn dropped_link_without_reconnect_reaps_session() {
     // 单连接锁已释放：插回设备后可直接连接，无需先点一次「连接」看报错
     let port2 = spawn_echo_server();
     mgr.connect(tcp_cfg(port2)).expect("掉线后应能立即重连");
+    mgr.disconnect();
+}
+
+// ── 最近 I/O 环形缓冲（MCP `read_io` 的数据来源）──
+
+/// 锁「接线」而非环本身（环的丢旧/切分/续读在 session.rs 单测里覆盖）：
+/// 读线程收到字节必须入环、`send` 写出的字节也必须入环，且能按 seq 不重不漏地续读。
+///
+/// 为什么值得单独测：`io_since` 是 MCP 侧「发命令 → 读响应」闭环的唯一数据源，
+/// 埋点一旦从读线程漏掉（或只埋了 RX 没埋 TX），AI 就会看到空的会话历史却毫无报错。
+#[test]
+fn io_since_captures_rx_and_tx_in_order() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec);
+
+    mgr.connect(tcp_cfg(port)).expect("connect");
+    mgr.clear_io(); // 干净起点（connect 前若有杂数据不影响断言）
+    assert!(mgr.io_since(0, usize::MAX).0.is_empty());
+
+    let n = mgr
+        .send(&SendPayload {
+            text: Some("AT".into()),
+            hex: None,
+            newline: "none".into(),
+            echo: false,
+        })
+        .expect("send");
+    assert_eq!(n, 2);
+
+    let rx_len = |mgr: &SessionManager| -> usize {
+        mgr.io_since(0, usize::MAX)
+            .0
+            .iter()
+            .filter(|c| c.dir == IoDir::Rx)
+            .map(|c| c.data.len())
+            .sum()
+    };
+    assert!(
+        wait_until(|| rx_len(&mgr) >= 2, Duration::from_secs(3)),
+        "接收字节未入环（读线程埋点缺失？）"
+    );
+
+    let (chunks, max_seq, oldest) = mgr.io_since(0, usize::MAX);
+    let collect = |dir: IoDir| -> Vec<u8> {
+        chunks
+            .iter()
+            .filter(|c| c.dir == dir)
+            .flat_map(|c| c.data.clone())
+            .collect()
+    };
+    assert_eq!(collect(IoDir::Tx), b"AT", "发送字节未入环或内容错");
+    assert_eq!(collect(IoDir::Rx), b"AT", "回显字节不完整");
+
+    // TCP 回环可能把一个报文拆/并成多块，故只断言「方向内最早 seq」的先后
+    let tx_min = chunks
+        .iter()
+        .filter(|c| c.dir == IoDir::Tx)
+        .map(|c| c.seq)
+        .min()
+        .unwrap();
+    let rx_min = chunks
+        .iter()
+        .filter(|c| c.dir == IoDir::Rx)
+        .map(|c| c.seq)
+        .min()
+        .unwrap();
+    assert!(tx_min < rx_min, "发送记录应早于回显到达");
+
+    // 续读语义：seq 严格递增、端点与环上报的 oldest/max 一致、读完无新块
+    assert!(chunks.windows(2).all(|w| w[0].seq < w[1].seq));
+    assert_eq!(chunks.first().unwrap().seq, oldest);
+    assert_eq!(chunks.last().unwrap().seq, max_seq);
+    assert!(
+        mgr.io_since(max_seq, usize::MAX).0.is_empty(),
+        "按 max_seq 续读应无新块"
+    );
+
+    // 清空只影响环，不影响链路：之后仍能收发并重新记账
+    mgr.clear_io();
+    assert!(mgr.io_since(0, usize::MAX).0.is_empty());
+    assert!(mgr.is_connected(), "clear_io 不应影响连接");
     mgr.disconnect();
 }

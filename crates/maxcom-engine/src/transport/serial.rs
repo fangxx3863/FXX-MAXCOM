@@ -10,16 +10,48 @@ pub fn discover() -> Vec<PortInfo> {
     serialport::available_ports()
         .unwrap_or_default()
         .into_iter()
-        .map(|p| PortInfo {
-            description: match &p.port_type {
-                serialport::SerialPortType::UsbPort(info) => info
-                    .product
-                    .clone()
-                    .or_else(|| info.manufacturer.clone())
-                    .unwrap_or_default(),
-                _ => String::new(),
-            },
-            device: p.port_name,
+        .map(|p| {
+            // 匹配写法与既有代码保持一致：只认 UsbPort，其余走 `other` 兜底。
+            // 非 USB 端口的细分类型用 `matches!` 判定 —— 对 `#[non_exhaustive]` 枚举
+            // 既不会漏臂、也不会触发 unreachable_patterns（CI 带 -D warnings）。
+            let (port_type, vid, pid, serial_number, manufacturer, description) = match &p.port_type
+            {
+                serialport::SerialPortType::UsbPort(info) => (
+                    "usb".to_string(),
+                    Some(info.vid),
+                    Some(info.pid),
+                    info.serial_number.clone(),
+                    info.manufacturer.clone(),
+                    info.product
+                        .clone()
+                        .or_else(|| info.manufacturer.clone())
+                        .unwrap_or_default(),
+                ),
+                other => (
+                    if matches!(other, serialport::SerialPortType::PciPort) {
+                        "pci"
+                    } else if matches!(other, serialport::SerialPortType::BluetoothPort) {
+                        "bluetooth"
+                    } else {
+                        "unknown"
+                    }
+                    .to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    String::new(),
+                ),
+            };
+            PortInfo {
+                device: p.port_name,
+                description,
+                port_type,
+                vid,
+                pid,
+                serial_number,
+                manufacturer,
+            }
         })
         .collect()
 }

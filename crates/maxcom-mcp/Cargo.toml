@@ -1,0 +1,56 @@
+[package]
+name = "maxcom-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "MAXCOM MCP 服务端：把串口/网络调试与烧录能力以 MCP 工具暴露给 AI 助手"
+
+[dependencies]
+maxcom-core = { path = "../maxcom-core" }
+maxcom-engine = { path = "../maxcom-engine", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# MCP 官方 Rust SDK（服务端 + Streamable HTTP 传输）。重依赖，见下方 feature 说明。
+rmcp = { version = "3.5", default-features = false, features = [
+    "server",
+    "macros",
+    "transport-streamable-http-server",
+], optional = true }
+# 工具入参 schema 派生。版本必须与 rmcp 内部的 schemars 同段（都是 1.x），
+# 否则 `Parameters<T>` 要求的 JsonSchema trait 与派生出来的不是同一个 trait。
+schemars = { version = "1", features = ["derive"], optional = true }
+tokio = { version = "1", features = [
+    "rt",
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "time",
+    "sync",
+    "macros",
+], optional = true }
+tokio-util = { version = "0.7", optional = true }
+axum = { version = "0.8", optional = true }
+
+[features]
+default = []
+# 启用完整 MCP 服务端实现（含 rmcp / axum / probe-rs 等重依赖）。
+#
+# 为什么默认关闭：工作区 CI 的轻量路径 `cargo clippy/test --workspace
+# --no-default-features` 刻意只编译 core+engine，以便本地与 CI 快速迭代；
+# 若把 rmcp/axum/probe-rs 设为无条件依赖，这条路径会被拖慢数倍。
+# 由 app/src-tauri 的 desktop feature 打开，CI 另有专门步骤覆盖（见 rust.yml）。
+server = [
+    "dep:rmcp",
+    "dep:schemars",
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:axum",
+    "maxcom-engine/serial",
+    "maxcom-engine/rtt",
+    "maxcom-engine/usb",
+    "maxcom-engine/schema",
+]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

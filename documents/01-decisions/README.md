@@ -24,3 +24,4 @@ MAXCOM 的关键架构决策。状态 accepted 的不得在实现期翻案，如
 | 0018 | **桌面端改用 Rust + Tauri 重写**（supersedes 0005/0006/0017） | 分支 `rust-tauri` |
 | 0019 | USB 传输接口：WinUSB/libusb 原始传输 + HID | §4.4 |
 | 0020 | 连接生命周期交互：可取消非阻塞连接 + 重连阶段上报 + 指示灯一致化 | §1.1 §4.4 / ADR-0016 |
+| 0021 | **MCP 服务端**：内嵌 Streamable HTTP（仅回环）+ 官方 rmcp SDK + 全量工具 | ADR-0018 / `crates/maxcom-mcp` |

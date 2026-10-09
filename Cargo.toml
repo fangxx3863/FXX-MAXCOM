@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 # app/src-tauri 独立成包（Tauri 惯例，自带 lockfile），不进 workspace
-members = ["crates/maxcom-core", "crates/maxcom-engine"]
+members = ["crates/maxcom-core", "crates/maxcom-engine", "crates/maxcom-mcp"]
 exclude = ["app/src-tauri"]
 
 [workspace.package]
