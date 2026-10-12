@@ -202,6 +202,8 @@ const DEMO_MCP_STATUS: McpStatus = {
   running: true,
   endpoint: "http://127.0.0.1:8765/mcp",
   port: 8765,
+  requested_port: 8765,
+  port_locked_by_env: false,
   error: null,
   bind_scope: "仅本机回环（127.0.0.1），不对外网开放",
 };
@@ -229,6 +231,28 @@ export async function mcpSetEnabled(on: boolean): Promise<McpStatus | null> {
   if (!IS_TAURI) return { ...DEMO_MCP_STATUS, enabled: on, running: on };
   try {
     return await invoke<McpStatus>("mcp_set_enabled", { on });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 设置监听端口（正在运行时后端会重启监听）。返回的状态里 `port` 是**实际**端口 ——
+ * 被占用时后端会自动 +1，故它可能不等于传入值，界面必须按返回值提示用户。
+ */
+export async function mcpSetPort(port: number): Promise<McpStatus | null> {
+  if (!MCP_AVAILABLE) return null;
+  // 演示模式照搬真实后端的关键行为：端点跟着端口走（否则界面会显示一个不存在的端点）
+  if (!IS_TAURI) {
+    return {
+      ...DEMO_MCP_STATUS,
+      port,
+      requested_port: port,
+      endpoint: `http://127.0.0.1:${port}/mcp`,
+    };
+  }
+  try {
+    return await invoke<McpStatus>("mcp_set_port", { port });
   } catch {
     return null;
   }

@@ -48,6 +48,8 @@ pub fn run() {
             commands::mcp_status,
             #[cfg(feature = "desktop")]
             commands::mcp_set_enabled,
+            #[cfg(feature = "desktop")]
+            commands::mcp_set_port,
             commands::encode_text,
             #[cfg(feature = "desktop")]
             commands::list_probes,

@@ -27,7 +27,7 @@ const ENV_ENABLE: &str = "MAXCOM_MCP";
 /// 监听端口：`MAXCOM_MCP_PORT=8765`
 const ENV_PORT: &str = "MAXCOM_MCP_PORT";
 
-/// MCP 服务状态（`mcp_status` / `mcp_set_enabled` 返回，供设置页渲染）
+/// MCP 服务状态（`mcp_status` / `mcp_set_enabled` / `mcp_set_port` 返回，供设置页渲染）
 #[derive(Debug, Clone, Serialize)]
 pub struct McpStatus {
     /// 用户意图（设置页开关的位置）
@@ -38,8 +38,13 @@ pub struct McpStatus {
     /// MCP 端点 —— 始终可计算（没在跑时给出「若开启会是这个地址」），
     /// 用户随时能复制去配客户端，不必先成功启动一次。
     pub endpoint: String,
-    /// 期望监听端口
+    /// **实际**监听端口。与 `requested_port` 不同即说明发生过「端口被占 → 自动 +1」，
+    /// 界面必须按这个值提示用户配客户端，否则客户端会连到没人监听的端口。
     pub port: u16,
+    /// 请求（期望）的端口：来自界面设置或环境变量
+    pub requested_port: u16,
+    /// 请求端口是否被环境变量 `MAXCOM_MCP_PORT` 锁定（锁定后界面不可改）
+    pub port_locked_by_env: bool,
     /// 最近一次启动失败原因（成功为 None）
     pub error: Option<String>,
     /// 安全说明：服务只绑定回环地址
@@ -56,7 +61,7 @@ struct Inner {
     handle: Option<HttpHandle>,
     /// 用户意图
     enabled: bool,
-    /// 期望端口（供运行期开关复用；启动失败也记录）
+    /// 期望端口（供运行期开关/改端口复用；启动失败也记录）
     port: u16,
     error: Option<String>,
 }
@@ -84,9 +89,19 @@ impl McpService {
             enabled: g.enabled,
             running: g.handle.is_some(),
             endpoint,
+            // 未运行时给期望端口：界面据此显示"若开启会是这个地址"
             port: g.handle.as_ref().map(|h| h.local_addr.port()).unwrap_or(g.port),
+            requested_port: g.port,
+            port_locked_by_env: port_from_env().is_some(),
             error: g.error.clone(),
             bind_scope: "仅本机回环（127.0.0.1），不对外网开放",
+        }
+    }
+
+    /// 只停监听、不动用户意图（改端口时用：停掉旧的再按新端口拉起）
+    fn shutdown_listener(&self) {
+        if let Some(h) = self.inner.lock().unwrap().handle.take() {
+            h.shutdown();
         }
     }
 
@@ -102,6 +117,10 @@ impl McpService {
 
     fn set_error(&self, msg: String) {
         self.inner.lock().unwrap().error = Some(msg);
+    }
+
+    fn clear_error(&self) {
+        self.inner.lock().unwrap().error = None;
     }
 }
 
@@ -124,16 +143,57 @@ pub fn disabled_by_env() -> bool {
         })
 }
 
+/// 环境变量指定的监听端口（`MAXCOM_MCP_PORT`）。返回 `Some` 即表示端口被环境变量锁定，
+/// 界面不可改 —— 否则用户设了环境变量却被界面按自己持久化的值改掉，"我明明设了"会变成谜题。
+pub fn port_from_env() -> Option<u16> {
+    std::env::var(ENV_PORT)
+        .ok()
+        .and_then(|v| v.trim().parse::<u16>().ok())
+        .filter(|p| *p > 0)
+}
+
 /// 从环境变量解析启动配置；返回 `None` 表示硬关闭（不启动）。
 pub fn options_from_env() -> Option<HttpOptions> {
     if disabled_by_env() {
         return None;
     }
-    let port = std::env::var(ENV_PORT)
-        .ok()
-        .and_then(|v| v.trim().parse::<u16>().ok())
-        .unwrap_or(maxcom_mcp::DEFAULT_PORT);
-    Some(HttpOptions::with_port(port))
+    Some(HttpOptions::with_port(
+        port_from_env().unwrap_or(maxcom_mcp::DEFAULT_PORT),
+    ))
+}
+
+/// 设置期望端口（设置页）。端口没变则空转；正在运行时需要**重启监听**才能生效。
+/// 环境变量锁定端口时拒绝并说明原因。
+pub fn set_port(svc: &McpService, state: AppState, port: u16) -> McpStatus {
+    if port_from_env().is_some() {
+        svc.set_error(format!(
+            "端口已被环境变量 {ENV_PORT} 指定，界面无法更改（删除该变量后即可在界面设置）"
+        ));
+        return svc.status();
+    }
+    if port == 0 {
+        svc.set_error("端口需在 1~65535 之间".into());
+        return svc.status();
+    }
+
+    let (was_running, unchanged) = {
+        let g = svc.inner.lock().unwrap();
+        (g.handle.is_some(), g.port == port)
+    };
+    if unchanged {
+        svc.clear_error();
+        return svc.status();
+    }
+
+    // 先把期望端口落盘（未运行时到此为止，下次启用即用它）
+    svc.inner.lock().unwrap().port = port;
+    if was_running {
+        // 改端口必须重绑：先停旧的再按新端口拉起。
+        // 失败（例如新端口也不可用且自增段全被占）时，状态里的 error 会说明，界面照常显示。
+        svc.shutdown_listener();
+        start(svc, state, HttpOptions::with_port(port));
+    }
+    svc.status()
 }
 
 /// 启动 MCP 服务（已在运行则只更新意图，不重复绑定）。失败只记录状态，不影响应用启动。

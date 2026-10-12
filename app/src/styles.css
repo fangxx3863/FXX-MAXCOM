@@ -794,10 +794,13 @@ button.ghost:hover { color: var(--fg); border-color: var(--accent); }
 }
 .mcp-endpoint input:focus { border-color: var(--accent); }
 .mcp-endpoint .ghost { flex: none; }
-/* 状态三态配色：运行中用强调色、关闭用弱化、失败用错误色（--err 已在各主题定义） */
+/* 状态四态配色：运行中用强调色、关闭用弱化、失败与「端口自增」用错误色。
+   端口自增并非故障（服务在跑），但用户照着请求端口去配客户端会连不上 —— 必须显眼，
+   故借用 --err（本主题体系里的"需要处理"色），而不是新增一个 --warn 变量（要改十几个主题块）。 */
 .mcp-status-running { opacity: 1; color: var(--accent); }
 .mcp-status-off { opacity: 0.6; }
 .mcp-status-error { opacity: 1; color: var(--err); }
+.mcp-status-warn { opacity: 1; color: var(--err); }
 
 /* 关于（作者）卡片 */
 .set-about-row { display: flex; align-items: center; gap: 12px; padding: 8px 0 4px; }

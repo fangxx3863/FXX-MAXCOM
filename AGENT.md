@@ -24,11 +24,12 @@ documents/          设计与决策单一事实源（契约/ADR/SPEC 不变）
 `http://127.0.0.1:8765/mcp`），把串口/USB/HID/探针枚举、会话收发、统计、固件烧录
 暴露为 MCP 工具，供任意 MCP 客户端（WorkBuddy / Claude / Cursor…）接入。
 
-- 开关：设置页 →「🤖 AI 接入（MCP）」（可停止/重开并复制端点）；持久化在前端设置里
+- 开关/端口：设置页 →「🤖 AI 接入（MCP）」（可停止/重开、改监听端口、复制端点）；持久化在前端设置里
+- 端口冲突：绑定失败（`AddrInUse`）时**自动 +1 重试**（最多 32 次）；界面提示实际端口 ——
+  任何地方都**不许假定实际端口 == 请求端口**（状态里 `port` 与 `requested_port` 是分开的）
 - 作用目标：工具省略 `session` 时作用于**用户当前查看的标签页**（前端 `activate()` 时经
   `set_active_session` 同步），因此 AI 的连接/收发与界面是同一条链路、实时可见
-- 强制关闭：设环境变量 `MAXCOM_MCP=off`（优先级高于界面开关）
-- 换端口：`MAXCOM_MCP_PORT=9000`
+- 环境变量（均优先于界面）：`MAXCOM_MCP=off` 强制关闭、`MAXCOM_MCP_PORT=9000` 锁定端口
 - 仅桌面端编译（`desktop` feature）；工具实现见 [`crates/maxcom-mcp`](crates/maxcom-mcp)，
   设计决策见 [ADR-0021](documents/01-decisions/0021-mcp-server.md)
 

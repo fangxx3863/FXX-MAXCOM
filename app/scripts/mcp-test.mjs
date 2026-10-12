@@ -141,6 +141,70 @@ async function main() {
   check("「恢复默认」保留 MCP 开关（仍是关闭）", saved.mcpEnabled === false);
   check("「恢复默认」确实复位了外观项（logPageRows 回默认）", saved.logPageRows === 500);
 
+  // ───────────────────────── 部分F：端口可改 + 冲突自增提示 ─────────────────────────
+  const portInput = () => all(w, "#set-mcp-port")[0];
+  const statusEl = () => all(w, "#set-mcp-status")[0];
+  const endpointEl = () => all(w, "#set-mcp-endpoint")[0];
+
+  check("存在监听端口输入框", !!portInput());
+  check("端口栏显示请求端口", portInput()?.value === "8765");
+  check("默认未被环境变量锁定（可编辑）", portInput()?.disabled === false);
+
+  setChecked(w, enabled, true); // 先恢复开启态
+  await settle(w);
+  portInput().value = "9001";
+  portInput().dispatchEvent(new w.Event("change", { bubbles: true }));
+  await settle(w);
+  saved = JSON.parse(w.localStorage.getItem(SETTINGS_KEY) ?? "{}");
+  check("改端口持久化到 settings(mcpPort=9001)", saved.mcpPort === 9001);
+  check("改端口后端点跟着走", endpointEl()?.value.includes(":9001") === true);
+
+  // 非法端口不落库：先把脏值挡在持久化之外，否则下次启动会拿它去监听
+  portInput().value = "0";
+  portInput().dispatchEvent(new w.Event("change", { bubbles: true }));
+  await settle(w);
+  saved = JSON.parse(w.localStorage.getItem(SETTINGS_KEY) ?? "{}");
+  check("非法端口(0)不写进设置", saved.mcpPort === 9001);
+  check("非法输入被退回原值", portInput()?.value === "9001");
+
+  // 端口被占用 → 后端自动 +1：卡片必须提示按**实际**端口配客户端，
+  // 否则用户照请求端口填进客户端只会连不上（这正是自增功能的代价所在）
+  w.__MAXCOM_MCP_STATUS__({
+    enabled: true,
+    running: true,
+    endpoint: "http://127.0.0.1:9002/mcp",
+    port: 9002,
+    requested_port: 9001,
+    port_locked_by_env: false,
+    error: null,
+    bind_scope: "仅本机回环",
+  });
+  await settle(w);
+  check("自增后状态行切到 warn 态", statusEl()?.classList.contains("mcp-status-warn") === true);
+  check(
+    "自增提示同时给出请求端口与实际端口",
+    (statusEl()?.textContent ?? "").includes("9001") && (statusEl()?.textContent ?? "").includes("9002"),
+  );
+  check("自增后端点为实际端口", endpointEl()?.value.includes(":9002") === true);
+  check("自增后端口栏仍显示请求端口（区分「意图」与「实际」）", portInput()?.value === "9001");
+  check("自增不算错误态（服务确实在跑）", statusEl()?.classList.contains("mcp-status-error") !== true);
+
+  // 端口被环境变量锁定 → 输入框禁用并说明原因
+  w.__MAXCOM_MCP_STATUS__({
+    enabled: true,
+    running: true,
+    endpoint: "http://127.0.0.1:9500/mcp",
+    port: 9500,
+    requested_port: 9500,
+    port_locked_by_env: true,
+    error: null,
+    bind_scope: "仅本机回环",
+  });
+  await settle(w);
+  check("环境变量锁定时端口栏禁用", portInput()?.disabled === true);
+  check("锁定状态行说明原因", (statusEl()?.textContent ?? "").includes("MAXCOM_MCP_PORT"));
+  check("锁定后状态行仍是运行中态", statusEl()?.classList.contains("mcp-status-running") === true);
+
   // 全流程（含切标签页触发的「同步活动会话给后端」调用）不得抛出未捕获异常：
   // 该同步是 fire-and-forget 的一行 IPC，一旦同步抛错会直接打断 activate()，
   // 表现为「点标签页没反应」——比 MCP 本身坏掉更难查。

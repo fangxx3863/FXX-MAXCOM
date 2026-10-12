@@ -41,11 +41,20 @@ impl HttpOptions {
     }
 }
 
+/// 端口冲突时的自增重试上限。
+///
+/// 取 32：足以绕开「另一个 MAXCOM 实例 / 上一次退出后监听未及时释放」这类占住一小段
+/// 端口的情形，又不会在端口被大量占用时长时间扫描、或在防火墙弹窗里刷出一长串请求。
+pub const MAX_PORT_PROBES: u16 = 32;
+
 /// 服务句柄：用于取端点地址与优雅停机
 #[derive(Debug)]
 pub struct HttpHandle {
-    /// 实际绑定地址（传端口 0 时即为内核分配的端口，测试用）
+    /// 实际绑定地址。**端口冲突时会被自动 +1**，所以它未必等于请求端口 ——
+    /// 调用方一律以这个字段为准（见 [`HttpHandle::requested_port`]）。
     pub local_addr: SocketAddr,
+    /// 请求的端口（`opts.bind.port()`）。与 `local_addr.port()` 不同即说明发生过自增。
+    pub requested_port: u16,
     /// 路由前缀
     pub path: String,
     shutdown: CancellationToken,
@@ -57,10 +66,55 @@ impl HttpHandle {
         format!("http://{}{}", self.local_addr, self.path)
     }
 
+    /// 是否因端口被占用而自增过（界面据此提示"请按实际端口配客户端"）。
+    /// 请求端口为 0（交给内核分配）时不算自增 —— 那是"随便给一个"的语义。
+    pub fn port_was_bumped(&self) -> bool {
+        self.requested_port != 0 && self.local_addr.port() != self.requested_port
+    }
+
     /// 优雅停机（不阻塞调用方）
     pub fn shutdown(&self) {
         self.shutdown.cancel();
     }
+}
+
+/// 绑定监听；端口被占用时**自动 +1 重试**（[`MAX_PORT_PROBES`] 次内）。
+///
+/// 为什么需要它：MCP 端点要填进客户端配置，而端口被占（常见于开了第二个 MAXCOM 实例，
+/// 或上次退出后监听未及时释放）会让服务直接起不来 —— 用户看到的只是"启动失败"，
+/// 排查成本远高于自动让一格。
+///
+/// 代价是**实际端口可能不等于请求端口**，因此调用方必须把实际端口回传出去
+/// （[`HttpHandle::local_addr`] / [`HttpHandle::port_was_bumped`]），不能假定相等。
+async fn bind_scanned(addr: SocketAddr) -> io::Result<tokio::net::TcpListener> {
+    let requested = addr.port();
+    // 端口 0 = 交给内核分配，本身就是"随便给一个"，不参与自增
+    if requested == 0 {
+        return tokio::net::TcpListener::bind(addr).await;
+    }
+    let mut last_in_use = None;
+    for offset in 0..MAX_PORT_PROBES {
+        let Some(port) = requested.checked_add(offset) else {
+            break; // 已越过 65535
+        };
+        match tokio::net::TcpListener::bind(SocketAddr::new(addr.ip(), port)).await {
+            Ok(listener) => {
+                if offset > 0 {
+                    eprintln!("MAXCOM MCP：端口 {requested} 被占用，已自动改用 {port}");
+                }
+                return Ok(listener);
+            }
+            // 只对"被占用"让格：权限不足（<1024）等其它错误让格也没用，直接上报
+            Err(e) if e.kind() == io::ErrorKind::AddrInUse => last_in_use = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last_in_use.unwrap_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AddrInUse,
+            format!("端口 {requested} 起连续 {MAX_PORT_PROBES} 个端口均不可用"),
+        )
+    }))
 }
 
 /// 启动 Streamable HTTP MCP 服务。
@@ -93,7 +147,9 @@ where
     );
 
     let router = axum::Router::new().nest_service(opts.path.as_str(), service);
-    let listener = tokio::net::TcpListener::bind(opts.bind).await?;
+    // 端口被占用时自动让格（见 bind_scanned）：实际端口以 local_addr 为准
+    let requested_port = opts.bind.port();
+    let listener = bind_scanned(opts.bind).await?;
     let local_addr = listener.local_addr()?;
 
     let stop = shutdown.clone();
@@ -108,6 +164,7 @@ where
 
     Ok(HttpHandle {
         local_addr,
+        requested_port,
         path: opts.path,
         shutdown,
     })
@@ -204,6 +261,72 @@ mod tests {
         );
         assert!(text.contains("serverInfo"), "未看到 serverInfo: {text}");
 
+        handle.shutdown();
+    }
+
+    /// 端口被占用时**自动 +1 重试**，并且如实上报实际端口。
+    ///
+    /// 为什么值得测：请求端口与实际端口不一致是个容易被忽略的隐形前提 ——
+    /// 只要有人（包括未来的我自己）在别处假定 `local_addr.port() == 请求端口`，
+    /// 用户拿到的端点就会指向一个没人监听的端口，而现象只是客户端连不上。
+    #[tokio::test]
+    async fn port_conflict_auto_increments() {
+        // 先找一段「base 与 base+1 可被占、base+2 空闲」的连续端口，
+        // 这样断言才能精确到"+2"。不能写死具体端口号或直接用临时端口 ——
+        // 端口是否空闲取决于运行环境，写死会变成环境相关的偶发失败。
+        // 20000~20050 在 Windows(49152 起) 与 Linux(32768 起) 的临时端口段之外，通常整段空闲。
+        let mut picked = None;
+        for base in 20000u16..20050 {
+            let Ok(hold1) = std::net::TcpListener::bind(("127.0.0.1", base)) else {
+                continue;
+            };
+            let Ok(hold2) = std::net::TcpListener::bind(("127.0.0.1", base + 1)) else {
+                continue;
+            };
+            // 只确认 base+2 当前空闲；临时监听在本语句结束即释放，交给 serve_http 去抢
+            if std::net::TcpListener::bind(("127.0.0.1", base + 2)).is_err() {
+                continue;
+            }
+            picked = Some((base, hold1, hold2));
+            break;
+        }
+        // hold1/hold2 必须一直占着，否则自增会停在 base 或 base+1 上
+        let Some((base, hold1, hold2)) = picked else {
+            panic!("未找到连续 3 个空闲端口用于本测试");
+        };
+
+        let handle = serve_http(factory(), HttpOptions::with_port(base))
+            .await
+            .expect("应能在自增后的端口启动");
+        assert_eq!(handle.requested_port, base, "请求端口应如实记录");
+        assert_eq!(
+            handle.local_addr.port(),
+            base + 2,
+            "应连续跳过两个被占端口，落到第一个空闲端口"
+        );
+        assert!(handle.port_was_bumped(), "应标记出发生过自增");
+        assert_eq!(
+            handle.endpoint(),
+            format!("http://127.0.0.1:{}{}", base + 2, DEFAULT_ROUTE)
+        );
+
+        // 端点确实可达（不只是"绑定成功"）
+        let stream = tokio::net::TcpStream::connect(handle.local_addr).await;
+        assert!(stream.is_ok(), "自增后的端口应真的在监听");
+        drop(stream);
+        handle.shutdown();
+        drop((hold1, hold2));
+    }
+
+    /// 端口 0（交给内核分配）不参与自增 —— 它是"随便给一个"的语义，不该被 +1 破坏。
+    #[tokio::test]
+    async fn ephemeral_port_is_not_bumped() {
+        let handle = serve_http(factory(), HttpOptions::with_port(0))
+            .await
+            .expect("启动服务");
+        assert_eq!(handle.requested_port, 0);
+        assert!(handle.local_addr.port() > 0, "内核应分配真实端口");
+        assert!(!handle.port_was_bumped(), "端口 0 语义下不应报自增");
         handle.shutdown();
     }
 }

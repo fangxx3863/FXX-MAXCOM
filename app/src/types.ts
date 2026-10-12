@@ -218,8 +218,15 @@ export interface McpStatus {
   running: boolean;
   /** MCP 端点：客户端配置里填这个（未运行时给出「若开启会是这个地址」） */
   endpoint: string;
-  /** 期望监听端口 */
+  /**
+   * **实际**监听端口。与 `requested_port` 不同即说明发生过「端口被占用 → 自动 +1」，
+   * 此时界面必须提示用户按实际端口配客户端，否则客户端会连到没人监听的端口。
+   */
   port: number;
+  /** 请求（期望）的端口：来自界面设置或环境变量 */
+  requested_port: number;
+  /** 请求端口是否被环境变量 MAXCOM_MCP_PORT 锁定（锁定后界面不可改） */
+  port_locked_by_env: boolean;
   /** 最近一次启动失败原因；成功为 null */
   error: string | null;
   /** 安全说明：服务只绑定回环地址 */

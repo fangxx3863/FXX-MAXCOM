@@ -3,7 +3,7 @@
 // 标签栏/持久化/事件路由由模块级 TabManager 承担。
 import "./styles.css";
 import { t, getLang, persistLang, applyStaticI18n, type Lang } from "./i18n";
-import { IS_TAURI, IS_MOBILE, makeApi, closeSession, setActiveSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow, mcpStatus, mcpSetEnabled } from "./api";
+import { IS_TAURI, IS_MOBILE, makeApi, closeSession, setActiveSession, onRaw, onEntries, onState, pickSavePath, listProbes, listChips, listUsbDevices, listHidDevices, saveTextFile, openPopupWindow, mcpStatus, mcpSetEnabled, mcpSetPort } from "./api";
 import type { ConnConfig, ConnKind, ConnPhase, ConnState, DataFormat, DType, EntriesBatch, HidDeviceInfo, McpStatus, PortInfo, StatsSnapshot, UsbDeviceInfo } from "./types";
 import { createDropdown, type DropdownHandle } from "./dropdown";
 import { flattenChips, withAuto } from "./chips";
@@ -60,6 +60,8 @@ interface AppSettings {
   logDirMark: boolean;
   /** 是否启用内嵌 MCP 服务（AI 接入）。后端不持久化，启动时由这里同步过去 */
   mcpEnabled: boolean;
+  /** MCP 监听端口（后端不持久化，启动时同步。被环境变量锁定时不会下发） */
+  mcpPort: number;
 }
 const DEFAULT_SETTINGS: AppSettings = {
   logSize: 12.5,
@@ -75,6 +77,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   logPageRows: 500,
   logDirMark: true,
   mcpEnabled: true,
+  mcpPort: 8765,
 };
 const SETTINGS_KEY = "maxcom.settings";
 const THEME_PRESETS: Record<string, string> = {
@@ -2213,6 +2216,8 @@ class SessionApp {
     if (dirMarkInput) dirMarkInput.checked = st.logDirMark ?? true;
     const mcpEnabledInput = this.q<HTMLInputElement>("#set-mcp-enabled");
     if (mcpEnabledInput) mcpEnabledInput.checked = st.mcpEnabled ?? true;
+    const mcpPortInput = this.q<HTMLInputElement>("#set-mcp-port");
+    if (mcpPortInput) mcpPortInput.value = String(st.mcpPort ?? 8765);
   }
 
   /**
@@ -2225,9 +2230,10 @@ class SessionApp {
   applyMcpStatus(info: McpStatus | null) {
     const card = this.q<HTMLElement>("#set-mcp-card");
     const enabledInput = this.q<HTMLInputElement>("#set-mcp-enabled");
+    const portInput = this.q<HTMLInputElement>("#set-mcp-port");
     const endpointInput = this.q<HTMLInputElement>("#set-mcp-endpoint");
     const stateNote = this.q<HTMLElement>("#set-mcp-status");
-    if (!card || !enabledInput || !endpointInput || !stateNote) return;
+    if (!card || !enabledInput || !portInput || !endpointInput || !stateNote) return;
 
     if (!info) {
       card.classList.add("hidden");
@@ -2235,21 +2241,39 @@ class SessionApp {
     }
     card.classList.remove("hidden");
     enabledInput.checked = info.enabled;
+    // 端口栏显示**请求端口**（用户意图），实际端口体现在端点上；两者不同即说明被占用后自增过
+    portInput.value = String(info.requested_port);
+    portInput.disabled = info.port_locked_by_env;
+    portInput.title = info.port_locked_by_env ? t("settings.mcpPortLocked") : "";
     endpointInput.value = info.endpoint;
 
-    // 三态：启动失败（有 error）优先于实际运行态 —— 否则「开关是开的但没在跑」会被
-    // 渲染成「运行中」，用户据此去配客户端只会连不上。
-    stateNote.className = "set-note";
+    // 四态优先级：启动失败 > 端口自增 > 运行中 > 已关闭。
+    // 自增排在"运行中"之前是刻意的：服务虽然正常，但**端点与用户请求的端口不同**，
+    // 用户照着请求端口去配客户端会连不上 —— 这条必须显眼。
+    let text: string;
+    let cls: string;
     if (info.error) {
-      stateNote.textContent = t("settings.mcpError", { e: info.error });
-      stateNote.classList.add("mcp-status-error");
+      text = t("settings.mcpError", { e: info.error });
+      cls = "mcp-status-error";
+    } else if (info.running && info.port !== info.requested_port) {
+      text = t("settings.mcpPortBumped", {
+        want: String(info.requested_port),
+        got: String(info.port),
+      });
+      cls = "mcp-status-warn";
     } else if (info.running) {
-      stateNote.textContent = t("settings.mcpRunning");
-      stateNote.classList.add("mcp-status-running");
+      text = t("settings.mcpRunning");
+      cls = "mcp-status-running";
     } else {
-      stateNote.textContent = t("settings.mcpOff");
-      stateNote.classList.add("mcp-status-off");
+      text = t("settings.mcpOff");
+      cls = "mcp-status-off";
     }
+    // 端口被环境变量锁定是"附带说明"而非状态本身，故拼在同一行，不挤掉上面那条信息
+    if (info.port_locked_by_env) text += ` · ${t("settings.mcpPortLocked")}`;
+
+    stateNote.className = "set-note";
+    stateNote.textContent = text;
+    stateNote.classList.add(cls);
   }
 
   wireSettings() {
@@ -2322,11 +2346,28 @@ class SessionApp {
       );
     }
     this.q("#set-reset").addEventListener("click", () =>
-      // 保留 MCP 开关：它是「功能性」设置，不属于「恢复外观默认」的语义范围，
-      // 顺手把它打开会让用户以为安全设置被重置了
-      saveSettings({ ...DEFAULT_SETTINGS, mcpEnabled: currentSettings.mcpEnabled }),
+      // 保留 MCP 开关与端口：它们是「功能性」设置，不属于「恢复外观默认」的语义范围，
+      // 顺手把它打开/改回默认会让用户以为安全设置被重置了
+      saveSettings({
+        ...DEFAULT_SETTINGS,
+        mcpEnabled: currentSettings.mcpEnabled,
+        mcpPort: currentSettings.mcpPort,
+      }),
     );
     // AI 接入（MCP）：状态是全局的，但每个标签页各有一份设置页 DOM，故变更后广播到所有卡片
+    const mcpPortInput = this.q<HTMLInputElement>("#set-mcp-port");
+    if (mcpPortInput) {
+      mcpPortInput.addEventListener("change", () => {
+        const port = Number(mcpPortInput.value);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          // 非法输入不落库：先退回当前值，等用户改对再说（避免把脏值持久化）
+          mcpPortInput.value = String(currentSettings.mcpPort);
+          return;
+        }
+        saveSettings({ ...currentSettings, mcpPort: port });
+        void mcpSetPort(port).then(applyMcpStatusToAll);
+      });
+    }
     const mcpEnabledInput = this.q<HTMLInputElement>("#set-mcp-enabled");
     if (mcpEnabledInput) {
       mcpEnabledInput.addEventListener("change", () => {
@@ -3601,8 +3642,8 @@ if (!import.meta.env.DEV) {
   activate(store?.active && sessions.has(store.active) ? store.active : first);
   applySettingsToAll();
 
-  // MCP 开关由前端持久化（与窗口尺寸记忆同一模式）：启动时把上次的选择同步给后端。
-  // 后端 setup 时已按默认拉起，这里负责把「用户上次关掉了」落实下去，
+  // MCP 开关与端口由前端持久化（与窗口尺寸记忆同一模式）：启动时把上次的选择同步给后端。
+  // 后端 setup 时已按默认（或环境变量）拉起，这里负责把「用户上次改了端口/关掉了」落实下去，
   // 并顺手在「上次启动失败」时借这次同步重试一次。
   void (async () => {
     const info = await mcpStatus();
@@ -3610,8 +3651,13 @@ if (!import.meta.env.DEV) {
       applyMcpStatusToAll(null);
       return;
     }
+    // 端口先对齐（被环境变量锁定时不下发，否则会把用户的设置变成"看起来生效了其实没生效"）
+    let cur = info;
+    if (!info.port_locked_by_env && info.requested_port !== currentSettings.mcpPort) {
+      cur = (await mcpSetPort(currentSettings.mcpPort)) ?? info;
+    }
     const want = currentSettings.mcpEnabled ?? true;
-    applyMcpStatusToAll(info.enabled === want ? info : await mcpSetEnabled(want));
+    applyMcpStatusToAll(cur.enabled === want ? cur : await mcpSetEnabled(want));
   })();
 }
 
@@ -3649,6 +3695,12 @@ if (!import.meta.env.DEV) {
   if (op === "state") return p.debugFindState();
   return null;
 };
+
+// MCP 卡片状态探针（仅回归/调试用）：jsdom 里演示后端不会返回「端口被占用后自增」这类状态，
+// 用它把指定状态喂给卡片渲染路径，覆盖"实际端口 ≠ 请求端口"的提示分支。
+// 只重渲染设置页那张卡，不触碰会话/链路等业务状态（与 __MAXCOM_TERM_PROBE__ 同类）。
+(window as unknown as { __MAXCOM_MCP_STATUS__?: (s: McpStatus) => void }).__MAXCOM_MCP_STATUS__ = (s) =>
+  applyMcpStatusToAll(s);
 
 // 启动页淡出移除（HTML 内联元素，零依赖首帧即显）
 {

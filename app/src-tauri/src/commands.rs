@@ -442,3 +442,15 @@ pub fn mcp_set_enabled(
 ) -> crate::mcp::McpStatus {
     crate::mcp::set_enabled(&mcp, state.inner().clone(), on)
 }
+
+/// 设置 MCP 监听端口（设置页）。正在运行时重启监听；端口被占用会自动 +1
+/// 并在返回的状态里如实给出实际端口。`MAXCOM_MCP_PORT` 是硬锁定，界面无法覆盖。
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn mcp_set_port(
+    port: u16,
+    state: State<'_, AppState>,
+    mcp: State<'_, crate::mcp::McpService>,
+) -> crate::mcp::McpStatus {
+    crate::mcp::set_port(&mcp, state.inner().clone(), port)
+}
