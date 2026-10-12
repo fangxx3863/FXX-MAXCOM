@@ -266,6 +266,13 @@ input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline
   /* 定宽右对齐：Δ+1065ms / +999ms / 绝对时间戳混用时内容列仍对齐 */
   flex: 0 0 auto; min-width: 12ch; text-align: right;
 }
+/* 方向列：定宽（1 字形 + 1 空格），使 ← / → 与内容列在有无标记的行之间都对齐。
+   仅在「设置开关 ∧ 本地回显」时渲染；字距按 ch 定宽，等宽字体下与内容列严格对齐
+   （非等宽字体下 ch 与箭头字形宽度可能不等，但定宽 basis 保证内容列仍不动）。
+   与 .log-ts 同样可选中：手动复制出来的是眼前所见，不要标记就在设置里关掉。 */
+.log-dir { flex: 0 0 auto; width: 2ch; margin-right: 4px; text-align: center; }
+.log-dir.dir-rx { color: var(--fg-dim); }
+.log-dir.dir-tx { color: var(--accent); }
 /* 内容块：从时间戳右列起对齐。pre-wrap 保留换行；超时分包单个 .log-line 含多个换行时，换行拆出的每行都对齐到内容列（绿线），不再回到容器左缘。 */
 .log-content { flex: 1 1 auto; min-width: 0; white-space: pre-wrap; word-break: break-all; }
 .seg-bold { font-weight: 700; }

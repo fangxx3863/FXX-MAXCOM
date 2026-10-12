@@ -418,6 +418,14 @@
                   <input id="set-log-page-rows" type="number" min="50" max="5000" step="50" />
                 </div>
                 <div class="set-note" data-i18n="settings.logPageRowsNote">懒加载窗口：越小越流畅、占内存越少。</div>
+                <div class="set-field">
+                  <span class="set-label" data-i18n="settings.logDirMark">收发方向标记</span>
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="set-log-dir-mark" checked />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="set-note" data-i18n="settings.logDirMarkNote">在时间戳后标出 ← 接收 / → 发送。仅在开启「本地回显」时显示——回显关闭时日志里只有接收行，标记没有信息量。</div>
               </div>
               <div class="set-card">
                 <div class="set-card-head" data-i18n="settings.termCard">⌨️ 终端</div>

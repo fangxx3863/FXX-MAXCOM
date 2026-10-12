@@ -53,6 +53,11 @@ interface AppSettings {
   explodeLayout: ExplodeLayout;
   /** 收发区懒加载每页行数（超大日志虚拟滚动的窗口粒度） */
   logPageRows: number;
+  /**
+   * 收发区时间戳后是否标方向（← 接收 / → 发送）。
+   * 实际可见性还要叠加本标签页的「本地回显」——见 SessionApp.syncDirMark()。
+   */
+  logDirMark: boolean;
   /** 是否启用内嵌 MCP 服务（AI 接入）。后端不持久化，启动时由这里同步过去 */
   mcpEnabled: boolean;
 }
@@ -68,6 +73,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   explodeType: "logview",
   explodeLayout: "master",
   logPageRows: 500,
+  logDirMark: true,
   mcpEnabled: true,
 };
 const SETTINGS_KEY = "maxcom.settings";
@@ -402,6 +408,7 @@ class SessionApp {
     this.wirePlotControls();
     this.applySettingsInputs(currentSettings);
     this.applyMcpStatus(lastMcpStatus);
+    this.syncDirMark();
 
     rootEl.appendChild(this.el);
 
@@ -1431,6 +1438,9 @@ class SessionApp {
     this.q("#timer-send").addEventListener("change", () => this.applyTimer());
     this.q("#timer-ms").addEventListener("change", () => this.applyTimer());
 
+    // 本地回显：开/关决定日志里有没有发送行，也就决定方向标记有没有意义（见 syncDirMark）
+    this.q("#local-echo").addEventListener("change", () => this.syncDirMark());
+
     // 直通：点击收发区后键盘直接发送到设备（类似终端/SSCOM）
     const direct = this.q<HTMLInputElement>("#direct-input");
     const logView = this.q<HTMLElement>("#log-view");
@@ -1548,6 +1558,21 @@ class SessionApp {
   /** 收发模式的本地回显开关（终端/发文件/Modbus 另有路径，不受此开关影响） */
   private localEchoOn(): boolean {
     return this.q<HTMLInputElement>("#local-echo").checked;
+  }
+
+  /**
+   * 同步收发区「时间戳后方向标记」的可见性。
+   *
+   * 可见性 = 设置页开关 ∧ 本标签页「本地回显」。为什么必须叠加回显：日志里出现发送行
+   * 只会是因为本地回显（引擎把发送字节投进同一条日志管线，见 LogEntryDto.dir）；回显关闭时
+   * 全部行都是接收，标一列 ← 只是噪声。所以这个设置页开关管的是「要不要用标记」，
+   * 而回显是「有没有必要用」。
+   *
+   * 两个输入源都会变（全局设置广播 + 本标签页复选框），故收敛到一个方法，避免两处各写一份判断。
+   */
+  syncDirMark() {
+    const on = (currentSettings.logDirMark ?? true) && this.localEchoOn();
+    this.logViewPage.setDirMark(on);
   }
 
   private realNewline(): string {
@@ -2089,6 +2114,7 @@ class SessionApp {
     if (g("idletimeout")) (this.q("#idle-timeout") as HTMLInputElement).value = g("idletimeout");
     if (g("splitmode")) this.splitModeDd.setValue(g("splitmode"));
     if (g("localecho")) this.q<HTMLInputElement>("#local-echo").checked = true;
+    this.syncDirMark(); // 回显勾选态恢复后重算方向标记可见性
     this.syncIdleTimeout();
     const hexOn = !!g("hexdisp");
     {
@@ -2183,6 +2209,8 @@ class SessionApp {
     if (explodeLayoutSel) explodeLayoutSel.value = st.explodeLayout;
     const pageRowsInput = this.q<HTMLInputElement>("#set-log-page-rows");
     if (pageRowsInput) pageRowsInput.value = String(st.logPageRows);
+    const dirMarkInput = this.q<HTMLInputElement>("#set-log-dir-mark");
+    if (dirMarkInput) dirMarkInput.checked = st.logDirMark ?? true;
     const mcpEnabledInput = this.q<HTMLInputElement>("#set-mcp-enabled");
     if (mcpEnabledInput) mcpEnabledInput.checked = st.mcpEnabled ?? true;
   }
@@ -2272,6 +2300,13 @@ class SessionApp {
         saveSettings({ ...currentSettings, logPageRows: Number(pageRowsInput.value) || DEFAULT_SETTINGS.logPageRows });
         this.logViewPage.setRowsPerPage(currentSettings.logPageRows);
       });
+    }
+    // 收发区方向标记：持久化 + 即时生效（可见性还要看本标签页回显，见 syncDirMark）
+    const dirMarkInput = this.q<HTMLInputElement>("#set-log-dir-mark");
+    if (dirMarkInput) {
+      dirMarkInput.addEventListener("change", () =>
+        saveSettings({ ...currentSettings, logDirMark: dirMarkInput.checked }),
+      );
     }
     // 爆炸视图：显示类型 + 布局方式（即时生效，下次打开爆炸视图应用）
     const explodeTypeSel = this.q<HTMLSelectElement>("#set-explode-type");
@@ -2863,6 +2898,7 @@ function applySettingsToAll() {
     s.terminalPage.setTheme(termTheme);
     s.logViewPage.refreshRowHeight();
     s.logViewPage.setRowsPerPage(currentSettings.logPageRows);
+    s.syncDirMark();
   }
 }
 

@@ -92,14 +92,11 @@ impl CaptureSink {
 /// （xterm 走 raw 通道不受影响）；且最终一次性刷出的会是超大单行，前端渲染卡死。
 const PARTIAL_FLUSH_CAP: usize = 4096;
 
-/// I/O 记录方向（MCP `read_io` 区分「设备发来的」与「我发出去的」）
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IoDir {
-    /// 接收（链路 → 主机）
-    Rx,
-    /// 发送（主机 → 链路）
-    Tx,
-}
+/// I/O 记录方向（MCP `read_io` 区分「设备发来的」与「我发出去的」）。
+///
+/// 直接复用 `maxcom_core::bus::Dir`：总线载荷（谁会到达日志管线）与 I/O 环形缓冲说的是
+/// 同一件事，各写一份枚举只会在跨层传参时错配。别名保持既有调用点（`IoDir::Rx`）不变。
+pub use maxcom_core::bus::Dir as IoDir;
 
 /// 会话最近 I/O 记录块（原始字节，未解码、未分行）。
 ///
@@ -195,6 +192,13 @@ pub struct LogEntryDto {
     /// 是否未换行结束的部分行（line 分包空闲封行刷出的中间态，前端应续接到当前行而非断行）
     #[serde(default)]
     pub partial: bool,
+    /// 本条数据的来源方向：`rx` = 设备发来（正常接收），`tx` = 本机发送后由本地回显回流。
+    ///
+    /// 意义：本地回显（`SendPayload.echo`）把发送字节按「到达」投进同一条日志管线，
+    /// 于是收发区里会混入自己发的行。方向在这里贴上，前端才能在时间戳后标 ←/→ 区分开；
+    /// 缺省为 `rx`，老数据/不关心方向的前端仍按接收渲染。
+    #[serde(default)]
+    pub dir: IoDir,
 }
 
 /// 绘图快照 DTO（前端 ~50ms 轮询一次）
@@ -1040,6 +1044,10 @@ impl SessionManager {
             let mut last_flush = std::time::Instant::now();
             let mut last_data_ms = now_mono_ms();
             let mut time_buf: Vec<u8> = Vec::new(); // 超时分包：不按换行拆，整段累积，空闲封行输出为一个时间块
+            // 当前方向：随每个收到的 chunk 更新，并**保留到下一次来数据**。空闲封行 / 停止收尾
+            // 是在没有 chunk 的时刻产出条目的，此时只能沿用最后一次的方向 —— 那些缓冲字节
+            // 正是它喂进来的（否则 time 分包下回显行会被误标成"接收"）。
+            let mut cur_dir = IoDir::Rx;
             loop {
                 select! {
                     recv(cmd_rx_log) -> msg => {
@@ -1064,8 +1072,10 @@ impl SessionManager {
                             Err(_) => break,
                         }
                     }
-                    recv(log_q) -> data => {
-                        if let Ok(data) = data {
+                    recv(log_q) -> msg => {
+                        if let Ok(chunk) = msg {
+                            let data = chunk.bytes;
+                            cur_dir = chunk.dir;
                             let now = now_mono_ms();
                             last_data_ms = now;
                             if options.split_mode == "line" {
@@ -1074,7 +1084,7 @@ impl SessionManager {
                             let segments = colorize.process_line(&raw_text); // 见 ANSI → 产出颜色段
                             let text = strip_ansi(&raw_text); // DTO.text/过滤/raw 用干净文本
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false });
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
                             }
                         }
                         // 长流防护：连续流无换行（二进制流）时空闲封行永不触发（last_data_ms 持续刷新）、
@@ -1100,7 +1110,7 @@ impl SessionManager {
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false });
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
                             }
                         }
                     } else {
@@ -1125,7 +1135,7 @@ impl SessionManager {
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false });
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
                             }
                         }
                     }
@@ -1151,7 +1161,7 @@ impl SessionManager {
                                     let segments = colorize.process_line(&raw_text);
                                     let text = strip_ansi(&raw_text);
                                     if filter.should_show(&text) {
-                                        batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: true });
+                                        batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: true, dir: cur_dir });
                                     }
                                 }
                             }
@@ -1161,7 +1171,7 @@ impl SessionManager {
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: false });
+                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
                             }
                         }
                         if !batch.is_empty() && last_flush.elapsed() >= Duration::from_millis(30) {
@@ -1178,7 +1188,7 @@ impl SessionManager {
                             let segments = colorize.process_line(&raw_text);
                             let text = strip_ansi(&raw_text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false });
+                                batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
                             }
                         }
                     } else if !time_buf.is_empty() {
@@ -1187,7 +1197,7 @@ impl SessionManager {
                         let segments = colorize.process_line(&raw_text);
                         let text = strip_ansi(&raw_text);
                         if filter.should_show(&text) {
-                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false });
+                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
                         }
                     }
                     if !batch.is_empty() {
@@ -1227,7 +1237,14 @@ impl SessionManager {
                         .and_then(|f| make_parser(f).ok());
                     loop {
                         match plot_q.recv_timeout(Duration::from_millis(200)) {
-                            Ok(data) => {
+                            Ok(chunk) => {
+                                // 绘图只消费真实接收的字节。本地回显走 publish_to 本来就到不了这里，
+                                // 但仍显式挡一道：曲线被自己发出去的内容污染过，就不该再依赖"投递路径"
+                                // 这一个隐式前提。
+                                if chunk.dir != IoDir::Rx {
+                                    continue;
+                                }
+                                let data = chunk.bytes;
                                 let ver = fmt_ver.load(Ordering::Relaxed);
                                 if ver != cur_ver {
                                     // 格式热切换：按最新配置重建 parser
@@ -1342,8 +1359,9 @@ impl SessionManager {
                     .push(IoDir::Tx, &bytes, unix_ms());
                 // 本地回显：设备不回显时也能在收发区看到自己发了什么。
                 // 只投给 "log"，避免发送内容被绘图线程当成接收帧解析。
+                // 方向必须标 Tx：这条字节与真实接收同在一条日志管线上，不标就分不出是自己发的。
                 if payload.echo {
-                    a.bus.publish_to("log", &bytes);
+                    a.bus.publish_to("log", &bytes, IoDir::Tx);
                 }
                 Ok(n)
             }

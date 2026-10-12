@@ -769,7 +769,7 @@ fn local_echo_shows_sent_text_when_device_silent() {
     );
     assert_eq!(mgr.stats().tx_bytes, 5, "字节应照常写出");
 
-    // ── echo=true：同一路径应产出日志行 ──
+    // ── echo=true：同一路径应产出日志行，且必须标成发送方向 ──
     mgr.send(&payload("ECHO", true)).expect("send");
     assert!(
         wait_until(
@@ -783,11 +783,98 @@ fn local_echo_shows_sent_text_when_device_silent() {
         ),
         "echo=true 时应产出日志行"
     );
+    let echoed = rec
+        .entries
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|e| e.text.contains("ECHO"))
+        .cloned()
+        .expect("回显行");
+    assert_eq!(
+        echoed.dir,
+        IoDir::Tx,
+        "本地回显行必须标成发送（否则界面无法与设备回显区分）"
+    );
     assert!(
         rec.raw.lock().unwrap().is_empty(),
         "本地回显只进日志管线，不应进入原始流（终端/绘图）"
     );
     assert_eq!(mgr.stats().tx_bytes, 10, "响应回来后 TX 也不受影响");
+
+    mgr.disconnect();
+}
+
+/// 方向标签的两个来源必须都保真：设备回读的行（RX）与本机本地回显的行（TX）内容可以完全
+/// 相同，差别只在 `dir` —— 这正是界面「时间戳后标 ←/→」赖以成立的全部依据。
+/// 回归点：只按"谁先来/内容像不像"猜方向，或整个批次共用一个方向，都会在这里挂掉。
+#[test]
+fn log_entry_direction_distinguishes_rx_from_local_echo() {
+    let port = spawn_echo_server();
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.connect(tcp_cfg(port)).expect("connect");
+
+    // 同一个字符串走两条路：设备回读（RX）+ 本机回显（TX）
+    mgr.send(&SendPayload {
+        text: Some("SAME".into()),
+        hex: None,
+        newline: "\n".into(),
+        echo: true,
+    })
+    .expect("send");
+
+    assert!(
+        wait_until(
+            || {
+                let es = rec.entries.lock().unwrap();
+                es.iter()
+                    .any(|e| e.dir == IoDir::Rx && e.text.contains("SAME"))
+                    && es
+                        .iter()
+                        .any(|e| e.dir == IoDir::Tx && e.text.contains("SAME"))
+            },
+            Duration::from_secs(3)
+        ),
+        "同一内容的回读行(→rx)与回显行(→tx)必须各自出现，实际={:?}",
+        rec.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| (e.dir, e.text.clone()))
+            .collect::<Vec<_>>()
+    );
+
+    // 关闭回显后不得再产出 tx 行（设备的回读仍是 rx）
+    let before = rec.entries.lock().unwrap().len();
+    mgr.send(&SendPayload {
+        text: Some("ONLY_RX".into()),
+        hex: None,
+        newline: "\n".into(),
+        echo: false,
+    })
+    .expect("send");
+    assert!(
+        wait_until(
+            || rec
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.text.contains("ONLY_RX")),
+            Duration::from_secs(3)
+        ),
+        "设备回读应产出日志行"
+    );
+    assert!(
+        rec.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .skip(before)
+            .all(|e| e.dir == IoDir::Rx),
+        "echo=false 时不应有任何发送方向的行"
+    );
 
     mgr.disconnect();
 }

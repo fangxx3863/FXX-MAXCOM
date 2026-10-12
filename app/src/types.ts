@@ -116,6 +116,11 @@ export interface LogEntryDto {
   raw_hex: string;
   /** 未换行结束的部分行（line 分包空闲封行刷出）：应续接到当前行，而非断行 */
   partial?: boolean;
+  /**
+   * 数据来源方向：`rx` = 设备发来（缺省），`tx` = 本机发送后由「本地回显」回流。
+   * 收发区据此在时间戳后标 ←/→ 区分两条来源（同一管线上跑的字节，不标就分不出来）。
+   */
+  dir?: "rx" | "tx";
 }
 
 export interface EntriesBatch {

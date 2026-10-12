@@ -32,6 +32,8 @@ interface Row {
   text: string;
   segments: LogEntryDto["segments"];
   rawHex: string;
+  /** 行来源方向：rx = 设备发来，tx = 本地回显的本机发送内容（续行沿用首段的方向） */
+  dir: "rx" | "tx";
 }
 
 function compileQuickFilter(pattern: string): QuickFilter | null {
@@ -54,6 +56,8 @@ export class LogViewPage {
   private autoscroll: HTMLInputElement;
   private getTsMode: () => string;
   private hexDisplay = false;
+  /** 时间戳后是否标 ←/→ 方向（设置开关 ∧ 本地回显，由 main 计算后下发） */
+  private dirMark = false;
   private lastTs: number | null = null;
   private quickFilter: QuickFilter | null = null;
   private rowCss = "";
@@ -280,6 +284,24 @@ export class LogViewPage {
     this.rebuildChunks();
   }
 
+  /**
+   * 时间戳后是否标方向（← 接收 / → 发送）。
+   *
+   * 只影响渲染，不改数据层：方向是逐行事实（`Row.dir`），开关随时可来回切。
+   * 重渲染当前已挂载的 chunk 即可——未挂载的占位容器会在下次 `ensureWindow` 装载时
+   * 按新开关渲染，所以不必整窗重建（那会把滚动位置也一并重置）。
+   */
+  setDirMark(on: boolean) {
+    if (on === this.dirMark) return;
+    this.dirMark = on;
+    this.forEachMountedChunk((ci) => this.fillChunk(ci));
+  }
+
+  /** 当前是否标方向（供测试/调试） */
+  get dirMarkEnabled(): boolean {
+    return this.dirMark;
+  }
+
   /** 当前是否 HEX 显示模式（日志捕获据此决定写 raw_hex 还是 text） */
   get hexView(): boolean {
     return this.hexDisplay;
@@ -441,13 +463,14 @@ export class LogViewPage {
     }
   }
 
-  /** 当前窗口的历史快照：沿用当前时间戳、HEX 显示及快捷过滤状态 */
+  /** 当前窗口的历史快照：沿用当前时间戳、HEX 显示、方向标记及快捷过滤状态 */
   historyText(): string {
     const lines: string[] = [];
     for (const row of this.rows) {
       if (!this.rowVisible(row)) continue;
       const body = this.hexDisplay ? row.rawHex || t("log.empty") : row.text;
-      lines.push(row.tsText ? row.tsText.padEnd(12) + " " + body : body);
+      const mark = this.dirMark ? dirGlyph(row.dir) + " " : "";
+      lines.push(row.tsText ? row.tsText.padEnd(12) + " " + mark + body : mark + body);
     }
     return lines.length ? lines.join("\n") + "\n" : "";
   }
@@ -478,6 +501,7 @@ export class LogViewPage {
         text: item.text,
         segments: item.segments.slice(),
         rawHex: item.raw_hex,
+        dir: item.dir === "tx" ? "tx" : "rx", // 缺省/未知一律按接收，老后端也能用
       };
       this.rows.push(row);
       if (isPartial) this.pendingIdx = this.rows.length - 1;
@@ -645,6 +669,17 @@ export class LogViewPage {
       ts.textContent = row.tsText;
       div.appendChild(ts);
     }
+    // 方向列：定宽（见 styles.css .log-dir），所以有/无标记的行内容列都对齐。
+    // 时间戳模式为 none 时时间戳列不存在，标记自然顶到行首 —— 仍输出（方向是行的事实，
+    // 与"是否显示时间戳"无关）。
+    if (this.dirMark) {
+      const dir = document.createElement("span");
+      dir.className = "log-dir " + (row.dir === "tx" ? "dir-tx" : "dir-rx");
+      dir.dataset.dir = row.dir;
+      dir.textContent = dirGlyph(row.dir);
+      dir.title = row.dir === "tx" ? t("log.dir.tx") : t("log.dir.rx");
+      div.appendChild(dir);
+    }
     const content = document.createElement("div");
     content.className = "log-content";
     div.appendChild(content);
@@ -744,6 +779,11 @@ export class LogViewPage {
     this.pendingIdx = -1;
     this.lastTs = null;
   }
+}
+
+/** 方向标记字形：← 接收（设备 → 主机）/ → 发送（主机 → 设备）。渲染与导出共用同一字形。 */
+function dirGlyph(dir: "rx" | "tx"): string {
+  return dir === "tx" ? "→" : "←";
 }
 
 /** 命名色 → CSS 颜色（与 Rust Palette 的 ANSI16 表一致） */

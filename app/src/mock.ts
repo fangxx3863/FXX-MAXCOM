@@ -232,6 +232,19 @@ class MockBackend implements MockApi {
     this.txWindow.push([performance.now(), bytes.length]);
     // 回显到终端原始流
     emitRaw(this.session, bytes);
+    // 本地回显：真实引擎把发送字节按「到达」投给日志管线并标 dir=tx（收发区据此与设备
+    // 回读区分）。演示模式照此对齐，否则演示模式下新增的方向标记永远只有 ←。
+    if (payload.echo) {
+      const text = new TextDecoder().decode(bytes).replace(/[\r\n]+$/, "");
+      if (text) {
+        this.ts += 40 + Math.floor(Math.random() * 120);
+        const rawHex = [...bytes].map((b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+        emitEntries(this.session, {
+          epoch_anchor_ms: this.startWall,
+          items: [{ ts_ms: this.ts, text, segments: [{ text }], raw_hex: rawHex, dir: "tx" }],
+        });
+      }
+    }
     return bytes.length;
   }
 
