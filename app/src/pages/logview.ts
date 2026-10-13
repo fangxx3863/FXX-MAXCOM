@@ -109,6 +109,12 @@ export class LogViewPage {
   /** 视口上下各预渲染页数 */
   private pageBuffer = 2;
 
+  // ── 容器尺寸（侧栏开合 / 窗口缩放 / 浮窗拉伸）──
+  /** 上次观察到的滚动容器内部尺寸，用于判重（ResizeObserver 会连发多次） */
+  private lastW = 0;
+  private lastH = 0;
+  private ro: ResizeObserver | null = null;
+
   constructor(view: HTMLElement, opts: { autoscroll: HTMLInputElement; getTsMode: () => string }) {
     this.view = view;
     this.autoscroll = opts.autoscroll;
@@ -137,6 +143,7 @@ export class LogViewPage {
       window.addEventListener("blur", endDrag);
     }
     this.refreshRowHeight();
+    this.observeSize();
   }
 
   /** 设置每页行数（设置页「每页行数」）。触发窗口重建并回到底部 */
@@ -545,9 +552,7 @@ export class LogViewPage {
     let el = this.chunks[ci];
     if (!el) {
       // 卸载时占位容器仍保留在 DOM（稳住滚动高度）；先复用，顺序天然正确。
-      const existing = Array.from(this.view.children).find(
-        (c) => c instanceof HTMLElement && c.dataset.chunk === String(ci),
-      ) as HTMLElement | undefined;
+      const existing = this.chunkEl(ci);
       if (existing) {
         el = existing;
       } else {
@@ -613,12 +618,10 @@ export class LogViewPage {
     this.chunks[ci] = null;
   }
 
-  /** 估算 chunk 高度：行数 × 行高（未测量时的兜底） */
+  /** 估算 chunk 高度：行数 × 行高（未测量时的兜底；不含折行，故只作下限用） */
   private estimateChunkHeight(ci: number): number {
     const rh = parseFloat(this.rowCss || "0") || 0;
-    const start = ci * this.rowsPerPage;
-    const count = Math.max(0, Math.min(this.rowsPerPage, this.rows.length - start));
-    return rh > 0 ? count * rh : 0;
+    return rh > 0 ? this.chunkRowCount(ci) * rh : 0;
   }
 
   /** 懒加载窗口：视口 ±pageBuffer 页内装载，页外卸载 */
@@ -633,6 +636,135 @@ export class LogViewPage {
       if (inWin && this.chunks[i] === null) this.fillChunk(i);
       else if (!inWin && this.chunks[i] !== null) this.unmountChunk(i);
     }
+  }
+
+  /**
+   * 监听滚动容器自身的尺寸变化，并在**宽度**变化时作废高度缓存。
+   *
+   * 为什么必须盯着它：`chunkHeights` 与占位容器的 `min-height` 都是**实测值**，
+   * 而实测高度取决于当时的容器宽度（长行折不折行）。宽度一变（开合侧栏、缩放窗口、
+   * 拉伸浮窗），这些值就不再代表真实布局，而且**没有任何其他代码会知道**——
+   * 行本身没变、数据没来、滚动事件也不会因为一次纯布局变化而必然发生。
+   *
+   * 不修的症状（2026-10 真实浏览器复现）：侧栏打开时某页被记成 2071px，关闭侧栏后
+   * 宽布局下真实只有 950px，但占位容器仍按 2071px 撑着 —— scrollHeight 虚高 1824px，
+   * 而"跟随最新"会一路贴底，正好落进这段被撑出来的空隙：收发区一行都看不见，
+   * 数据却仍在到达、开关也没被关掉。点开侧栏（宽度又变）才会歪打正着地重新可见。
+   *
+   * jsdom 不做布局、也没有 ResizeObserver，此路径只能由真实浏览器回归覆盖
+   * （见 scripts/log-resize-test.mjs）。
+   */
+  private observeSize() {
+    if (this.ro) return; // 重复 observe 会叠加回调
+    if (typeof ResizeObserver === "undefined") return;
+    this.lastW = this.view.clientWidth;
+    this.lastH = this.view.clientHeight;
+    this.ro = new ResizeObserver(() => this.onViewResize());
+    this.ro.observe(this.view);
+  }
+
+  /** 容器尺寸变化：宽度变化 → 作废高度缓存并重测；仅高度变化 → 重排装载窗口即可 */
+  private onViewResize() {
+    const w = this.view.clientWidth;
+    const h = this.view.clientHeight;
+    if (w === this.lastW && h === this.lastH) return;
+    // lastW 为 0 说明还没拿到过有效布局（首帧），此时没有实测值可作废
+    const widthChanged = this.lastW > 0 && w !== this.lastW;
+    this.lastW = w;
+    this.lastH = h;
+    if (!this.rows.length) return;
+    if (!widthChanged) {
+      this.ensureWindow();
+      return;
+    }
+    // 字号可能随缩放一起变（同一次尺寸变化内到达）→ 先钉行高，再谈测量
+    this.refreshRowHeight();
+    // 撤销高度前先记住用户正在读哪一行，撤销后据此放回去
+    const anchor = this.topVisibleRow();
+    // 1) 清掉全部容器的旧高度：留着的话，本次测量读到的还是上一个宽度撑出来的值
+    for (const child of Array.from(this.view.children) as HTMLElement[]) {
+      if (this.chunks[Number(child.dataset.chunk)]) child.style.minHeight = "";
+    }
+    // 2) 已挂载的页按当前布局重测；未挂载的页用「新的每行平均高度」重估
+    //    （比"行数 × 行高"准得多：它把折行也算了进去，而折行正是宽度变化的核心影响）
+    let sum = 0;
+    let rows = 0;
+    for (let i = 0; i < this.chunks.length; i++) {
+      const el = this.chunks[i];
+      if (!el) continue;
+      const measured = el.offsetHeight;
+      if (measured <= 0) continue;
+      this.chunkHeights[i] = measured;
+      el.style.minHeight = measured + "px";
+      sum += measured;
+      rows += this.chunkRowCount(i);
+    }
+    const perRow = rows > 0 ? sum / rows : 0;
+    for (let i = 0; i < this.chunks.length; i++) {
+      if (this.chunks[i]) continue;
+      const est = perRow > 0 ? Math.round(perRow * this.chunkRowCount(i)) : this.estimateChunkHeight(i);
+      this.chunkHeights[i] = est;
+      const ph = this.chunkEl(i); // 未挂载页的占位骨架还在 DOM 里撑着高度
+      if (ph) ph.style.minHeight = est > 0 ? est + "px" : "";
+    }
+    // 3) 窗口按新高度重排，然后把阅读位置放回去（跟随最新 → 贴新底部）
+    this.ensureWindow();
+    if (this.autoscroll.checked) this.scrollToBottom();
+    else if (anchor >= 0) this.alignRowToTop(anchor);
+  }
+
+  /** DOM 中序号为 ci 的容器（可能是未挂载的空占位骨架） */
+  private chunkEl(ci: number): HTMLElement | undefined {
+    return Array.from(this.view.children).find(
+      (c) => c instanceof HTMLElement && c.dataset.chunk === String(ci),
+    ) as HTMLElement | undefined;
+  }
+
+  /** 第 ci 页当前实际持有的行数（末页可能不满） */
+  private chunkRowCount(ci: number): number {
+    const start = ci * this.rowsPerPage;
+    return Math.max(0, Math.min(this.rowsPerPage, this.rows.length - start));
+  }
+
+  /**
+   * 视口顶部第一行的全局行号（-1 = 视口内没有已挂载的行）。
+   * 未挂载的占位骨架没有子行，跳过——它的位置正是待修的对象，不能用来当锚点。
+   */
+  private topVisibleRow(): number {
+    const viewTop = this.view.getBoundingClientRect().top;
+    for (const child of Array.from(this.view.children) as HTMLElement[]) {
+      const ci = Number(child.dataset.chunk);
+      if (!Number.isFinite(ci) || !this.chunks[ci]) continue;
+      const lines = child.children;
+      for (let k = 0; k < lines.length; k++) {
+        if ((lines[k] as HTMLElement).getBoundingClientRect().bottom > viewTop + 1) {
+          return ci * this.rowsPerPage + k;
+        }
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * 把指定行贴到视口顶部（容器尺寸变化后恢复阅读位置）。
+   * 与 `scrollRowIntoView` 同源的两条纪律：几何一律用 `getBoundingClientRect` 换算
+   * （与 `offsetParent` 无关）；赋完 `scrollTop` 后再收敛一轮（挂载目标页会改变其
+   * 上方各页的累计高度，装载窗口也随之变化）。
+   */
+  private alignRowToTop(rowIdx: number) {
+    const ci = Math.floor(rowIdx / this.rowsPerPage);
+    if (!this.chunks[ci]) this.fillChunk(ci);
+    const place = (): boolean => {
+      const chunk = this.chunks[ci];
+      const line = chunk?.children[rowIdx - ci * this.rowsPerPage] as HTMLElement | undefined;
+      if (!line) return false;
+      const target = line.getBoundingClientRect().top - this.view.getBoundingClientRect().top + this.view.scrollTop;
+      this.view.scrollTop = Math.max(0, target);
+      return true;
+    };
+    if (!place()) return;
+    this.ensureWindow();
+    place();
   }
 
   /** rowsPerPage 变更 / HEX 切换后重建：清空 DOM 全部重排，按滚动比例恢复位置 */
