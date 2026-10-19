@@ -186,6 +186,9 @@ const zh: Dict = {
   "log.captureLog.cancelled": "已取消日志捕获",
   "log.send.error": "发送失败: {e}",
   "log.send.main": "发送 Ctrl+↵",
+  // 选中态期间暂停实时渲染（松手后补回）——不给用户看的新信息，仅作文档说明，
+  // 不渲染进 UI（见 LogViewPage selectionPause）
+  "log.selectPause": "选中文本期间暂停刷新",
 
   // 时间戳模式
   "ts.absolute": "绝对",
@@ -1042,6 +1045,7 @@ const en: Dict = {
   "log.captureLog.cancelled": "Log capture cancelled",
   "log.send.error": "Send failed: {e}",
   "log.send.main": "Send Ctrl+↵",
+  "log.selectPause": "Rendering pauses while text is selected",
 
   "ts.absolute": "Absolute",
   "ts.relative": "Relative",

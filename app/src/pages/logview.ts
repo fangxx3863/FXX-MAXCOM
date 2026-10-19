@@ -51,6 +51,11 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** 补渲染 partial 续接行前的能力守卫：序号有效且该 chunk 仍挂载着（未挂载说明不在窗口内） */
+function needMergeSafe(ci: number, chunks: (HTMLElement | null)[]): boolean {
+  return ci >= 0 && ci < chunks.length && !!chunks[ci];
+}
+
 export class LogViewPage {
   private view: HTMLElement;
   private autoscroll: HTMLInputElement;
@@ -93,6 +98,34 @@ export class LogViewPage {
   /** 上一次触屏触点 Y（判定滑动方向；手指下移 = 内容上移 = 看历史） */
   private lastTouchY = 0;
 
+  // ── 选中态暂停（selection pause）──
+  // 症状：收发区持续收到数据时，按住左键拖选一段文本，只要中途来一条新数据，
+  //       **选区会被拽回顶部**，正在做的选择当场报废（想复制一段历史几乎不可能）。
+  // 成因：高频实时流下「尾页重渲染 + 程序性贴底」两条路径都会动 DOM：
+  //   · renderTail() 会 fillChunk(尾页) —— 该页含用户正在拖选的节点 → 选中段落被换掉；
+  //   · append 的贴底会把 scrollTop 顶到最新 → 用户视口被搬走，拖选跟着跳。
+  // 修法：**只要视图里有非空选区，就把实时流的 DOM 更新整段延后**（append 照常入队数据
+  //       与时间戳，只不碰 DOM），待 selectionchange 报「选区消失」再一次性补渲染 + 补贴底。
+  //       —— 用户看得见的内容在此期间完全静止，选区因此不可能被冲掉。
+  // 边界（都刻意保留）：
+  //   · 用户手动滚动 / 拖滚动条照常工作（那正是「我要离开底部」的表态），本机制只冻结渲染；
+  //   · 用户主动改开关（粘底/HEX/时间戳/过滤/查找）仍然立即生效，不因暂停而失灵；
+  //   · 暂停期间行数照常增长（数据不丢），所以暂停前后的 renderTail 只会多做一次尾页重渲染；
+  //   · selectionchange 不保证在 headless/桩环境里派发 → 另加 mousedown 同步兜底与轮询兜底，
+  //     保证暂停态一定能解除（见 hasLiveSelection / armSelectionProbe）。
+  /** 暂停期间累计的、尚未补渲染的批次数（0 = 无待办） */
+  private pendingRenders = 0;
+  /** 暂停期间是否发生过 partial 续接（需补渲染对应 chunk） */
+  private pendingMerge = false;
+  /** pendingMerge 时要补渲染的 chunk 序号（-1 = 无） */
+  private pendingMergeChunk = -1;
+  /** 左键正按在视图内容区（拖选进行中）。selectionchange 是异步派发的，
+      从按下到选区成形有一帧空窗——这期间到达的数据仍会动 DOM，必须在
+      pointerdown 那一刻就同步暂停，否则正是用户报的「刚选上就被冲掉」。 */
+  private pointerSelecting = false;
+  /** 探针轮询句柄（selectionchange 缺失环境的兜底；正常浏览器从不启动） */
+  private selProbe: number | null = null;
+
   // ── 数据模型 ──
   /** 全量行（永不丢弃） */
   private rows: Row[] = [];
@@ -127,6 +160,35 @@ export class LogViewPage {
       this.view.addEventListener("pointerdown", (e: PointerEvent) => this.onUserPointerDown(e));
       this.view.addEventListener("touchstart", (e: TouchEvent) => this.onUserTouchStart(e), { passive: true });
       this.view.addEventListener("touchmove", (e: TouchEvent) => this.onUserTouchMove(e), { passive: true });
+      // 选中态暂停的解除入口：选区一消失就把暂停期间欠下的渲染补齐。
+      // 另有 mousedown 同步兜底（下方）——selectionchange 在某些 WebView 组合里不派发。
+      if (typeof document !== "undefined" && typeof document.addEventListener === "function") {
+        document.addEventListener("selectionchange", () => this.onSelectionMaybeChanged());
+      }
+      // 按下左键（非滚动条）即进入「选择中」：同步暂停，堵住 selectionchange 的一帧空窗
+      this.view.addEventListener("mousedown", (e: MouseEvent) => {
+        if (e.button !== 0) return;
+        const rect = typeof this.view.getBoundingClientRect === "function" ? this.view.getBoundingClientRect() : null;
+        if (rect) {
+          const onVertBar = e.clientX - rect.left >= this.view.clientWidth;
+          const onHorzBar = e.clientY - rect.top >= this.view.clientHeight;
+          if (onVertBar || onHorzBar) return; // 滚动条拖拽不是选择，照常实时渲染
+        }
+        this.pointerSelecting = true;
+      });
+      // 松手即重判：拖出选区 → 继续暂停（用户要复制）；只是点一下 → 立即恢复实时
+      const endPointerSelect = () => {
+        this.pointerSelecting = false;
+        this.onSelectionMaybeChanged();
+      };
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+        window.addEventListener("pointerup", endPointerSelect);
+        window.addEventListener("pointercancel", endPointerSelect);
+        window.addEventListener("blur", endPointerSelect);
+      }
+      // 鼠标按下也清一次「待补渲染」：双击选中、拖选结束后的下一次点击会先走这里，
+      // 即便 selectionchange 不来，视口也会在用户下一次交互时立刻恢复最新。
+      this.view.addEventListener("mouseup", () => this.onSelectionMaybeChanged());
     }
     if (typeof this.autoscroll.addEventListener === "function") {
       this.autoscroll.addEventListener("change", () => {
@@ -268,6 +330,77 @@ export class LogViewPage {
     if (this.dragGuard !== null && typeof window !== "undefined") {
       window.clearTimeout(this.dragGuard);
       this.dragGuard = null;
+    }
+  }
+
+  /**
+   * 视图内是否存在**非空**选区（含跨出视图的锚点/焦点在视图内的情况）。
+   * 返回 false 时调用方可以安全地动 DOM（重渲染、贴底）而不会打断用户的选择。
+   * 叠加 pointerSelecting：从按下左键到选区成形之间 selectionchange 还没来得及派发，
+   * 这段空窗必须当作「正在选择」处理，否则第一批数据仍会把刚成形的选区冲掉。
+   * 能力守卫：selectionchange 之外的桩环境（jsdom）可能没有 getSelection。
+   */
+  private hasLiveSelection(): boolean {
+    if (this.pointerSelecting) return true;
+    const sel = typeof window !== "undefined" && typeof window.getSelection === "function" ? window.getSelection() : null;
+    if (!sel) return false;
+    if (sel.isCollapsed) return false;
+    const node = sel.anchorNode ?? sel.focusNode;
+    if (!node) return false;
+    if (typeof this.view.contains !== "function") return false;
+    const el = node instanceof Node ? (node.nodeType === Node.TEXT_NODE ? node.parentElement : (node as Element)) : null;
+    return !!(el && this.view.contains(el));
+  }
+
+  /**
+   * 选中态开始/结束的监听入口。
+   * 只在「有非空选区 → 无」的跳变上做补渲染，中间态一律忽略：拖选过程中浏览器会
+   * 连发多次 selectionchange，若每次都去补渲染就等于没有暂停。
+   * 桩环境无 selectionchange 时启用轮询兜底（见 armSelectionProbe）。
+   */
+  private onSelectionMaybeChanged(): void {
+    if (this.hasLiveSelection()) {
+      this.armSelectionProbe();
+      return;
+    }
+    this.flushPausedRenders();
+  }
+
+  /** selectionchange 缺失时的兜底：60ms 轮询一次选区是否消失（与 60fps 渲染节奏同量级） */
+  private armSelectionProbe(): void {
+    if (this.selProbe !== null) return;
+    if (typeof window === "undefined" || typeof window.setInterval !== "function") return;
+    this.selProbe = window.setInterval(() => {
+      if (this.hasLiveSelection()) return;
+      this.stopSelectionProbe();
+      this.flushPausedRenders();
+    }, 60);
+  }
+
+  private stopSelectionProbe(): void {
+    if (this.selProbe === null) return;
+    if (typeof window !== "undefined" && typeof window.clearInterval === "function") {
+      window.clearInterval(this.selProbe);
+    }
+    this.selProbe = null;
+  }
+
+  /** 选区消失后一次性补齐暂停期间欠下的 DOM 更新（幂等：无欠账即空转） */
+  private flushPausedRenders(): void {
+    this.stopSelectionProbe();
+    if (!this.pendingRenders && !this.pendingMerge) return;
+    const needTail = this.pendingRenders > 0;
+    const mergeCi = this.pendingMergeChunk;
+    this.pendingRenders = 0;
+    this.pendingMerge = false;
+    this.pendingMergeChunk = -1;
+    if (needMergeSafe(mergeCi, this.chunks)) this.fillChunk(mergeCi);
+    if (needTail) {
+      this.growChunks();
+      this.renderTail();
+      // 粘底：恢复暂停前的跟随意图（暂停期间开关未被改写，这里只是补上被延后的贴底）
+      if (this.autoscroll.checked) this.scrollToBottom();
+      this.ensureWindow();
     }
   }
 
@@ -487,6 +620,10 @@ export class LogViewPage {
     this.refreshRowHeight();
     let appendedRows = 0;
     let mergedChunk = -1; // 本批若发生了 partial 续接，该行所在 chunk 需刷新
+    // 选中态暂停：视图里有非空选区时，本批只入队数据、不动 DOM（renderTail/fillChunk/贴底
+    // 全部延后到 flushPausedRenders）。否则用户正在拖选的尾页节点会被换掉、视口被贴底搬走，
+    // 选区当场报废。行数照常增长 → 数据不丢，只是晚一点显示。
+    const paused = this.hasLiveSelection();
     for (const item of batch.items) {
       const isPartial = !!item.partial;
       if (this.pendingIdx >= 0 && this.pendingIdx < this.rows.length) {
@@ -513,6 +650,15 @@ export class LogViewPage {
       this.rows.push(row);
       if (isPartial) this.pendingIdx = this.rows.length - 1;
       appendedRows++;
+    }
+    if (paused) {
+      // 只记账，不渲染。ensureWindow 也跳过：滚动位置没变，装载窗口无需重算。
+      if (appendedRows > 0) this.pendingRenders++;
+      if (mergedChunk >= 0) {
+        this.pendingMerge = true;
+        if (mergedChunk > this.pendingMergeChunk) this.pendingMergeChunk = mergedChunk;
+      }
+      return;
     }
     if (appendedRows > 0) {
       this.growChunks();
@@ -910,6 +1056,11 @@ export class LogViewPage {
     this.chunkHeights = [];
     this.pendingIdx = -1;
     this.lastTs = null;
+    // 选中态暂停的欠账一并作废：行都没了，补渲染已无意义（探针也停掉，避免空转）
+    this.stopSelectionProbe();
+    this.pendingRenders = 0;
+    this.pendingMerge = false;
+    this.pendingMergeChunk = -1;
   }
 }
 
