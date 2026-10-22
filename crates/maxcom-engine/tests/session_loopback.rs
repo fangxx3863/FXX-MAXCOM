@@ -1230,3 +1230,108 @@ fn conn_state_reports_link_kind_on_connect_and_reconnect() {
     mgr.disconnect();
     assert_eq!(mgr.conn_state().kind, None, "断开后回到无类型");
 }
+
+// ── 混合编码流：UTF-8 行不得被整行误解码 ──
+
+/// 按脚本逐段推送字节的服务器（模拟设备分段发送）。
+fn spawn_scripted_server(script: Vec<Vec<u8>>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut s = stream;
+            let _ = s.set_write_timeout(Some(Duration::from_secs(2)));
+            for chunk in script.iter() {
+                if s.write_all(chunk).is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(30));
+            }
+            // 保持连接，直到对端关闭
+            let mut buf = [0u8; 1024];
+            while let Ok(n) = s.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+            }
+        }
+    });
+    port
+}
+
+/// 回归（用户实测「中英混合又出问题了」）：设备用 **UTF-8** 输出中英混排日志，
+/// 且行尾切点落在汉字中间时，后续整行中文**不得**变成「寰呮満涓婃姤」这类乱码。
+///
+/// 机理（旧行为）：残缺尾字节被喂进编码检测窗口 → 窗口误锁 GBK →
+/// 之后每一行合法 UTF-8 都被按 GBK 解码。
+#[test]
+fn mixed_utf8_stream_stays_readable_after_truncated_tail() {
+    let cn = "cmd=40(待机上报) len=11 ret=0 host=55DF4EAB ch=3";
+    // 第一段：正常整行（合法 UTF-8，带换行）
+    let mut first = cn.as_bytes().to_vec();
+    first.push(b'\n');
+    // 第二段：整行末尾切在「状」字中间（只剩 2 字节），设备稍后再补齐
+    let mut truncated = cn.as_bytes().to_vec();
+    truncated.extend_from_slice(&[0xe7, 0x8a]); // 「状」的 UTF-8 前 2 字节
+                                                // 第三段：补齐剩余字节 + 换行 → 完整行
+    let mut tail = vec![0xb6, 0xcc]; // 「状」的末字节
+    tail.push(b'\n');
+    // 第四段：再来一行完整的合法 UTF-8（此时窗口可能已被毒化）
+    let mut last = "cmd=40(运行态上报) len=11 ret=0 host=55DF4EAB ch=3"
+        .as_bytes()
+        .to_vec();
+    last.push(b'\n');
+
+    let port = spawn_scripted_server(vec![first, truncated, tail, last]);
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_log_options(LogOptions {
+        idle_timeout_ms: 10,
+        timestamp_mode: TimestampMode::Absolute,
+        encoding: "auto".into(),
+        split_mode: "line".into(),
+    });
+    mgr.connect(tcp_cfg(port)).expect("connect");
+
+    assert!(
+        wait_until(
+            || rec
+                .entries
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.text.contains("运行态上报")),
+            Duration::from_secs(5)
+        ),
+        "未收到最后一行: {:?}",
+        rec.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.text.clone())
+            .collect::<Vec<_>>()
+    );
+
+    let texts: Vec<String> = rec
+        .entries
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|e| e.text.clone())
+        .collect();
+    for t in &texts {
+        assert!(
+            !t.contains("寰呮満涓婃姤") && !t.contains("杩愯"),
+            "整行被误解码为乱码: {t}"
+        );
+    }
+    assert!(
+        texts.iter().any(|t| t.contains("待机上报")),
+        "「待机上报」应原样显示，实际: {texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("运行态上报")),
+        "「运行态上报」应原样显示，实际: {texts:?}"
+    );
+    mgr.disconnect();
+}

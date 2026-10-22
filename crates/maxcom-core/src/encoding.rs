@@ -78,6 +78,21 @@ fn utf8_incomplete_tail(data: &[u8]) -> usize {
     0
 }
 
+/// 缓冲区是否「除末尾可能的不完整序列外」是合法 UTF-8。
+///
+/// 这就是「UTF-8 自证」判据：**合法 UTF-8 不可能含有半个字符**，所以整段能按 UTF-8
+/// 解释就是它自己给出的证据，不该被别的编码猜测定性推翻。
+///
+/// 末尾残缺序列单独处理：读块边界切在汉字中间时，末尾那 1~3 字节是**边界产物**
+/// （不是编码证据），去掉它之后整段仍合法 → 依然算 UTF-8。
+pub fn utf8_self_proves(data: &[u8]) -> bool {
+    if std::str::from_utf8(data).is_ok() {
+        return true;
+    }
+    let keep = utf8_incomplete_tail(data);
+    keep > 0 && std::str::from_utf8(&data[..data.len() - keep]).is_ok()
+}
+
 /// GBK/GB2312：末尾孤立的双字节首字节（无尾字节配对）返回 1，否则 0。
 /// 从头按「首字节 + 尾字节」成对扫描，避免奇偶误判。
 fn gbk_incomplete_tail(data: &[u8]) -> usize {
@@ -167,8 +182,18 @@ impl EncodingHistory {
     /// 把一行原始字节压入窗口，并用新窗口重新判定编码。
     /// 整行「合法 UTF-8」（含纯 ASCII）直接用 UTF-8，不进窗口（避免 ASCII 稀释多语种信号）；
     /// 其余（含 GBK/EUC-KR 等非 UTF-8 字节）整段压栈，交由窗口截断。
+    ///
+    /// ── 为什么还要额外排除「UTF-8 + 末尾残缺序列」──
+    /// 读块边界切在汉字中间时，末尾那几个字节是**边界产物**，不是编码证据。把它算进
+    /// 检测器，chardetng 会把 UTF-8 残尾判成 GBK（实测：`待机上报` + 半字节 → 猜 GBK），
+    /// 于是整条会话锁死 GBK，之后**每一行**合法 UTF-8 都被误解码 → 中文全成乱码
+    /// （「待机上报」→「寰呮満涓婃姤」）。
+    ///
+    /// 判据不能是「末尾像不像 UTF-8 残尾」——GBK 数据的末尾也常长得像（GBK 尾字节落在
+    /// 0xC2..0xF4 区间时与 UTF-8 首字节区间重叠）。可靠判据是 [`utf8_self_proves`]：
+    /// 去掉残尾后整段仍合法 UTF-8 → 这段就是 UTF-8 + 边界产物，整段不进窗口。
     pub fn push(&mut self, data: &[u8]) {
-        if std::str::from_utf8(data).is_ok() {
+        if utf8_self_proves(data) {
             return;
         }
         self.window.extend(data);
@@ -301,8 +326,26 @@ impl StreamDecoder {
 
     /// auto 模式下让滑动窗口看这批字节;窗口给出确定编码且与当前不同时切换。
     /// 仅在 auto 生效;显式编码完全绕过窗口。
+    ///
+    /// ── 「UTF-8 自证」优先 ──
+    /// 合法 UTF-8 不可能含有半个字符,所以整段能按 UTF-8 解释就是**它自己给出的证据**,
+    /// 不该被别的编码猜测定性推翻。这里在喂窗口之前先问一次:这段是不是 UTF-8?
+    /// 是 → 直接按 UTF-8 解,**既不进窗口也不切换 active**。
+    ///
+    /// 为什么必须这样(而不是"喂窗口再按 held 解"):会话是**混合流**——既有 UTF-8 行,
+    /// 也有 GBK 行。一旦窗口被任一证据带偏到 GBK,那些 UTF-8 行就会被整体误解码
+    /// (「待机上报」→「寰呮満涓婃姤」)。让**每一行自己**决定怎么解,是混合流唯一安全的做法。
+    ///
+    /// 判定用 [`utf8_self_proves`]:除末尾可能的不完整序列外整段合法 UTF-8 即算。
+    /// 末尾残缺序列是读块边界的产物,不是编码证据(详见 [`EncodingHistory::push`] 的说明)。
+    ///
+    /// **只对 auto 生效**:用户显式选了 gbk/utf-8 时必须照办,不被自动判定推翻。
     fn settle_auto(&mut self, data: &[u8]) {
         if self.configured != AUTO {
+            return;
+        }
+        // UTF-8 自证:这段自己说明了是 UTF-8 → 不进窗口、不切换 active
+        if utf8_self_proves(data) {
             return;
         }
         self.history.push(data);
@@ -311,41 +354,85 @@ impl StreamDecoder {
         }
     }
 
+    /// 当前段是否由「UTF-8 自证」判为 UTF-8。
+    ///
+    /// 仅 auto 模式返回 true:显式选定的编码是用户的决定,自动判定不得推翻它。
+    fn utf8_self_proved(&self, data: &[u8]) -> bool {
+        self.configured == AUTO && utf8_self_proves(data)
+    }
+
+    /// 当前生效编码下，`data` 末尾「不完整字符序列」的字节数（0..=3）。
+    ///
+    /// ── 为什么不能直接用 encoding_rs 的 `read` 读数 ──
+    /// `decode_to_string(.., last=false)` 的 `read` **把末尾不完整序列也算作已消费**
+    /// （实测：`"cmd=40(待" + e7 8a` → `read=12`＝全长，但输出只有 `"cmd=40(待"`）。
+    /// 解码器内部确实留住了残尾（续喂 `b6` 时会补出「状」），但 `read` 不反映这件事。
+    /// 于是「按 `read` 求切点」永远等于全长 → **切点保护形同虚设**，
+    /// 残缺字节既没被留回缓冲、又进了检测窗口 → 既产生 U+FFFD，又毒化编码判定。
+    ///
+    /// 所以这里自己按编码判末尾残缺长度（UTF-8 看首字节声明的宽度、GBK 看孤立首字节）。
+    fn incomplete_tail_len(&self, data: &[u8]) -> usize {
+        if self.configured != AUTO {
+            // 显式编码：按用户选定的编码判
+            return match self.active {
+                "latin-1" => 0, // 单字节编码不存在跨包截断
+                "gbk" => gbk_incomplete_tail(data),
+                _ => utf8_incomplete_tail(data),
+            };
+        }
+        // auto：这段若「UTF-8 自证」→ 它就是 UTF-8，残尾必须按 UTF-8 判
+        // （按 GBK 判会误判偶数：GBK 尾字节也落在 0x81..=0xFE）
+        if utf8_self_proves(data) {
+            return utf8_incomplete_tail(data);
+        }
+        // auto 且未被 UTF-8 自证 → 窗口若已锁定 GBK 就按 GBK 判；
+        // 还没锁定则保守取两种情形的**较大值**（沿用 11dae3e 的 auto 语义）。
+        match self.history.held_encoding() {
+            AUTO => utf8_incomplete_tail(data).max(gbk_incomplete_tail(data)),
+            _ => gbk_incomplete_tail(data),
+        }
+    }
+
     /// 精确计算:`data` 里构成**完整字符**的前缀字节数(0..=len)。
     ///
-    /// 这是权威答案而非估计——直接取 encoding_rs 流式解码的 `read` 读数。
-    /// 用于把"强制封行 / 截断 / 空闲封行"的切点钉在字符边界上。
+    /// 用于把"强制封行 / 截断 / 空闲封行"的切点钉在字符边界上：末尾不完整序列
+    /// **不计入**，调用方据此把它留回缓冲，等下一批字节到齐再一起解。
+    ///
+    /// 注意这**不是** encoding_rs 的 `read` 读数（见 [`Self::incomplete_tail_len`] 的说明）。
     pub fn complete_len(&mut self, data: &[u8]) -> usize {
         self.settle_auto(data);
-        match self.active {
-            // 单字节编码:每个字节都是一个完整字符
-            "latin-1" => data.len(),
-            "gbk" => prefix_scan(GBK.new_decoder(), data),
-            _ => prefix_scan(UTF_8.new_decoder_without_bom_handling(), data),
-        }
+        data.len() - self.incomplete_tail_len(data)
     }
 
     /// 解出 `data` 的完整字符前缀,返回 (文本, 已消费字节数)。
     /// `consumed < data.len()` ⇒ 尾部有半个字符,调用方应留回缓冲等下一批。
     pub fn decode_prefix(&mut self, data: &[u8]) -> (String, usize) {
         self.settle_auto(data);
-        match self.active {
-            "latin-1" => (data.iter().map(|&b| b as char).collect(), data.len()),
-            "gbk" => span_decode(GBK.new_decoder(), data),
-            _ => span_decode(UTF_8.new_decoder_without_bom_handling(), data),
-        }
+        let keep = self.incomplete_tail_len(data);
+        let consumed = data.len() - keep;
+        let text = match self.active {
+            "latin-1" => data.iter().map(|&b| b as char).collect(),
+            // UTF-8 自证的流:即便 active 已被窗口带偏,这行也必须按 UTF-8 解
+            _ if self.utf8_self_proved(data) => {
+                span_decode(UTF_8.new_decoder_without_bom_handling(), data).0
+            }
+            "gbk" => span_decode(GBK.new_decoder(), data).0,
+            _ => span_decode(UTF_8.new_decoder_without_bom_handling(), data).0,
+        };
+        (text, consumed)
     }
 
     /// 整段解码(用于已确认不含半个字符的整行/整块)。非法序列按 U+FFFD 替换,绝不失败。
     pub fn decode(&mut self, data: &[u8]) -> String {
         self.settle_auto(data);
         match self.active {
+            // UTF-8 自证的流:即便 active 已被窗口带偏,这行也必须按 UTF-8 解
+            _ if self.utf8_self_proved(data) => String::from_utf8_lossy(data).into_owned(),
             "gbk" => decode_with(GBK, data),
             "latin-1" => data.iter().map(|&b| b as char).collect(),
             _ => String::from_utf8_lossy(data).into_owned(),
         }
     }
-
     /// 当前实际生效的编码(具体名;便于遥测与测试)。
     pub fn active_encoding(&self) -> &'static str {
         self.active
@@ -357,18 +444,10 @@ impl StreamDecoder {
     }
 }
 
-/// 用一次性 decoder 求"完整字符前缀长度"(`last=false` 的 read 读数)。
-fn prefix_scan(mut dec: Decoder, src: &[u8]) -> usize {
-    if src.is_empty() {
-        return 0;
-    }
-    // 输出缓冲只为让解码推进;内容丢弃,只关心 read
-    let mut out = String::with_capacity(src.len() * 2 + 8);
-    let (_res, read, _had_err) = dec.decode_to_string(src, &mut out, false);
-    read.min(src.len())
-}
-
 /// 用一次性 decoder 解一段自包含字节,返回 (文本, 已消费字节数)。
+///
+/// 注意返回的「已消费字节数」**包含**末尾不完整序列（encoding_rs 的 `read` 语义），
+/// 故不能直接当切点用 —— 切点请用 [`StreamDecoder::complete_len`]。
 fn span_decode(mut dec: Decoder, src: &[u8]) -> (String, usize) {
     let mut out = String::with_capacity(src.len() * 2 + 8);
     let (_res, read, _had_err) = dec.decode_to_string(src, &mut out, false);
@@ -612,5 +691,199 @@ mod tests {
         let (bytes2, had_err2) = encode("中", "latin-1");
         assert_eq!(bytes2, vec![0xFF]);
         assert!(had_err2);
+    }
+
+    // ── 混合流：UTF-8 自证优先（用户实测「中英混合又出问题了」）──
+
+    /// 回归：读块边界切在汉字中间时，末尾残缺字节**不得**污染编码检测窗口。
+    ///
+    /// 缺陷现象：设备用 UTF-8 输出中文，日志中出现
+    /// `cmd=40(待机上报)` → `cmd=40(寰呮満涓婃姤)`（整行被按 GBK 解）。
+    /// 机理：残缺尾字节被喂给 chardetng → 猜成 GBK → 窗口锁死 GBK →
+    /// 之后**每一行**合法 UTF-8 都被按 GBK 解码。
+    #[test]
+    fn truncated_utf8_tail_does_not_poison_window() {
+        let mut h = EncodingHistory::new(1024);
+        let line = "cmd=40(待机上报) len=11 ret=0 host=55DF4EAB ch=3";
+        // 末尾切在「状」字中间：只剩 UTF-8 的前 2 字节
+        let mut raw = line.as_bytes().to_vec();
+        raw.extend_from_slice(&[0xe7, 0x8a]);
+
+        h.push(&raw);
+        assert_eq!(
+            h.held_encoding(),
+            AUTO,
+            "UTF-8 + 边界残尾不构成编码证据，窗口不得锁定 GBK"
+        );
+    }
+
+    /// 回归：同一段残缺尾用 chardetng 直接猜会得到 GBK —— 锁定这条判据的必要性。
+    #[test]
+    fn truncated_utf8_tail_is_misjudged_gbk_by_raw_detector() {
+        let line = "cmd=40(待机上报) len=11 ret=0 host=55DF4EAB ch=3";
+        let mut raw = line.as_bytes().to_vec();
+        raw.extend_from_slice(&[0xe7, 0x8a]);
+
+        let mut det = chardetng::EncodingDetector::new(chardetng::Iso2022JpDetection::Deny);
+        det.feed(&raw, true);
+        let enc = det.guess(None, chardetng::Utf8Detection::Deny);
+        assert!(
+            std::ptr::eq(enc, GBK),
+            "本回归的前提：原始检测器确实会把「UTF-8 + 残尾」猜成 GBK"
+        );
+        // 但「去掉残尾后整段合法 UTF-8」这一自证判据能正确识别它
+        assert!(utf8_self_proves(&raw), "应识别为 UTF-8 + 边界残尾");
+    }
+
+    /// 回归（用户症状主路径）：窗口一旦被毒化锁到 GBK，
+    /// 后续**合法 UTF-8** 的整行仍必须原样显示，不被按 GBK 误解码。
+    #[test]
+    fn valid_utf8_line_survives_gbk_window_lock() {
+        let mut d = StreamDecoder::new(AUTO);
+        let line = "cmd=40(待机上报) len=11 ret=0 host=55DF4EAB ch=3";
+
+        // 先用**真正的 GBK** 证据把窗口锁到 GBK（模拟混合流里的 GBK 行）
+        let (gbk_bytes, _) = encode("状态=0 已录=100/100 间隔=1s", "gbk");
+        let _ = d.decode(&gbk_bytes);
+        assert_eq!(d.held_encoding(), "gbk", "窗口应已锁定 GBK");
+
+        // 随后这行合法 UTF-8 必须原样显示 —— 不能被 active=gbk 带偏
+        let out = d.decode(line.as_bytes());
+        assert_eq!(
+            out, line,
+            "合法 UTF-8 行不应被窗口锁定值误解码（用户症状：待机上报→寰呮満涓婃�）"
+        );
+    }
+
+    /// 回归：auto 模式下 UTF-8 行与 GBK 行**交错**时，各自按自己的编码正确解码。
+    #[test]
+    fn mixed_utf8_and_gbk_lines_each_decode_correctly() {
+        let mut d = StreamDecoder::new(AUTO);
+        let utf8_line = "cmd=40(待机上报) len=11 ret=0 host=55DF4EAB ch=3";
+        let gbk_line = "状态=0 已录=100/100 间隔=1s";
+
+        let (gbk_bytes, _) = encode(gbk_line, "gbk");
+
+        // UTF-8 → GBK → UTF-8 交错
+        assert_eq!(d.decode(utf8_line.as_bytes()), utf8_line);
+        assert_eq!(d.decode(&gbk_bytes), gbk_line);
+        assert_eq!(d.decode(utf8_line.as_bytes()), utf8_line);
+    }
+
+    /// 回归：纯 GBK 设备不受影响 —— 显式 gbk 与 auto 锁定 gbk 都要正确。
+    #[test]
+    fn pure_gbk_device_unaffected() {
+        for configured in ["gbk", AUTO] {
+            let mut d = StreamDecoder::new(configured);
+            for l in [
+                "状态=0 已录=100/100 间隔=1s",
+                "cmd=40(待机上报) len=11 ret=0 host=55DF4EAB ch=3",
+                "运行态上报",
+            ] {
+                let (bytes, _) = encode(l, "gbk");
+                assert_eq!(d.decode(&bytes), l, "encoding={configured} 时 GBK 行应正确");
+            }
+        }
+    }
+
+    /// 回归：显式选定的编码是**用户的决定**，自动判定不得推翻它。
+    #[test]
+    fn explicit_encoding_is_never_overridden_by_detection() {
+        let mut d = StreamDecoder::new("gbk");
+        let (bytes, _) = encode("待机上报", "gbk");
+        assert_eq!(d.decode(&bytes), "待机上报", "显式 gbk 必须照办");
+
+        let mut d2 = StreamDecoder::new("utf-8");
+        assert_eq!(
+            d2.decode("待机上报".as_bytes()),
+            "待机上报",
+            "显式 utf-8 必须照办"
+        );
+    }
+
+    /// 回归：切点计算在「窗口锁定 GBK、当前段却是 UTF-8」时仍按 UTF-8 对齐，
+    /// 否则会把汉字劈成两半（`complete_len` 少算字节 → 后续行整体错位）。
+    #[test]
+    fn complete_len_aligns_to_utf8_even_when_window_locked_gbk() {
+        let mut d = StreamDecoder::new(AUTO);
+        // 用 GBK 证据锁窗口
+        let (gbk_bytes, _) = encode("状态=0 已录=100/100 间隔=1s", "gbk");
+        let _ = d.decode(&gbk_bytes);
+        assert_eq!(d.held_encoding(), "gbk");
+
+        // UTF-8 行末尾带残缺尾：切点必须落在残尾之前（不劈开汉字）
+        let line = "cmd=40(待机上报)";
+        let mut raw = line.as_bytes().to_vec();
+        raw.extend_from_slice(&[0xe7, 0x8a]);
+        let complete = d.complete_len(&raw);
+        assert_eq!(complete, line.len(), "切点应落在残缺尾之前（汉字不被劈开）");
+    }
+
+    /// 回归：空闲封行时，末尾不完整序列必须被**留回缓冲**（`complete_len` 扣掉它），
+    /// 封行片段才不含 U+FFFD —— 这正是修「参?」的那个保护。
+    ///
+    /// 注意：旧实现用 encoding_rs 的 `read` 读数求切点，而 `read` **把残尾也算已消费**
+    /// → 切点永远等于全长 → 保护形同虚设。改用 `complete_len` 后才真正留得住。
+    #[test]
+    fn complete_len_holds_incomplete_utf8_tail() {
+        let mut d = StreamDecoder::new(AUTO);
+        let line = "更新 AP0 参数 显示: 1";
+        let mut raw = line.as_bytes().to_vec();
+        raw.push(0xe5); // 「数」的首字节，缺后 2 字节
+
+        let complete = d.complete_len(&raw);
+        assert_eq!(complete, line.len(), "残缺尾的 1 字节应被扣在切点之外");
+        assert_eq!(raw.len() - complete, 1, "应留回 1 字节");
+
+        // 封行片段（切点之前）必须完整、无替换字符
+        let emitted = d.decode(&raw[..complete]);
+        assert_eq!(emitted, line, "封行片段应还原整行");
+        assert!(!emitted.contains('\u{FFFD}'), "封行片段不应含替换字符");
+    }
+
+    /// 回归（边界）：GBK 汉字的**尾字节**落在 UTF-8 首字节区间（0xC2..0xF4）时，
+    /// 该 GBK 行不得被「UTF-8 自证」误判成 UTF-8。
+    ///
+    /// 「伮」的 GBK 字节 = 81 C2，尾字节 0xC2 正是 UTF-8 两字节序列的首字节区间 ——
+    /// 这是两个编码区间重叠的典型样本，自证判据必须对它免疫。
+    #[test]
+    fn gbk_line_with_utf8_range_trail_byte_is_not_self_proved() {
+        let mut line = b"state=1 ".to_vec();
+        line.extend_from_slice(&[0x81, 0xC2]); // GBK「伮」
+        assert!(
+            !utf8_self_proves(&line),
+            "GBK 行不得被判成 UTF-8（尾字节落在 0xC2..0xF4）"
+        );
+
+        // 窗口锁定 GBK 后，这行必须按 GBK 解、不得含替换字符
+        let mut d = StreamDecoder::new(AUTO);
+        let (lock, _) = encode("状态=0 已录=100/100 间隔=1s", "gbk");
+        let _ = d.decode(&lock);
+        assert_eq!(d.held_encoding(), "gbk");
+        let out = d.decode(&line);
+        assert!(!out.contains('\u{FFFD}'), "GBK 行不得含替换字符: {out:?}");
+    }
+
+    /// 回归（边界）：GBK 行末尾的**孤立首字节**（汉字被切断）必须被留回缓冲，
+    /// 且封行片段不得含替换字符。
+    #[test]
+    fn gbk_isolated_lead_byte_is_held_back() {
+        let mut d = StreamDecoder::new(AUTO);
+        // 先锁 GBK
+        let (lock, _) = encode("状态=0 已录=100/100 间隔=1s", "gbk");
+        let _ = d.decode(&lock);
+        assert_eq!(d.held_encoding(), "gbk");
+
+        let (base, _) = encode("状态=0 已录=100/100", "gbk");
+        let mut raw = base;
+        raw.push(0xB0); // 孤立首字节（汉字被切断）
+
+        let complete = d.complete_len(&raw);
+        assert_eq!(complete, raw.len() - 1, "GBK 孤立首字节应留回");
+        let out = d.decode(&raw[..complete]);
+        assert!(
+            !out.contains('\u{FFFD}'),
+            "GBK 封行片段不应含替换字符: {out:?}"
+        );
     }
 }
