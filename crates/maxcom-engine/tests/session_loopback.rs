@@ -1272,9 +1272,9 @@ fn mixed_utf8_stream_stays_readable_after_truncated_tail() {
     first.push(b'\n');
     // 第二段：整行末尾切在「状」字中间（只剩 2 字节），设备稍后再补齐
     let mut truncated = cn.as_bytes().to_vec();
-    truncated.extend_from_slice(&[0xe7, 0x8a]); // 「状」的 UTF-8 前 2 字节
+    truncated.extend_from_slice(&[0xe7, 0x8a]); // 「状」的 UTF-8 前 2 字节（E7 8A B6）
                                                 // 第三段：补齐剩余字节 + 换行 → 完整行
-    let mut tail = vec![0xb6, 0xcc]; // 「状」的末字节
+    let mut tail = vec![0xb6]; // 「状」的末字节
     tail.push(b'\n');
     // 第四段：再来一行完整的合法 UTF-8（此时窗口可能已被毒化）
     let mut last = "cmd=40(运行态上报) len=11 ret=0 host=55DF4EAB ch=3"
@@ -1332,6 +1332,90 @@ fn mixed_utf8_stream_stays_readable_after_truncated_tail() {
     assert!(
         texts.iter().any(|t| t.contains("运行态上报")),
         "「运行态上报」应原样显示，实际: {texts:?}"
+    );
+    mgr.disconnect();
+}
+
+// ── 中英混合流：GBK 行与 UTF-8 行交错，读块边界切在汉字中间 ──
+
+/// 回归（用户实测「中英混合又出问题了」）：设备先发 GBK 行、再发 UTF-8 行，
+/// 且**两次的读块边界都切在汉字中间**。
+///
+/// 旧行为的两个失效点：
+/// 1. 残缺尾字节被喂进编码检测窗口 → 窗口误锁 GBK → 之后的 UTF-8 行整体乱码
+///    （「待机上报」→「寰呮満涓婃姤」）；
+/// 2. 切点由调用方计算，与解码用的编码不一致 → 「按 A 解、按 B 切」→ 整行错位。
+///
+/// 流式方案下这两点都从结构上消失：解码器自己持有半个字符，
+/// 且检测窗口永远看不到半个字符。
+#[test]
+fn mixed_gbk_then_utf8_lines_survive_mid_character_cuts() {
+    // GBK 行（设备老固件）
+    let gbk_line = "状态=0 已录=100/100 间隔=1s";
+    let mut gbk_bytes = maxcom_core::encoding::encode(gbk_line, "gbk").0;
+    gbk_bytes.push(b'\n');
+    // UTF-8 行（新固件）
+    let utf8_line = "cmd=40(待机上报) len=11 ret=0 host=55DF4EAB ch=3";
+    let mut utf8_bytes = utf8_line.as_bytes().to_vec();
+    utf8_bytes.push(b'\n');
+
+    // 在 GBK 汉字中间切一刀（首字节之后）
+    let gbk_cut = 1 + 1; // "状态" 的首字节在 index 0 → 切在 index 1
+    assert!(
+        gbk_bytes[0] >= 0x81 && gbk_bytes[0] <= 0xFE,
+        "应为 GBK 首字节"
+    );
+
+    // 在 UTF-8 汉字中间切一刀（3 字节字符的第 1 字节之后）
+    let u_start = utf8_line.find("待").unwrap();
+    let utf8_cut = u_start + 1;
+
+    let script: Vec<Vec<u8>> = vec![
+        gbk_bytes[..gbk_cut].to_vec(),
+        gbk_bytes[gbk_cut..].to_vec(),
+        utf8_bytes[..utf8_cut].to_vec(),
+        utf8_bytes[utf8_cut..].to_vec(),
+    ];
+
+    let port = spawn_scripted_server(script);
+    let rec = Arc::new(Recorder::default());
+    let mgr = SessionManager::new(rec.clone());
+    mgr.set_log_options(LogOptions {
+        idle_timeout_ms: 10,
+        timestamp_mode: TimestampMode::Absolute,
+        encoding: "auto".into(),
+        split_mode: "line".into(),
+    });
+    mgr.connect(tcp_cfg(port)).expect("connect");
+
+    let joined = |rec: &Arc<Recorder>| -> String {
+        rec.entries
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|e| e.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    assert!(
+        wait_until(
+            || {
+                let t = joined(&rec);
+                t.contains("待机上报") && t.contains("状态=0")
+            },
+            Duration::from_secs(5)
+        ),
+        "两行都应到达: {:?}",
+        joined(&rec)
+    );
+
+    let text = joined(&rec);
+    assert!(text.contains("状态=0"), "GBK 行必须正确显示: {text:?}");
+    assert!(text.contains("待机上报"), "UTF-8 行必须正确显示: {text:?}");
+    assert!(
+        !text.contains("寰呮満涓婃姤"),
+        "UTF-8 行不得被误解码: {text:?}"
     );
     mgr.disconnect();
 }

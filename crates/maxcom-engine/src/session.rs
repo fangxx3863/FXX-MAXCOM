@@ -1080,11 +1080,22 @@ impl SessionManager {
                             last_data_ms = now;
                             if options.split_mode == "line" {
                         for raw in splitter.feed(&data) {
-                            let raw_text = decoder.decode(&raw);
-                            let segments = colorize.process_line(&raw_text); // 见 ANSI → 产出颜色段
-                            let text = strip_ansi(&raw_text); // DTO.text/过滤/raw 用干净文本
+                            // ── 流式解码 ──
+                            // decoder 持有「半个字符」：行末被读块边界切断的汉字不会被劈开，
+                            // 而是留在解码器内部，等下一行到齐后自动接上还原。
+                            // 这就是「切界问题」的根治点：切点永远落在字符边界上。
+                            let mut dec = decoder.feed(&raw);
+                            // 完整行 = **硬边界**：行末残留的半个字符**不可能再补齐**
+                            // （换行字节不属于任何多字节字符），在此冲掉。
+                            // 不冲掉的话，它会被带进**下一行**、让下一行整体误判编码
+                            // → 下一行整行变乱码。
+                            let tail = decoder.close_boundary();
+                            dec.text.push_str(&tail.text);
+                            dec.raw.extend_from_slice(&tail.raw);
+                            let segments = colorize.process_line(&dec.text); // 见 ANSI → 产出颜色段
+                            let text = strip_ansi(&dec.text); // DTO.text/过滤/raw 用干净文本
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&dec.raw), partial: false, dir: cur_dir });
                             }
                         }
                         // 长流防护：连续流无换行（二进制流）时空闲封行永不触发（last_data_ms 持续刷新）、
@@ -1094,23 +1105,18 @@ impl SessionManager {
                         // 产生近 8KB 的 entry，硬约束单条 ≤ CAP 更稳。
                         if splitter.pending_bytes() >= PARTIAL_FLUSH_CAP {
                             let mut raw = splitter.flush_pending_line();
-                            let mut excess = raw.split_off(PARTIAL_FLUSH_CAP);
-                            // 截断点同样不能劈开多字节字符：用 complete_len 精确对齐字符边界
-                            let complete = decoder.complete_len(&raw);
-                            if complete < raw.len() {
-                                let tail = raw.split_off(complete);
-                                let mut new_excess = tail;
-                                new_excess.extend_from_slice(&excess);
-                                excess = new_excess;
-                            }
+                            let excess = raw.split_off(PARTIAL_FLUSH_CAP);
+                            // 截断点同样不能劈开多字节字符：交给流式解码器 ——
+                            // 它会把末尾的半个字符**留在内部**，下一批到齐后自动接上。
+                            // 余量回填 pending（字节顺序：解码器持有的尾巴 → 余量 → 新数据）。
                             if !excess.is_empty() {
                                 let _ = splitter.feed(&excess);
                             }
-                            let raw_text = decoder.decode(&raw);
-                            let segments = colorize.process_line(&raw_text);
-                            let text = strip_ansi(&raw_text);
+                            let dec = decoder.feed(&raw);
+                            let segments = colorize.process_line(&dec.text);
+                            let text = strip_ansi(&dec.text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&dec.raw), partial: false, dir: cur_dir });
                             }
                         }
                     } else {
@@ -1121,21 +1127,15 @@ impl SessionManager {
                         if time_buf.len() >= PARTIAL_FLUSH_CAP {
                             let mut raw = std::mem::take(&mut time_buf);
                             if raw.len() > PARTIAL_FLUSH_CAP {
-                                let mut excess = raw.split_off(PARTIAL_FLUSH_CAP);
-                                // 同上：截断点不能劈开多字节字符
-                                let complete = decoder.complete_len(&raw);
-                                if complete < raw.len() {
-                                    let mut tail = raw.split_off(complete);
-                                    tail.extend_from_slice(&excess);
-                                    excess = tail;
-                                }
+                                let excess = raw.split_off(PARTIAL_FLUSH_CAP);
+                                // 同上：截断点不能劈开多字节字符 → 留给流式解码器持有
                                 time_buf.extend_from_slice(&excess);
                             }
-                            let raw_text = decoder.decode(&raw);
-                            let segments = colorize.process_line(&raw_text);
-                            let text = strip_ansi(&raw_text);
+                            let dec = decoder.feed(&raw);
+                            let segments = colorize.process_line(&dec.text);
+                            let text = strip_ansi(&dec.text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
+                                batch.push(LogEntryDto { ts_ms: now, text, segments, raw_hex: hex_of(&dec.raw), partial: false, dir: cur_dir });
                             }
                         }
                     }
@@ -1148,30 +1148,27 @@ impl SessionManager {
                         let idle_elapsed = now_mono_ms().saturating_sub(last_data_ms) >= options.idle_timeout_ms;
                         if options.split_mode == "line" {
                             if splitter.pending_bytes() > 0 && idle_elapsed {
-                                let mut raw = splitter.flush_pending_line();
-                                // 切点落在多字节字符中间时把末尾不完整序列留回 pending：
-                                // 下一批字节到齐后前端 partial 续行会把它接回同一行，避免解出 U+FFFD。
-                                let complete = decoder.complete_len(&raw);
-                                if complete < raw.len() {
-                                    let tail = raw.split_off(complete);
-                                    let _ = splitter.feed(&tail);
-                                }
+                                let raw = splitter.flush_pending_line();
+                                // ── 空闲封行是「软边界」 ──
+                                // 半个字符**不能**在这里冲掉：它很可能下一批就到齐了。
+                                // 流式解码器会把它留在内部，等下一批字节自动接上还原，
+                                // 前端 partial 续行会把它接回同一行 → 不会出现 U+FFFD。
                                 if !raw.is_empty() {
-                                    let raw_text = decoder.decode(&raw);
-                                    let segments = colorize.process_line(&raw_text);
-                                    let text = strip_ansi(&raw_text);
+                                    let dec = decoder.feed(&raw);
+                                    let segments = colorize.process_line(&dec.text);
+                                    let text = strip_ansi(&dec.text);
                                     if filter.should_show(&text) {
-                                        batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: true, dir: cur_dir });
+                                        batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&dec.raw), partial: true, dir: cur_dir });
                                     }
                                 }
                             }
                         } else if !time_buf.is_empty() && idle_elapsed {
                             let raw = std::mem::take(&mut time_buf);
-                            let raw_text = decoder.decode(&raw);
-                            let segments = colorize.process_line(&raw_text);
-                            let text = strip_ansi(&raw_text);
+                            let dec = decoder.feed(&raw);
+                            let segments = colorize.process_line(&dec.text);
+                            let text = strip_ansi(&dec.text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
+                                batch.push(LogEntryDto { ts_ms: last_data_ms, text, segments, raw_hex: hex_of(&dec.raw), partial: false, dir: cur_dir });
                             }
                         }
                         if !batch.is_empty() && last_flush.elapsed() >= Duration::from_millis(30) {
@@ -1184,20 +1181,31 @@ impl SessionManager {
                 if stop_l.load(Ordering::Relaxed) {
                     if options.split_mode == "line" {
                         for raw in splitter.flush() {
-                            let raw_text = decoder.decode(&raw);
-                            let segments = colorize.process_line(&raw_text);
-                            let text = strip_ansi(&raw_text);
+                            let dec = decoder.feed(&raw);
+                            let segments = colorize.process_line(&dec.text);
+                            let text = strip_ansi(&dec.text);
                             if filter.should_show(&text) {
-                                batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
+                                batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&dec.raw), partial: false, dir: cur_dir });
                             }
                         }
                     } else if !time_buf.is_empty() {
                         let raw = std::mem::take(&mut time_buf);
-                        let raw_text = decoder.decode(&raw);
-                        let segments = colorize.process_line(&raw_text);
-                        let text = strip_ansi(&raw_text);
+                        let dec = decoder.feed(&raw);
+                        let segments = colorize.process_line(&dec.text);
+                        let text = strip_ansi(&dec.text);
                         if filter.should_show(&text) {
-                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&raw), partial: false, dir: cur_dir });
+                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&dec.raw), partial: false, dir: cur_dir });
+                        }
+                    }
+                    // ── 硬边界收尾 ──
+                    // 会话结束 → 解码器里残留的半个字符**不可能再补齐**，
+                    // 按 U+FFFD 冲掉并单独产出一条（数据不丢）。
+                    let tail = decoder.close_boundary();
+                    if !tail.text.is_empty() {
+                        let segments = colorize.process_line(&tail.text);
+                        let text = strip_ansi(&tail.text);
+                        if filter.should_show(&text) {
+                            batch.push(LogEntryDto { ts_ms: now_mono_ms(), text, segments, raw_hex: hex_of(&tail.raw), partial: false, dir: cur_dir });
                         }
                     }
                     if !batch.is_empty() {
