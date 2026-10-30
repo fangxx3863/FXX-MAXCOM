@@ -27,3 +27,4 @@ MAXCOM 的关键架构决策。状态 accepted 的不得在实现期翻案，如
 | 0021 | **MCP 服务端**：内嵌 Streamable HTTP（仅回环）+ 官方 rmcp SDK + 全量工具 | ADR-0018 / `crates/maxcom-mcp` |
 | 0022 | **收发区方向标记**：方向随字节走（总线载荷带标签），显示偏好留在前端 | ADR-0015 / ADR-0021 / SPEC logview |
 | 0023 | **收发区高度缓存随容器宽度失效**：尺寸变化是一等事件（侧栏开合/缩放后不得留空白） | ADR-0022 / SPEC logview |
+| 0024 | **粘底（自动滚动）的两条失效路径**：视图不可见（`display:none`）与单行续接 | ADR-0023 / SPEC logview |

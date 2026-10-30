@@ -1113,6 +1113,9 @@ class SessionApp {
     );
     if (id === "plot") this.plotPage.onShow(); // 隐藏期间量不到尺寸，显示后按真实容器重建
     if (id === "terminal") this.terminalPage.syncPtySize();
+    // 收发页同理：隐藏期间 clientHeight 为 0，贴底算不出目标，scrollTop 又停在旧值 ——
+    // 显示后按真实布局重算一次（勾着自动滚动就直接落到最新）。
+    if (id === "logview") this.logViewPage.resync();
     if (id === "flash") void this.flashPage.refreshProbes();
     // 查找随当前页走：终端 ↔ 收发的高亮通道不同，切页后必须把词重新投到新通道，
     // 并清掉另一通道的残留高亮（否则切回来会看到两套高亮叠加）。
@@ -1147,6 +1150,8 @@ class SessionApp {
   onActivated() {
     if (this.currentPage === "plot" || this.currentPage === "stats") this.plotPage.onShow();
     if (this.currentPage === "terminal") this.terminalPage.syncPtySize();
+    // 收发页在隐藏期同样量不到尺寸：切回来必须重新贴底（勾着自动滚动）或还原阅读位置
+    if (this.currentPage === "logview") this.logViewPage.resync();
   }
 
   // ── 日志控制条 ──

@@ -13,6 +13,8 @@
 // 「自动滚动」复选框是唯一权威状态，只在用户主动表态时改写：滚轮/触屏向上、↑、PageUp、Home
 // → 解锁；滚轮/触屏向下且已在底部 → 恢复跟随；拖滚动条期间跟手；手动勾选/取消即时生效。
 // 数据增长、程序性 scrollToBottom、分页装卸产生的 scroll 一律不改开关，突发数据冲不掉它。
+// 两条容易漏的「内容变高」路径也在这里兜住：① partial 续接（同一行越写越长，没有新增行）；
+// ② 切标签页/切页面（display:none 期间尺寸为 0，量不出贴底目标）——后者由 resync() 补齐。
 import type { EntriesBatch, LogEntryDto } from "../types";
 import { t } from "../i18n";
 
@@ -142,10 +144,13 @@ export class LogViewPage {
   /** 视口上下各预渲染页数 */
   private pageBuffer = 2;
 
-  // ── 容器尺寸（侧栏开合 / 窗口缩放 / 浮窗拉伸）──
+  // ── 容器尺寸（侧栏开合 / 窗口缩放 / 浮窗拉伸 / 切标签页）──
   /** 上次观察到的滚动容器内部尺寸，用于判重（ResizeObserver 会连发多次） */
   private lastW = 0;
   private lastH = 0;
+  /** 最近一次「可见且可测量」时的 scrollTop。display:none 期间浏览器量不出布局，
+   *  隐藏期写入的 scrollTop 不生效、隐藏前的值又已不代表新内容 → 恢复可见时靠它还原阅读位置。 */
+  private lastGoodScrollTop = 0;
   private ro: ResizeObserver | null = null;
 
   constructor(view: HTMLElement, opts: { autoscroll: HTMLInputElement; getTsMode: () => string }) {
@@ -410,6 +415,9 @@ export class LogViewPage {
     if (!atBottom) this.relockAllowed = true;
     // 非拖拽产生的 scroll（程序性贴底、数据增长、分页装卸）一律不改开关
     if (this.dragging) this.setSticky(atBottom && this.relockAllowed);
+    // 记下可测量时的阅读位置：隐藏期间（display:none）写进去的 scrollTop 不生效，
+    // 隐藏前的旧值也不代表新内容 → 只认「有布局」时的值，恢复可见时据此还原。
+    if (this.view.clientHeight > 0) this.lastGoodScrollTop = this.view.scrollTop;
     this.ensureWindow();
   }
 
@@ -669,7 +677,10 @@ export class LogViewPage {
     }
     // 粘底：只有开关为「跟随」态时才贴底。不再看 wasBottom——否则用户刻意取消勾选后，
     // 只要恰好停在底部就会被下一批数据拽走，等于开关白关。
-    if (appendedRows > 0 && this.autoscroll.checked) {
+    // partial 续接（mergedChunk >= 0）同样要贴底：设备不换行、一直往同一行里灌数据时，
+    // 这一行会折成几十上百个视觉行，**一行都没新增**却把内容撑高了。只看 appendedRows
+    // 就会「有数据在涨、视图纹丝不动」，越落越远（单行多数据的现场）。
+    if (this.autoscroll.checked && (appendedRows > 0 || mergedChunk >= 0)) {
       this.scrollToBottom();
     }
   }
@@ -810,16 +821,20 @@ export class LogViewPage {
   }
 
   /** 容器尺寸变化：宽度变化 → 作废高度缓存并重测；仅高度变化 → 重排装载窗口即可 */
-  private onViewResize() {
+  private onViewResize(force = false) {
     const w = this.view.clientWidth;
     const h = this.view.clientHeight;
-    if (w === this.lastW && h === this.lastH) return;
+    if (!force && w === this.lastW && h === this.lastH) return;
+    // 刚从 display:none 恢复（切标签页 / 切页面 / 浮窗收起）：隐藏期间尺寸是 0，
+    // 高度实测全部作废，scrollTop 也停在旧值（隐藏期写入不生效）—— 两件事都得在这里一次收拾。
+    const resumed = this.lastW === 0 || this.lastH === 0;
     // lastW 为 0 说明还没拿到过有效布局（首帧），此时没有实测值可作废
     const widthChanged = this.lastW > 0 && w !== this.lastW;
     this.lastW = w;
     this.lastH = h;
     if (!this.rows.length) return;
-    if (!widthChanged) {
+    if (!w || !h) return; // 仍不可见：量不出任何东西，等下一次恢复
+    if (!widthChanged && !resumed) {
       this.ensureWindow();
       return;
     }
@@ -855,8 +870,30 @@ export class LogViewPage {
     }
     // 3) 窗口按新高度重排，然后把阅读位置放回去（跟随最新 → 贴新底部）
     this.ensureWindow();
-    if (this.autoscroll.checked) this.scrollToBottom();
-    else if (anchor >= 0) this.alignRowToTop(anchor);
+    if (this.autoscroll.checked) {
+      this.scrollToBottom();
+    } else if (resumed && this.lastGoodScrollTop > 0) {
+      // 手动滚动态切回来：还原隐藏前的阅读位置（隐藏期间 scrollTop 不生效，不能指望浏览器保留）
+      const maxScroll = Math.max(0, this.view.scrollHeight - this.view.clientHeight);
+      this.view.scrollTop = Math.min(this.lastGoodScrollTop, maxScroll);
+      this.ensureWindow();
+    } else if (anchor >= 0) {
+      this.alignRowToTop(anchor);
+    }
+  }
+
+  /**
+   * 视图重新可见（切标签页 / 切页面 / 从爆炸视图或浮窗换容器）时由外部调用。
+   *
+   * 为什么需要这个显式入口：`display:none` 期间 `clientWidth/clientHeight` 都是 0，
+   * 于是 append 里的贴底只能算出 0、`ensureWindow` 也直接空转；浏览器又把 scrollTop
+   * 冻结在隐藏前的旧值上。等再次可见时，内容早已长高一大截 —— 若没人重算，
+   * 用户看到的就是「勾着自动滚动、切回来却停在半路」。ResizeObserver 通常也会补上这一次
+   * （见 onViewResize 的 resumed 分支），但它的回调时机由浏览器调度，
+   * 这里同步补一次，保证「点一下就回到最新」不依赖观察器的派发时序。
+   */
+  resync(): void {
+    this.onViewResize(true);
   }
 
   /** DOM 中序号为 ci 的容器（可能是未挂载的空占位骨架） */
