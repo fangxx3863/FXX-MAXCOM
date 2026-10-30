@@ -827,6 +827,8 @@ export class LogViewPage {
     if (!force && w === this.lastW && h === this.lastH) return;
     // 刚从 display:none 恢复（切标签页 / 切页面 / 浮窗收起）：隐藏期间尺寸是 0，
     // 高度实测全部作废，scrollTop 也停在旧值（隐藏期写入不生效）—— 两件事都得在这里一次收拾。
+    // resync() 会先把 lastW/lastH 归零来强制走这条分支：隐藏与恢复可能被 RO 合并掉，
+    // 那时尺寸「看起来没变」，但该做的事一件没少。
     const resumed = this.lastW === 0 || this.lastH === 0;
     // lastW 为 0 说明还没拿到过有效布局（首帧），此时没有实测值可作废
     const widthChanged = this.lastW > 0 && w !== this.lastW;
@@ -872,6 +874,11 @@ export class LogViewPage {
     this.ensureWindow();
     if (this.autoscroll.checked) {
       this.scrollToBottom();
+      // 收敛第二轮：贴底会改变装载窗口（尾页进出），几何随之再变一次，落点可能已经不是底部
+      // （与 scrollRowIntoView / alignRowToTop 同一条纪律）。少这一轮的表现就是
+      // 「切回来落在一个旧底部的刻度上」，正是用户在 macOS CI 上撞到的那一版。
+      this.ensureWindow();
+      this.scrollToBottom();
     } else if (resumed && this.lastGoodScrollTop > 0) {
       // 手动滚动态切回来：还原隐藏前的阅读位置（隐藏期间 scrollTop 不生效，不能指望浏览器保留）
       const maxScroll = Math.max(0, this.view.scrollHeight - this.view.clientHeight);
@@ -885,14 +892,16 @@ export class LogViewPage {
   /**
    * 视图重新可见（切标签页 / 切页面 / 从爆炸视图或浮窗换容器）时由外部调用。
    *
-   * 为什么需要这个显式入口：`display:none` 期间 `clientWidth/clientHeight` 都是 0，
-   * 于是 append 里的贴底只能算出 0、`ensureWindow` 也直接空转；浏览器又把 scrollTop
-   * 冻结在隐藏前的旧值上。等再次可见时，内容早已长高一大截 —— 若没人重算，
-   * 用户看到的就是「勾着自动滚动、切回来却停在半路」。ResizeObserver 通常也会补上这一次
-   * （见 onViewResize 的 resumed 分支），但它的回调时机由浏览器调度，
-   * 这里同步补一次，保证「点一下就回到最新」不依赖观察器的派发时序。
+   * 这是调用方对**事实**的断言（「刚才是隐藏的，现在可见了」），不能靠几何去推断：
+   * `display:none` 期间主线程可能一直被占满（高频续接、大批量重渲染），于是
+   * `ResizeObserver` 会把「隐藏 0×0」与「恢复」**合并成一次净变化为零的观测**——
+   * 一次回调都不派发。若 `resync()` 仍按「尺寸变了才算恢复」判断，就会得出
+   * 「什么都没变」而直接返回，贴底当场丢掉（macOS CI 上的失败即此）。
+   * 因此这里先自报「无有效测量」，强制走重测 + 复位那条路。
    */
   resync(): void {
+    this.lastW = 0;
+    this.lastH = 0;
     this.onViewResize(true);
   }
 

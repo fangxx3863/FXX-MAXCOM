@@ -112,6 +112,42 @@ const feed = (n, text) => page.evaluate(({ n, text }) => window.__feed(n, text),
 const feedPartial = (text, partial = true) =>
   page.evaluate(({ text, partial }) => window.__feedPartial(text, partial), { text, partial });
 const settle = (ms = 120) => page.waitForTimeout(ms);
+/**
+ * 等浏览器真的跑完两帧（带兜底超时）。
+ *
+ * ResizeObserver 的回调在「更新渲染」阶段派发：主线程若一直被占着（大批量重渲染，CI 慢机器
+ * 上很容易），隐藏态那一帧根本不会发生 → 「隐藏 0×0」与「恢复」被合并成一次净变化为零的
+ * 观测，**一次回调都不派发**。所以可见性切换之后显式等帧，让「隐藏」这个状态真被看见一次
+ * （这也是真实用户路径的时序：人不可能在一帧里切走又切回）。
+ * 超时兜底：某些无头环境窗口不可见时整段不跑帧，不能把用例挂死。
+ */
+const frames = () =>
+  page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve(null);
+        };
+        requestAnimationFrame(() => requestAnimationFrame(finish));
+        setTimeout(finish, 200);
+      }),
+  );
+const hide = async () => {
+  await page.evaluate(() => window.__setHostDisplay("none"));
+  await frames();
+};
+/** resync=true 时按 main.ts 的真实入口补一次（切标签页 / 切页面都这么调） */
+const show = async (resync = false) => {
+  await page.evaluate((resync) => {
+    window.__setHostDisplay("");
+    if (resync) window.__lv.resync();
+  }, resync);
+  await frames();
+  await settle(80);
+};
 /** 贴底判定：允许 1px 的取整误差 */
 const atBottom = (g) => Math.abs(g.st - g.max) <= 1;
 /** 末行完整可见（贴底的可视证据） */
@@ -145,32 +181,61 @@ await settle();
 g = await geom();
 check("长行收尾后继续贴底", atBottom(g), `scrollTop=${g.st} max=${g.max}`);
 
-// ── C. 切标签页：隐藏期间到达数据，切回来必须贴在最新 ──
-await page.evaluate(() => window.__setHostDisplay("none"));
-await settle(60);
+// ── C. 切标签页：隐藏期间到达数据，切回来必须贴在最新（产品路径 = main.ts 的 resync）──
+await hide();
 for (let i = 0; i < 10; i++) await feed(30, "arrived while hidden");
-await page.evaluate(() => window.__setHostDisplay(""));
-await settle(200);
+await show(true);
 g = await geom();
-check("隐藏期间来数据，切回来贴底", atBottom(g), `scrollTop=${g.st} max=${g.max}`);
+check("隐藏期间来数据，切回来贴底（resync）", atBottom(g), `scrollTop=${g.st} max=${g.max}`);
 check("切回来时末行完整可见", lastLineVisible(g), JSON.stringify(g.lastBottom));
 
+// ── C2. 纯 RO 兜底：不调 resync，只靠观察器自己发现「尺寸从 0 变回来」──
+// 这条只在隐藏态真的被观察者看见时才有意义（lastW/lastH 归零 = RO 派发过 0×0）。
+// 无头环境窗口不可见时浏览器可能整段不跑帧、RO 一次都不派发 —— 那时这条兜底路径压根不存在
+// （产品行为由 resync 覆盖），记为跳过而非失败，免得把环境差异当成缺陷。
+await hide();
+for (let i = 0; i < 6; i++) await feed(30, "arrived while hidden (RO)");
+const roSawHidden = await page.evaluate(() => window.__lv.lastW === 0 && window.__lv.lastH === 0);
+await show(false);
+g = await geom();
+if (roSawHidden) {
+  check("隐藏期间来数据，切回来贴底（纯 RO 兜底）", atBottom(g), `scrollTop=${g.st} max=${g.max}`);
+} else {
+  console.log("⚠ 跳过「纯 RO 兜底」：本环境未派发 display:none 的尺寸观测（产品路径由 resync 覆盖）");
+  await page.evaluate(() => window.__lv.resync());
+}
+
 // ── D. 切标签页：隐藏期间没有新数据，切回来也得仍在底部 ──
-await page.evaluate(() => window.__setHostDisplay("none"));
-await settle(60);
-await page.evaluate(() => window.__setHostDisplay(""));
-await settle(200);
+await hide();
+await show(true);
 g = await geom();
 check("隐藏期间无数据，切回来仍贴底", atBottom(g), `scrollTop=${g.st} max=${g.max}`);
 
 // ── E. 隐藏期间长行继续变长（切回来也要到底）──
-await page.evaluate(() => window.__setHostDisplay("none"));
-await settle(60);
+await hide();
 for (let i = 0; i < 16; i++) await feedPartial("hidden-growing-line ");
-await page.evaluate(() => window.__setHostDisplay(""));
-await settle(200);
+await show(true);
 g = await geom();
 check("隐藏期间单行变长，切回来贴底", atBottom(g), `scrollTop=${g.st} max=${g.max}`);
+
+// ── E2. 隐藏与恢复落在同一帧（RO 一次都不派发）→ 只能靠 resync() ──
+// 真实场景：切走 → 后台数据一直涌 → 切回，主线程被重渲染占满时 RO 观测会被合并掉。
+// 这条不依赖 RO 是否派发，钉住「可见性是调用方断言的事实，不是几何推断出来的」。
+const beforeCoalesce = (await geom()).max;
+await page.evaluate(() => {
+  const host = document.querySelector("#host");
+  host.style.display = "none";
+  window.__feed(120, "same-frame hidden"); // 隐藏与恢复之间不给浏览器跑帧的机会
+  host.style.display = "";
+});
+await frames();
+g = await geom();
+check("同一帧内隐藏+恢复（RO 被合并）时仍停在旧位置", g.max > beforeCoalesce, `max ${beforeCoalesce} → ${g.max}`);
+await page.evaluate(() => window.__lv.resync());
+await frames();
+g = await geom();
+check("RO 被合并时 resync() 仍能贴底", atBottom(g), `scrollTop=${g.st} max=${g.max}`);
+check("resync 后末行完整可见", lastLineVisible(g), JSON.stringify(g.lastBottom));
 
 // ── F. 关掉自动滚动：切标签页不得把阅读位置拽到底部 ──
 await page.evaluate(() => window.__setSticky(false));
@@ -180,10 +245,8 @@ await page.evaluate(() => {
 });
 await settle(80);
 const keptBefore = (await geom()).st;
-await page.evaluate(() => window.__setHostDisplay("none"));
-await settle(60);
-await page.evaluate(() => window.__setHostDisplay(""));
-await settle(200);
+await hide();
+await show(true); // 手动态走 resync：还原阅读位置
 g = await geom();
 check(
   "关掉自动滚动后切标签页，阅读位置不被拽走",
