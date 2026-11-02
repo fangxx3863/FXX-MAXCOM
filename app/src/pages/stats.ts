@@ -62,14 +62,26 @@ export class StatsPage {
       nameTd.append(swatch, document.createTextNode(snap.channel_names?.[i] || `CH${i + 1}`));
       tr.appendChild(nameTd);
       const vals = m
-        ? [m.last.toPrecision(6), String(m.count), m.mean.toPrecision(6), m.std.toPrecision(6),
-           m.variance.toPrecision(6), m.min.toPrecision(6), m.max.toPrecision(6),
-           m.peak_to_peak.toPrecision(6), m.rms.toPrecision(6)]
+        ? [fmtStat(m.last), String(m.count), fmtStat(m.mean), fmtStat(m.std),
+           fmtStat(m.variance), fmtStat(m.min), fmtStat(m.max),
+           fmtStat(m.peak_to_peak), fmtStat(m.rms)]
         : Array(9).fill("—");
       for (const v of vals) tr.appendChild(td(v));
       this.tableBody.appendChild(tr);
     });
   }
+}
+
+// 统计表数值显示：固定 4 位小数，量级过大/过小时改用科学计数法。
+// 用 toFixed(4) 而不是 toPrecision(6)：后者是「6 位有效数字」，小数位数会随量级变化
+// （149.976 只有 3 位小数、4.5e6 干脆变成 0 位小数），同一列无法对齐。
+// 但纯 toFixed(4) 对大值会造出 4506140.0000 这种假精度，对 6.6e-9 会显示成 0.0000
+// 把方差信息全部丢掉，所以超出 [1e-3, 1e6) 时退回科学计数法（尾数 4 位小数）。
+function fmtStat(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  const a = Math.abs(v);
+  if (a !== 0 && (a < 1e-3 || a >= 1e6)) return v.toExponential(4);
+  return v.toFixed(4);
 }
 
 function th(text: string): HTMLElement {
